@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 100" role="img" aria-label="Trael — Transformadores Elétricos">
+  <defs>
+    <linearGradient id="trael-g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8ede63"/>
+      <stop offset="0.45" stop-color="#54bb33"/>
+      <stop offset="1" stop-color="#2c8a1e"/>
+    </linearGradient>
+    <linearGradient id="trael-gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="256" height="96" rx="12" fill="url(#trael-g)"/>
+  <rect x="2" y="2" width="256" height="48" rx="12" fill="url(#trael-gloss)"/>
+  <text x="130" y="56" text-anchor="middle" font-family="Arial, Helvetica, sans-serif"
+        font-weight="800" font-size="50" letter-spacing="3" fill="#ffffff">TRAEL</text>
+  <line x1="30" y1="70" x2="230" y2="70" stroke="#1f6b14" stroke-width="1.4" opacity="0.55"/>
+  <text x="130" y="86" text-anchor="middle" font-family="Arial, Helvetica, sans-serif"
+        font-weight="700" font-size="12" letter-spacing="2" fill="#ffffff">TRANSFORMADORES ELÉTRICOS</text>
+</svg>

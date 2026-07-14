@@ -1,0 +1,4 @@
+# Impedir acesso direto via navegador por segurança
+# Os arquivos continuam existindo no servidor, mas não podem ser baixados via URL
+Order deny,allow
+Deny from all
