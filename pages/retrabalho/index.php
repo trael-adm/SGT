@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../config/conexao.php';
 require_once __DIR__ . '/../../config/session.php';
+require_once __DIR__ . '/../../includes/helpers.php';
 
 requireLogin();
 
@@ -15,7 +16,7 @@ $fLocal   = trim((string) ($_GET['local'] ?? ''));
 $fPeriodo = trim((string) ($_GET['periodo'] ?? 'todos'));
 $fBusca   = trim((string) ($_GET['busca'] ?? ''));
 
-$STATUS_VALIDOS = ['agu_abertura', 'agu_causa_raiz', 'finalizado'];
+$STATUS_VALIDOS = ['agu_abertura', 'agu_causa_raiz'];
 $LOCAIS_VALIDOS = ['IQF', 'LAB', 'GER'];
 $PERIODOS       = ['hoje', 'semana', 'mes', 'todos'];
 if (!in_array($fPeriodo, $PERIODOS, true)) $fPeriodo = 'todos';
@@ -23,7 +24,8 @@ if (!in_array($fPeriodo, $PERIODOS, true)) $fPeriodo = 'todos';
 // Data de referência do lançamento: reprova → início → created_at
 $dataExpr = 'DATE(COALESCE(r.data_reprova, r.data_inicio, r.created_at))';
 
-$where  = ['r.deleted_at IS NULL'];
+// Este painel mostra só os retrabalhos em aberto — os finalizados ficam na Relação completa.
+$where  = ['r.deleted_at IS NULL', "r.status != 'finalizado'"];
 $params = [];
 
 if (in_array($fStatus, $STATUS_VALIDOS, true))   { $where[] = 'r.status = ?';      $params[] = $fStatus; }
@@ -60,6 +62,54 @@ $sql = "
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $registros = $stmt->fetchAll();
+
+// ─── Reincidências: quantas vezes cada N° de série já apareceu no retrabalho ───
+$qtdPorNs = $pdo->query("
+    SELECT ns_transformador, COUNT(*) AS qtd
+    FROM retrabalhos
+    WHERE deleted_at IS NULL
+    GROUP BY ns_transformador
+")->fetchAll(PDO::FETCH_KEY_PAIR);
+
+// ─── Dias úteis em retrabalho / flag por urgência ──────────────────────────────
+// Contado em dias úteis (seg-sex) a partir da data de início do retrabalho (não da reprova).
+// verde 1-3 · amarelo 4-5 · laranja 6-10 · vermelho 11+ (só para os não finalizados)
+$hoje      = new DateTime('today');
+$RANK_FLAG = ['vermelho' => 4, 'laranja' => 3, 'amarelo' => 2, 'verde' => 1];
+foreach ($registros as &$r) {
+    $r['_qtdReprovas'] = $qtdPorNs[$r['ns_transformador']] ?? 1;
+
+    $baseData = $r['data_inicio'] ?? $r['data_reprova'] ?? $r['created_at'];
+    $dias = null;
+    if ($baseData) {
+        $ini = new DateTime(substr((string) $baseData, 0, 10));
+        if ($r['status'] === 'finalizado' && $r['concluido_em']) {
+            $fim  = new DateTime(substr((string) $r['concluido_em'], 0, 10));
+            $dias = diasUteisEntre($ini, $fim);
+        } elseif ($r['status'] !== 'finalizado') {
+            $dias = diasUteisEntre($ini, $hoje);
+        }
+    }
+    $r['_dias'] = $dias;
+
+    $corFlag = null;
+    if ($r['status'] !== 'finalizado' && $dias !== null) {
+        if ($dias <= 3)      $corFlag = 'verde';
+        elseif ($dias <= 5)  $corFlag = 'amarelo';
+        elseif ($dias <= 10) $corFlag = 'laranja';
+        else                 $corFlag = 'vermelho';
+    }
+    $r['_flagCor'] = $corFlag;
+    $r['_rank']    = $RANK_FLAG[$corFlag] ?? 0;
+}
+unset($r);
+
+// Mais urgentes primeiro (vermelho → laranja → amarelo → verde); dentro da mesma
+// cor, os mais antigos primeiro; Finalizados (sem flag) ficam por último.
+usort($registros, function ($a, $b) {
+    if ($a['_rank'] !== $b['_rank']) return $b['_rank'] <=> $a['_rank'];
+    return ($b['_dias'] ?? -1) <=> ($a['_dias'] ?? -1);
+});
 
 // ─── KPIs (visão global, não filtrada) ────────────────────────────────────────
 $kpi = $pdo->query("
@@ -156,6 +206,11 @@ layoutHeader($pageTitle);
     .modal-foot { display:flex; justify-content:flex-end; gap:10px; padding:16px 20px; border-top:1px solid #e5e7eb; }
     .rt-btn-secondary { background:#fff; border:1px solid #d1d5db; border-radius:8px; padding:9px 16px; font-size:13px; font-weight:600; cursor:pointer; }
     .rt-empty { text-align:center; padding:36px 16px; color:var(--color-text-muted,#6b7280); font-size:13px; }
+    .rt-flag-dot { display:inline-block; width:9px; height:9px; border-radius:50%; cursor:help; }
+    .rt-flag-dot.verde    { background:#16a34a; box-shadow:0 0 0 2px #dcfce7; }
+    .rt-flag-dot.amarelo  { background:#eab308; box-shadow:0 0 0 2px #fef9c3; }
+    .rt-flag-dot.laranja  { background:#f97316; box-shadow:0 0 0 2px #ffedd5; }
+    .rt-flag-dot.vermelho { background:#dc2626; box-shadow:0 0 0 2px #fee2e2; }
 </style>
 
 <!-- Cabeçalho -->
@@ -211,7 +266,10 @@ layoutHeader($pageTitle);
 
 <!-- Tabela de registros -->
 <div class="rt-card">
-    <h3 style="margin-bottom:14px;">Retrabalhos registrados</h3>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+        <h3 style="margin-bottom:0;">Retrabalhos registrados</h3>
+        <a href="<?= htmlspecialchars($base) ?>/pages/retrabalho/relacao.php" style="font-size:12px;font-weight:600;color:#E89B1C;text-decoration:none;">Ver relação completa &rarr;</a>
+    </div>
 
     <!-- Filtros -->
     <form method="GET" class="rt-filtros" id="rt-filtros">
@@ -228,8 +286,8 @@ layoutHeader($pageTitle);
             <?php endforeach; ?>
         </select>
         <select name="status" onchange="this.form.submit()">
-            <option value="">Todos os status</option>
-            <?php foreach ($statusMap as $k => $info): ?>
+            <option value="">Todos os abertos</option>
+            <?php foreach ($STATUS_VALIDOS as $k): $info = $statusMap[$k]; ?>
                 <option value="<?= $k ?>" <?= $fStatus === $k ? 'selected' : '' ?>><?= $info['label'] ?></option>
             <?php endforeach; ?>
         </select>
@@ -246,12 +304,12 @@ layoutHeader($pageTitle);
                 <tr>
                     <th>Data reprova</th><th>Pedido</th><th>Projeto</th><th>N° série</th>
                     <th>Contenção</th><th>Família</th><th>Local</th>
-                    <th>Responsável</th><th>Início</th><th>Finalização</th><th>Status</th>
+                    <th>Responsável</th><th>Início</th><th>Finalização</th><th>Status</th><th>Flags</th><th>Reincidências</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if (!$registros): ?>
-                    <tr><td colspan="11"><div class="rt-empty">Nenhum retrabalho encontrado.</div></td></tr>
+                    <tr><td colspan="13"><div class="rt-empty">Nenhum retrabalho em aberto encontrado.</div></td></tr>
                 <?php else: foreach ($registros as $r):
                     $st = $statusMap[$r['status']] ?? $statusMap['agu_abertura'];
                     $lo = $localMap[$r['reprova_local']] ?? null;
@@ -282,6 +340,16 @@ layoutHeader($pageTitle);
                         <td style="white-space:nowrap;font-size:12px;"><?= htmlspecialchars(fmtDataBR($r['data_inicio'])) ?></td>
                         <td style="white-space:nowrap;font-size:12px;"><?= htmlspecialchars(fmtDataBR($r['data_finalizacao'])) ?></td>
                         <td><span class="rt-badge" style="background:<?= $st['bg'] ?>;color:<?= $st['fg'] ?>;"><?= $st['label'] ?></span></td>
+                        <td>
+                            <?php if ($r['_flagCor']): ?>
+                                <span class="rt-flag-dot <?= $r['_flagCor'] ?>" title="<?= $r['_dias'] ?> dia(s) útil(eis) em retrabalho"></span>
+                            <?php else: ?>—<?php endif; ?>
+                        </td>
+                        <td style="text-align:center;">
+                            <?php if ($r['_qtdReprovas'] > 1): ?>
+                                <span class="rt-badge" style="background:#fef2f2;color:#dc2626;" title="Este N° de série já apareceu <?= (int) $r['_qtdReprovas'] ?> vezes no retrabalho"><?= (int) $r['_qtdReprovas'] ?></span>
+                            <?php else: ?>—<?php endif; ?>
+                        </td>
                     </tr>
                 <?php endforeach; endif; ?>
             </tbody>

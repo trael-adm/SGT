@@ -36,6 +36,25 @@ function calcularPrazoLMC(string $dataPedido): array
 }
 
 /**
+ * Conta dias úteis (segunda–sexta) entre duas datas, andando dia a dia a partir
+ * de $inicio (exclusive) até $fim (inclusive). Retorna 0 se $fim <= $inicio.
+ */
+function diasUteisEntre(DateTime $inicio, DateTime $fim): int
+{
+    if ($fim <= $inicio) return 0;
+
+    $dias   = 0;
+    $cursor = clone $inicio;
+    while ($cursor < $fim) {
+        $cursor->modify('+1 day');
+        if ((int) $cursor->format('N') < 6) { // 1=Seg … 5=Sex
+            $dias++;
+        }
+    }
+    return $dias;
+}
+
+/**
  * Calcula o status de alerta de qualquer prazo armazenado como DATETIME.
  * - 'atrasada' : prazo < hoje
  * - 'urgente'  : prazo <= amanhã
