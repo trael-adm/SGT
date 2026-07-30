@@ -571,6 +571,18 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 }
 
 /* ============================================================
+   RESPONSIVE — tablet: <select> nativo
+   ============================================================ */
+/* Abaixo de 16px, o menu nativo do <select> renderiza pequeno/apertado em
+   tablets (Android/Chromium usa o font-size do próprio elemento para o
+   popup de opções) — sobe pra 16px só nessa faixa, sem mudar a densidade
+   do layout desktop. 16px também evita o zoom automático do Safari/iOS ao
+   focar o campo. */
+@media (max-width: 1024px) {
+  select.form-control { font-size: 16px; }
+}
+
+/* ============================================================
    CLEARABLE INPUTS — wrapper + botão ×
    ============================================================ */
 .field-search {
@@ -604,3 +616,146 @@ textarea.form-control { resize: vertical; min-height: 80px; }
     color: var(--color-text-primary);
     background: var(--color-surface-2);
 }
+
+/* ============================================================
+   FAB (Floating Action Button)
+   ============================================================ */
+.fab {
+  position: fixed; right: 24px; bottom: 24px;
+  width: 56px; height: 56px; border-radius: var(--radius-full);
+  background: var(--color-accent); color: #fff; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow-lg); z-index: 400;
+  transition: transform var(--transition), background var(--transition);
+}
+.fab svg { width: 24px; height: 24px; }
+.fab:hover { background: var(--color-accent-hover); transform: translateY(-2px); }
+.fab:active { transform: scale(0.96); }
+
+.fab--secondary {
+  right: 92px; width: 48px; height: 48px;
+  background: var(--color-surface); color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-strong);
+}
+.fab--secondary svg { width: 20px; height: 20px; }
+.fab--secondary:hover { background: var(--color-surface-2); color: var(--color-text-primary); }
+
+/* ============================================================
+   ESTAÇÕES DE PRODUÇÃO — cards de estação + área de leitura
+   ============================================================ */
+.station-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.station-card {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 14px;
+  transition: box-shadow var(--transition), border-color var(--transition);
+}
+.station-card.is-active { border-color: var(--color-success); box-shadow: 0 0 0 3px var(--color-success-bg); }
+.station-card--soon { align-items: flex-start; color: var(--color-text-muted); border-style: dashed; gap: 8px; }
+.station-card--soon h2 { font-size: var(--font-size-md); font-weight: 600; color: var(--color-text-secondary); margin: 2px 0; }
+.station-card--soon p { font-size: var(--font-size-sm); margin: 0; }
+.station-card__head { display: flex; align-items: flex-start; gap: 11px; }
+.station-card__head h2 { font-size: var(--font-size-lg); font-weight: 700; margin: 0; }
+.station-card__sub { font-size: var(--font-size-sm); color: var(--color-text-secondary); margin: 2px 0 0; }
+.station-pill {
+  flex-shrink: 0; font-size: var(--font-size-xs); font-weight: 700; letter-spacing: .3px;
+  padding: 4px 9px; border-radius: var(--radius-full); margin-top: 1px;
+}
+.station-timer {
+  margin-left: auto; font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-md); font-weight: 600; color: var(--color-success);
+  background: var(--color-success-bg); padding: 4px 10px; border-radius: var(--radius-full);
+  display: none; align-items: center;
+}
+
+.station-status-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; color: var(--color-text-muted); }
+.station-status-empty svg { width: 26px; height: 26px; margin-bottom: 4px; color: var(--color-border-strong); }
+.station-status-empty p { font-size: var(--font-size-base); color: var(--color-text-secondary); margin: 0; font-weight: 500; }
+.station-status-empty span { font-size: var(--font-size-sm); }
+.station-status-active { display: flex; flex-direction: column; gap: 4px; }
+.station-status-active__ns { font-family: var(--font-mono); font-size: var(--font-size-lg); font-weight: 700; }
+.station-status-active__meta { font-size: var(--font-size-sm); color: var(--color-text-secondary); }
+
+.scan-panel { border-top: 1px dashed var(--color-border); padding-top: 13px; display: flex; flex-direction: column; gap: 11px; }
+.scan-panel__meta { font-size: var(--font-size-xs); color: var(--color-text-muted); white-space: nowrap; }
+.scan-panel__meta.is-fresh { color: var(--color-success); font-weight: 600; }
+.scan-review__empty { color: var(--color-text-muted); font-size: var(--font-size-sm); margin: 0; }
+.scan-review__data { display: none; flex-direction: column; gap: 14px; }
+
+.scan-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.scan-head__date { display: block; font-size: var(--font-size-lg); font-weight: 700; color: var(--color-text-primary); }
+.scan-head__status { display: block; font-size: var(--font-size-sm); color: var(--color-text-secondary); margin-top: 2px; }
+
+.scan-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.scan-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.scan-field--full { grid-column: 1 / -1; }
+.scan-field__label { font-size: var(--font-size-xs); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; color: var(--color-text-muted); }
+.scan-field__value {
+  font-family: var(--font-mono); font-size: var(--font-size-base); font-weight: 600; color: var(--color-text-primary);
+  background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  padding: 8px 11px; min-height: 18px; overflow-wrap: break-word;
+}
+.scan-field__value.is-missing { font-family: inherit; font-weight: 400; font-style: italic; color: var(--color-text-muted); }
+
+.scan-conflict {
+  display: none; gap: 9px; align-items: flex-start; background: var(--color-warning-bg); color: var(--color-warning-text);
+  border-radius: var(--radius-md); padding: 10px 12px; font-size: var(--font-size-sm);
+}
+.scan-conflict svg { width: 15px; height: 15px; flex-shrink: 0; margin-top: 1px; }
+.scan-actions { display: none; justify-content: flex-end; gap: 9px; }
+
+/* ============================================================
+   LEITOR DE QR — overlay em tela cheia
+   ============================================================ */
+.scan-overlay {
+  position: fixed; inset: 0; z-index: 1000; background: #0b0e12; color: #f3f5f8;
+  display: none; flex-direction: column;
+}
+.scan-overlay__bar {
+  display: flex; align-items: center; justify-content: space-between; padding: 14px 18px;
+  font-size: var(--font-size-base); font-weight: 600; border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.scan-overlay__close {
+  background: none; border: none; color: rgba(255,255,255,.75); cursor: pointer;
+  width: 32px; height: 32px; border-radius: var(--radius-md);
+  display: flex; align-items: center; justify-content: center;
+  transition: background var(--transition), color var(--transition);
+}
+.scan-overlay__close:hover { background: rgba(255,255,255,.1); color: #fff; }
+.scan-overlay__close svg { width: 17px; height: 17px; }
+
+.scan-stage { position: relative; flex: 1; min-height: 0; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.scan-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity var(--transition); }
+.scan-stage.has-video video { opacity: 1; }
+.scan-stage__empty { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 10px; color: rgba(255,255,255,.6); text-align: center; padding: 0 24px; }
+.scan-stage__empty svg { width: 34px; height: 34px; }
+.scan-stage.has-video .scan-stage__empty { display: none; }
+
+.viewfinder { position: absolute; width: min(62vw, 300px); aspect-ratio: 1; z-index: 3; opacity: 0; transition: opacity var(--transition); }
+.scan-stage.has-video .viewfinder { opacity: 1; }
+.viewfinder .corner { position: absolute; width: 26px; height: 26px; border: 3px solid var(--color-accent); }
+.viewfinder .corner--tl { top: 0; left: 0; border-right: none; border-bottom: none; border-top-left-radius: 8px; }
+.viewfinder .corner--tr { top: 0; right: 0; border-left: none; border-bottom: none; border-top-right-radius: 8px; }
+.viewfinder .corner--bl { bottom: 0; left: 0; border-right: none; border-top: none; border-bottom-left-radius: 8px; }
+.viewfinder .corner--br { bottom: 0; right: 0; border-left: none; border-top: none; border-bottom-right-radius: 8px; }
+.viewfinder .scan-line { position: absolute; left: 4%; right: 4%; top: 2%; height: 2px; background: var(--color-accent); box-shadow: 0 0 8px var(--color-accent); }
+.viewfinder.is-success .corner { border-color: var(--color-success); }
+.viewfinder.is-error .corner { border-color: var(--color-danger); }
+@media (prefers-reduced-motion: no-preference) {
+  .scan-stage.has-video .scan-line { animation: scanSweep 2.1s ease-in-out infinite; }
+}
+@keyframes scanSweep { 0%, 100% { top: 2%; } 50% { top: 96%; } }
+
+.scan-hint { text-align: center; font-size: var(--font-size-base); color: rgba(255,255,255,.72); padding: 12px 20px 0; }
+.scan-overlay__error {
+  display: none; margin: 10px 18px 0; background: var(--color-danger-bg); color: var(--color-danger-text);
+  border-radius: var(--radius-md); padding: 10px 12px; font-size: var(--font-size-sm); font-weight: 500;
+}
+.scan-overlay__manual { padding: 14px 18px 20px; }
+.scan-overlay__manual label { display: block; font-size: var(--font-size-xs); color: rgba(255,255,255,.55); margin-bottom: 6px; }
+.manual-row { display: flex; gap: 8px; }
+.manual-row input {
+  flex: 1; padding: 9px 11px; border-radius: var(--radius-md); border: 1px solid rgba(255,255,255,.18);
+  background: rgba(255,255,255,.06); color: #fff; font-size: var(--font-size-base);
+}
+.manual-row input::placeholder { color: rgba(255,255,255,.35); }

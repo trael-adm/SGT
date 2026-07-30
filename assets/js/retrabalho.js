@@ -95,28 +95,30 @@
         });
     }
 
-    // Abrir em modo "editar"
-    document.querySelectorAll('.js-editar').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            resetForm();
-            var d = btn.dataset;
-            setField('f-id', d.id);
-            // Pedido → rebuild projetos → seleciona projeto
-            setField('f-pedido', d.id_pedido && d.id_pedido !== '0' ? d.id_pedido : '');
-            popularProjetos(d.id_pedido && d.id_pedido !== '0' ? d.id_pedido : '', d.id_projeto);
-            setField('f-ns', d.ns_transformador);
-            // Reprova → auto-fill
-            setField('f-reprova', d.id_reprova && d.id_reprova !== '0' ? d.id_reprova : '');
-            preencherReprova(d.id_reprova);
-            setField('f-data_reprova', d.data_reprova);
-            setField('f-data_inicio', d.data_inicio);
-            setField('f-data_finalizacao', d.data_finalizacao);
-            setField('f-causa_raiz', d.causa_raiz);
-            setField('f-observacoes', d.observacoes);
-            if (titleEl) titleEl.textContent = 'Editar retrabalho';
-            openModal();
-        });
+    // ─── Expandir / recolher grupo (projeto) na Relação de Retrabalhos ─────────
+    // Delegado no document (não em cada botão): sobrevive à troca de HTML da
+    // tabela pelo auto-refresh (ver iniciarAutoRefresh() em app.js), que recria
+    // esses botões a cada atualização.
+    document.addEventListener('click', function (e) {
+        var btn = e.target.closest('.js-toggle-grupo');
+        if (!btn) return;
+        var row = document.getElementById(btn.dataset.target);
+        if (!row) return;
+        var aberto = row.classList.toggle('is-open');
+        btn.textContent = aberto ? '−' : '+';
+        btn.setAttribute('aria-expanded', aberto ? 'true' : 'false');
     });
+
+    // ─── Auto-refresh (só na Relação de Retrabalhos — index.php não tem essa tabela) ─
+    var rtTableWrap = document.getElementById('rt-table-wrap');
+    if (rtTableWrap && typeof window.iniciarAutoRefresh === 'function') {
+        window.iniciarAutoRefresh({
+            seletores: ['#rt-table-wrap', '.rt-pager'],
+            intervaloS: 30,
+            elIndicador: document.getElementById('rt-autorefresh-indicador'),
+            modaisPausa: ['#rt-modal']
+        });
+    }
 
     // Fechar modal
     ['rt-modal-close', 'rt-modal-cancel'].forEach(function (id) {

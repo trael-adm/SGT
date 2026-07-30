@@ -10,27 +10,70 @@ $_sRelSelf = ($_sAppPath !== '' && str_starts_with($_sSelf, $_sAppPath))
     : $_sSelf;
 if ($_sRelSelf === '') $_sRelSelf = '/';
 
-// Itens do menu (contexto Fábrica). Apenas Retrabalho está implementado.
-$_sItens = [
+// Dentro do módulo Produção, o menu mostra só Home + Produção — os itens de
+// Retrabalho/Projetos ficam escondidos nessa seção (mas continuam normais nas demais).
+// O mesmo vale ao contrário: dentro de Retrabalho/Relação/Projetos, o item Produção some.
+$_sEmProducao   = str_starts_with($_sRelSelf, '/pages/producao/');
+$_sEmRetrabalho = str_starts_with($_sRelSelf, '/pages/retrabalho/') || str_starts_with($_sRelSelf, '/pages/projetos/');
+
+// Itens do menu, agrupados por subtítulo (nav-group-label). Um grupo com 'rotulo' null
+// não imprime cabeçalho — segue direto após o grupo anterior.
+$_sGrupos = [
     [
-        'href'  => '/index.php',
-        'label' => 'Home',
-        'icon'  => '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+        'rotulo' => 'Fábrica',
+        'itens'  => [
+            [
+                'href'  => '/index.php',
+                'label' => 'Home',
+                'icon'  => '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+            ],
+        ],
     ],
     [
-        'href'  => '/pages/retrabalho/index.php',
-        'label' => 'Retrabalho',
-        'icon'  => '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>',
+        'rotulo' => 'Laboratório',
+        'itens'  => [
+            [
+                'href'  => '/pages/producao/index.php',
+                'label' => 'Registro',
+                'icon'  => '<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
+                'esconderEmRetrabalho' => true,
+            ],
+            [
+                'href'  => '/pages/producao/lista.php',
+                'label' => 'Lista',
+                'icon'  => '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+                'esconderEmRetrabalho' => true,
+            ],
+            [
+                'href'  => '/pages/producao/retornos.php',
+                'label' => 'Retornos',
+                'icon'  => '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>',
+                'esconderEmRetrabalho' => true,
+            ],
+        ],
     ],
     [
-        'href'  => '/pages/retrabalho/relacao.php',
-        'label' => 'Relação de Retrabalhos',
-        'icon'  => '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
-    ],
-    [
-        'href'  => '/pages/projetos/index.php',
-        'label' => 'Projetos',
-        'icon'  => '<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>',
+        'rotulo' => null,
+        'itens'  => [
+            [
+                'href'  => '/pages/retrabalho/index.php',
+                'label' => 'Retrabalho',
+                'icon'  => '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>',
+                'esconderEmProducao' => true,
+            ],
+            [
+                'href'  => '/pages/retrabalho/relacao.php',
+                'label' => 'Relação de Retrabalhos',
+                'icon'  => '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+                'esconderEmProducao' => true,
+            ],
+            [
+                'href'  => '/pages/projetos/index.php',
+                'label' => 'Projetos',
+                'icon'  => '<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>',
+                'esconderEmProducao' => true,
+            ],
+        ],
     ],
 ];
 ?>
@@ -48,8 +91,18 @@ $_sItens = [
 
     <!-- Navigation -->
     <nav class="sidebar-nav">
-        <p class="nav-group-label">Fábrica</p>
-        <?php foreach ($_sItens as $_sItem):
+        <?php foreach ($_sGrupos as $_sGrupo):
+            $_sItensVisiveis = array_filter($_sGrupo['itens'], function ($item) use ($_sEmProducao, $_sEmRetrabalho) {
+                if ($_sEmProducao && !empty($item['esconderEmProducao'])) return false;
+                if ($_sEmRetrabalho && !empty($item['esconderEmRetrabalho'])) return false;
+                return true;
+            });
+            if (!$_sItensVisiveis) continue; // grupo inteiro escondido no contexto atual — nem o rótulo aparece
+        ?>
+        <?php if ($_sGrupo['rotulo'] !== null): ?>
+        <p class="nav-group-label"><?= htmlspecialchars($_sGrupo['rotulo']) ?></p>
+        <?php endif; ?>
+        <?php foreach ($_sItensVisiveis as $_sItem):
             $isActive = ($_sRelSelf === $_sItem['href']);
         ?>
         <a class="nav-item<?= $isActive ? ' active' : '' ?>"
@@ -58,6 +111,7 @@ $_sItens = [
                  stroke-linecap="round" stroke-linejoin="round"><?= $_sItem['icon'] ?></svg>
             <span class="nav-item-text"><?= htmlspecialchars($_sItem['label']) ?></span>
         </a>
+        <?php endforeach; ?>
         <?php endforeach; ?>
     </nav>
 

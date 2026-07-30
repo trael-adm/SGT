@@ -339,6 +339,74 @@
         el.style.display = html ? 'flex' : 'none';
     };
 
+    // ─── Abrir o seletor nativo de data ao clicar em qualquer parte do campo,
+    // não só no ícone de calendário (delegado no document — cobre inputs
+    // adicionados depois, ex.: blocos de reprova clonados via JS).
+    document.addEventListener('click', function (e) {
+        var input = e.target.closest('input[type="date"]');
+        if (!input || input.disabled || input.readOnly) return;
+        if (typeof input.showPicker === 'function') {
+            try { input.showPicker(); } catch (err) { /* navegador recusou neste contexto — ignora */ }
+        }
+    });
+
+    // ─── Auto-refresh de listas ───────────────────────────────────
+    // Busca a mesma URL da página em segundo plano e troca só os trechos do DOM
+    // indicados em `seletores` (ex.: a tabela e o rodapé de paginação) — sem dar
+    // reload, sem perder a rolagem nem o que estiver digitado num filtro ainda não
+    // enviado (o formulário de filtro nunca entra em `seletores`). Pausa sozinho
+    // enquanto qualquer seletor de `modaisPausa` estiver visível, pra não trocar o
+    // chão debaixo de quem está preenchendo um modal.
+    window.iniciarAutoRefresh = function (config) {
+        var seletores   = config.seletores || [];
+        var intervaloS  = config.intervaloS || 30;
+        var elIndicador = config.elIndicador || null;
+        var modaisPausa = config.modaisPausa || [];
+        var aoAtualizar = config.aoAtualizar || function () {};
+
+        var restante = intervaloS;
+        var buscando = false;
+
+        function modalAberto() {
+            return modaisPausa.some(function (sel) {
+                var el = document.querySelector(sel);
+                return el && window.getComputedStyle(el).display !== 'none';
+            });
+        }
+
+        function atualizarIndicador() {
+            if (!elIndicador) return;
+            elIndicador.textContent = modalAberto() ? 'Atualização pausada' : ('Atualiza em ' + restante + 's');
+        }
+
+        function buscarEAtualizar() {
+            if (buscando) return;
+            buscando = true;
+            fetch(window.location.href, { cache: 'no-store' })
+                .then(function (r) { return r.text(); })
+                .then(function (html) {
+                    var doc = new DOMParser().parseFromString(html, 'text/html');
+                    seletores.forEach(function (sel) {
+                        var atual = document.querySelector(sel);
+                        var novo  = doc.querySelector(sel);
+                        if (atual && novo) atual.outerHTML = novo.outerHTML;
+                    });
+                    aoAtualizar();
+                })
+                .catch(function () { /* falha silenciosa — tenta de novo no próximo ciclo */ })
+                .then(function () { buscando = false; });
+        }
+
+        setInterval(function () {
+            if (modalAberto()) { atualizarIndicador(); return; }
+            restante--;
+            if (restante <= 0) { restante = intervaloS; buscarEAtualizar(); }
+            atualizarIndicador();
+        }, 1000);
+
+        atualizarIndicador();
+    };
+
     // ─── Tecla ESC para fechar modais ────────────────────────────
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape') {

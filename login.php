@@ -66,26 +66,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $pdo = getDB();
 
-        // Brute-force protection: 5 attempts within 10 minutes → block 15 minutes
-        $stmtBf = $pdo->prepare("
-            SELECT created_at
-            FROM logs_atividade
-            WHERE ip = ? AND tipo = 'login_erro'
-              AND created_at >= DATE_SUB(NOW(), INTERVAL 25 MINUTE)
-            ORDER BY created_at DESC
-            LIMIT 5
-        ");
-        $stmtBf->execute([$ip]);
-        $tentativas = $stmtBf->fetchAll(PDO::FETCH_COLUMN);
-
-        if (count($tentativas) >= 5) {
-            $maisRecente = strtotime($tentativas[0]);
-            $maisAntiga  = strtotime($tentativas[4]);
-            // All 5 within a 10-minute window AND block (15 min) not yet expired
-            if (($maisRecente - $maisAntiga) <= 600 && (time() - $maisRecente) < 900) {
-                $erro = 'Muitas tentativas sem sucesso. Tente novamente em alguns minutos.';
-            }
-        }
+        // Brute-force protection desativada neste ambiente (SGT-dev) a pedido, só para
+        // destravar os testes manuais da Tela de Produção — o projeto original em
+        // c:\laragon\www\SGT mantém a proteção normalmente.
 
         if (!$erro) {
             if ($email === '' || $senha === '') {

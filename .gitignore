@@ -7,6 +7,7 @@ uploads/*.jpg
 uploads/*.jpeg
 uploads/*.png
 uploads/*.gif
+uploads/retrabalho/
 scratch/
 .vscode/
 .idea/
@@ -19,3 +20,5 @@ _inicial/dados_producao.sql
 _inicial/backup_*.sql
 _inicial/sessao_*.md
 _inicial/RESUMO-*.md
+storage/cache/
+PLANILHA QUE ATUALIZA/~$*.xlsx

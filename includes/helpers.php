@@ -2,6 +2,24 @@
 declare(strict_types=1);
 
 /**
+ * Converte um DATETIME/TIMESTAMP do MySQL (string "naive", sem offset — ex.:
+ * "2026-07-21 14:32:10") para ISO-8601 com o offset explícito de $timezone.
+ * Evita que o JS do cliente interprete a string como hora local do dispositivo
+ * (que pode ter fuso diferente do servidor) — sempre usar isto ao embutir
+ * datas/horas em JSON destinado ao navegador.
+ */
+function isoComOffset(?string $datetimeSql, string $timezone = 'America/Cuiaba'): ?string
+{
+    if ($datetimeSql === null || $datetimeSql === '') return null;
+    try {
+        $dt = new DateTime($datetimeSql, new DateTimeZone($timezone));
+        return $dt->format('c');
+    } catch (\Exception $e) {
+        return null;
+    }
+}
+
+/**
  * Calcula prazo de D+2 dias úteis (segunda–sexta) para LMC.
  *
  * @param  string $dataPedido  Data ISO (Y-m-d ou datetime) de criação da demanda
@@ -118,6 +136,46 @@ function gftFmtTensaoBt(?string $value): string
     if ($v === '') return '—';
     $core = rtrim(preg_replace('/\s*[vV]\s*$/', '', $v));
     return $core . 'v';
+}
+
+/**
+ * Extrai potência (kVA) e classe de tensão (kV) do texto livre da descrição
+ * de um projeto (ex.: "TRANSFORMADOR 45kVA 15kV 3F 220/127V 13800V").
+ * Retorna [potencia, classe], cada um string numérica ou null se ausente.
+ */
+function parsePotenciaClasse(?string $descricao): array
+{
+    $potencia = null;
+    $classe   = null;
+    if ($descricao) {
+        if (preg_match('/(\d+(?:[.,]\d+)?)\s*kva\b/i', $descricao, $m)) {
+            $potencia = str_replace(',', '.', $m[1]);
+        }
+        if (preg_match('/(\d+(?:[.,]\d+)?)\s*kv\b(?!a)/i', $descricao, $m)) {
+            $classe = str_replace(',', '.', $m[1]);
+        }
+    }
+    return [$potencia, $classe];
+}
+
+/**
+ * Setores de destino disponíveis na triagem do retrabalho (para onde o
+ * transformador pode ser enviado a seguir). Slug => rótulo, na ordem de exibição.
+ * Fonte única — usada tanto para renderizar os checkboxes quanto para validar
+ * o que vem do POST em api/retrabalho-acao.php.
+ */
+function retrabalhoSetoresTriagem(): array
+{
+    return [
+        'bobinagem_at'    => 'Bobinagem AT',
+        'bobinagem_bt'    => 'Bobinagem BT',
+        'montagem_nucleo' => 'Montagem de Núcleo',
+        'solda'           => 'Solda',
+        'radiador'        => 'Radiador',
+        'pintura'         => 'Pintura',
+        'montagem_final'  => 'Montagem Final',
+        'laboratorio'     => 'Laboratório',
+    ];
 }
 
 /**
