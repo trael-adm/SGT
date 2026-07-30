@@ -54,6 +54,14 @@ $stmt = $pdo->prepare("
 $stmt->execute([$idProjeto, $ns]);
 $itens = $stmt->fetchAll();
 
+// Se já existe reprova aberta (não finalizada) para este NS/projeto, uma reprova
+// nova na Triagem é opcional — ver acao=registrar em api/retrabalho-acao.php.
+$temReprovaAberta = (bool) array_filter($itens, fn ($r) => $r['status'] !== 'finalizado');
+
+// data_inicio é compartilhada por todo o lote — pega a primeira já gravada (se houver).
+$dataInicioAtual = null;
+foreach ($itens as $it) { if (!empty($it['data_inicio'])) { $dataInicioAtual = $it['data_inicio']; break; } }
+
 $reprovas = $pdo->query("SELECT id, codigo, familia, descricao, local FROM reprovas WHERE ativo = 1 ORDER BY ordem, codigo")->fetchAll();
 
 function fmtDataBR(?string $iso): string
@@ -61,6 +69,13 @@ function fmtDataBR(?string $iso): string
     if (!$iso) return '—';
     $ts = strtotime($iso);
     return $ts ? date('d/m/y', $ts) : '—';
+}
+
+function fmtDataHoraBR(?string $iso): string
+{
+    if (!$iso) return '—';
+    $ts = strtotime($iso);
+    return $ts ? date('d/m/y H:i', $ts) : '—';
 }
 
 /** Markup de um bloco "Código de reprova" — reaproveitado no bloco inicial e no <template> de fallback do JS. */
@@ -192,7 +207,15 @@ function rtdBlocoReprova(array $reprovas): string
         <div class="rtd-item-form">
             <div class="form-group full">
                 <label class="form-label">Data de início do retrabalho</label>
-                <input type="date" name="data_inicio" class="form-control">
+                <div style="display:flex;gap:10px;align-items:center;">
+                    <input type="text" id="rtd-inicio-display" class="form-control" readonly
+                           placeholder="— aguardando leitura do QR Code —"
+                           value="<?= $dataInicioAtual ? htmlspecialchars(fmtDataHoraBR($dataInicioAtual)) : '' ?>">
+                    <button type="button" class="btn btn-secondary" id="rtd-inicio-scan-btn" style="white-space:nowrap;">
+                        Escanear QR
+                    </button>
+                </div>
+                <p class="rtd-hint">Registrado automaticamente (dia e horário) ao ler o QR Code do transformador.</p>
             </div>
             <div class="form-group full">
                 <label class="form-label">Causa da Reprova</label>
@@ -223,10 +246,54 @@ function rtdBlocoReprova(array $reprovas): string
 
 </div><!-- /.rtd-wrap -->
 
+<!-- Scan overlay: leitura do QR Code para registrar dia + horário de início do retrabalho -->
+<div class="scan-overlay" id="rtd-inicio-overlay" role="dialog" aria-modal="true" aria-label="Registrar início do retrabalho por QR Code">
+    <div class="scan-overlay__bar">
+        <span>
+            Início do retrabalho — <strong><?= htmlspecialchars($ns) ?></strong>
+            · <?= htmlspecialchars($projeto['projeto_codigo'] ?? '—') ?>
+        </span>
+        <button type="button" class="scan-overlay__close" id="rtd-inicio-close" aria-label="Fechar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+    </div>
+
+    <div class="scan-stage" id="rtd-inicio-stage">
+        <video id="rtd-inicio-video" autoplay playsinline muted></video>
+        <div class="viewfinder" id="rtd-inicio-viewfinder">
+            <span class="corner corner--tl"></span><span class="corner corner--tr"></span>
+            <span class="corner corner--bl"></span><span class="corner corner--br"></span>
+            <span class="scan-line"></span>
+        </div>
+        <div class="scan-stage__empty" id="rtd-inicio-stage-empty">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            <p id="rtd-inicio-stage-empty-text">Solicitando acesso à câmera…</p>
+        </div>
+    </div>
+
+    <p class="scan-hint" id="rtd-inicio-hint">Aponte a câmera para o QR Code do transformador</p>
+    <div class="scan-overlay__error" id="rtd-inicio-error"></div>
+
+    <div class="scan-overlay__manual">
+        <label for="rtd-inicio-manual-ns">Ou digite o número de série manualmente</label>
+        <div class="manual-row">
+            <input id="rtd-inicio-manual-ns" type="text" placeholder="Ex.: 900201" autocomplete="off">
+            <button class="btn btn-secondary" id="rtd-inicio-manual-btn" type="button">Buscar</button>
+        </div>
+    </div>
+</div>
+
+<div id="rtd-inicio-live-region" aria-live="polite" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;"></div>
+
 <script>
     window.RETRABALHO_API = <?= json_encode($base . '/api/retrabalho-acao.php') ?>;
     window.RETRABALHO_REPROVAS = <?= json_encode($reprovas, JSON_UNESCAPED_UNICODE) ?>;
+    window.RETRABALHO_TEM_REPROVA_ABERTA = <?= json_encode($temReprovaAberta) ?>;
+    window.RETRABALHO_ID_PROJETO = <?= json_encode($idProjeto) ?>;
+    window.RETRABALHO_NS = <?= json_encode($ns) ?>;
+    window.RETRABALHO_VOLTAR = <?= json_encode($base . '/pages/retrabalho/relacao.php') ?>;
 </script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <?php $rtdJsVer = @filemtime(__DIR__ . '/../../assets/js/retrabalho-detalhe.js') ?: (defined('APP_VERSION') ? APP_VERSION : '1'); ?>
 <script src="<?= htmlspecialchars($base) ?>/assets/js/retrabalho-detalhe.js?v=<?= htmlspecialchars((string) $rtdJsVer) ?>"></script>
 

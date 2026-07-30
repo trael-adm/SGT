@@ -327,9 +327,8 @@ layoutHeader($pageTitle);
     .rt-flag-dot.amarelo  { background:#eab308; box-shadow:0 0 0 2px #fef9c3; }
     .rt-flag-dot.laranja  { background:#f97316; box-shadow:0 0 0 2px #ffedd5; }
     .rt-flag-dot.vermelho { background:#dc2626; box-shadow:0 0 0 2px #fee2e2; }
-    .rt-edit-btn { background:#fff; border:1px solid var(--color-border,#e5e7eb); border-radius:6px; width:28px; height:28px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; color:var(--color-text-secondary,#5a6480); text-decoration:none; }
-    .rt-edit-btn:hover { border-color:#E89B1C; color:#E89B1C; text-decoration:none; }
-    .rt-edit-btn svg { width:14px; height:14px; }
+    .rt-edit-btn { background:#E89B1C; border:1px solid #E89B1C; border-radius:6px; padding:6px 12px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; color:#fff; text-decoration:none; font-size:12px; font-weight:600; white-space:nowrap; }
+    .rt-edit-btn:hover { background:#cf8710; border-color:#cf8710; color:#fff; text-decoration:none; }
     .rt-btn-chegada { background:#16a34a; border:1px solid #16a34a; border-radius:8px; padding:6px 12px; display:inline-flex; align-items:center; gap:6px; cursor:pointer; color:#fff; text-decoration:none; font-size:12px; font-weight:600; white-space:nowrap; }
     .rt-btn-chegada:hover { background:#15803d; border-color:#15803d; color:#fff; text-decoration:none; }
     .rt-btn-chegada svg { width:14px; height:14px; }
@@ -536,7 +535,7 @@ layoutHeader($pageTitle);
                                                         </a>
                                                     <?php else: ?>
                                                         <a class="rt-edit-btn" href="<?= htmlspecialchars($base) ?>/pages/retrabalho/detalhe.php?id=<?= (int) $r['id'] ?>" title="Ver / editar">
-                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg>
+                                                            Triagem
                                                         </a>
                                                     <?php endif; ?>
                                                 </td>

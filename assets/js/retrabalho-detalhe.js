@@ -3,6 +3,8 @@
 
     var API      = window.RETRABALHO_API || '';
     var REPROVAS = window.RETRABALHO_REPROVAS || [];
+    var TEM_REPROVA_ABERTA = window.RETRABALHO_TEM_REPROVA_ABERTA === true;
+    var VOLTAR   = window.RETRABALHO_VOLTAR || '';
     var LOCAL_LABEL = { IQF: 'IQF — Inspeção final', LAB: 'LAB — Laboratório', GER: 'GER — Geral' };
 
     /** Envia o form como multipart/form-data (necessário para os anexos). */
@@ -109,7 +111,9 @@
                 formAdd.querySelectorAll('.js-reprova-sel'),
                 function (sel) { return sel.value; }
             );
-            if (!temCodigo) {
+            // Nova reprova é opcional quando já existe uma aberta para este NS/projeto —
+            // o envio, nesse caso, só atualiza a Triagem (causa/data/observações/setores).
+            if (!temCodigo && !TEM_REPROVA_ABERTA) {
                 mostraErro('Selecione ao menos um código de reprova — abra "+ Nova Reprova" acima e escolha um código antes de enviar.');
                 // A seção "Adicionar nova reprova" pode estar fechada (ou nem ter sido
                 // aberta ainda) — sem isso, o erro aparece longe do campo que falta, sem
@@ -127,7 +131,7 @@
 
             postAcaoForm(formAdd, 'registrar').then(function (res) {
                 if (res && res.sucesso) {
-                    window.location.reload();
+                    window.location.href = VOLTAR || window.location.href;
                 } else {
                     mostraErro((res && res.erro) || 'Erro ao registrar.');
                     if (submitEl) { submitEl.disabled = false; submitEl.textContent = 'Enviar'; }
@@ -138,5 +142,175 @@
             });
         });
     }
+
+    // ─── Registrar início do retrabalho (dia + horário) via leitura de QR ──────
+    // Abre um overlay embutido na própria página (não navega para outra tela, já
+    // que o resto da Triagem pode estar preenchido) e, ao ler o QR do transformador,
+    // grava data_inicio = agora no servidor (acao=confirmar_inicio) — não é só um
+    // preenchimento local, o próprio scan já é o registro.
+    (function () {
+        var scanBtn   = document.getElementById('rtd-inicio-scan-btn');
+        var overlay   = document.getElementById('rtd-inicio-overlay');
+        var display   = document.getElementById('rtd-inicio-display');
+        if (!scanBtn || !overlay || !display) return;
+
+        var IDPROJETO = window.RETRABALHO_ID_PROJETO || 0;
+        var NS        = window.RETRABALHO_NS || '';
+
+        var closeBtn      = document.getElementById('rtd-inicio-close');
+        var stage          = document.getElementById('rtd-inicio-stage');
+        var stageEmptyText = document.getElementById('rtd-inicio-stage-empty-text');
+        var video          = document.getElementById('rtd-inicio-video');
+        var viewfinder     = document.getElementById('rtd-inicio-viewfinder');
+        var hint           = document.getElementById('rtd-inicio-hint');
+        var overlayError   = document.getElementById('rtd-inicio-error');
+        var manualInput    = document.getElementById('rtd-inicio-manual-ns');
+        var manualBtn      = document.getElementById('rtd-inicio-manual-btn');
+        var liveRegion     = document.getElementById('rtd-inicio-live-region');
+
+        var mediaStream = null;
+        var detectTimer = null;
+        var scanCanvas  = document.createElement('canvas');
+        var scanCtx     = scanCanvas.getContext('2d', { willReadFrequently: true });
+        var locked      = false;
+
+        function announce(msg) { if (liveRegion) liveRegion.textContent = msg; }
+
+        function showOverlayError(msg) { overlayError.style.display = 'block'; overlayError.textContent = msg; }
+        function clearOverlayError() { overlayError.style.display = 'none'; overlayError.textContent = ''; }
+
+        function flashViewfinder(ok) {
+            viewfinder.classList.remove('is-success', 'is-error');
+            viewfinder.classList.add(ok ? 'is-success' : 'is-error');
+            if (navigator.vibrate) navigator.vibrate(ok ? 90 : [60, 40, 60]);
+        }
+
+        function startCamera() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                stageEmptyText.textContent = 'Este navegador não expõe câmera — use a leitura manual abaixo.';
+                return;
+            }
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+                .then(function (stream) {
+                    mediaStream = stream;
+                    video.srcObject = stream;
+                    stage.classList.add('has-video');
+                    if (typeof window.jsQR === 'function') {
+                        detectTimer = setInterval(scanFrame, 350);
+                    } else {
+                        hint.textContent = 'Câmera ativa, mas a biblioteca de leitura não carregou (verifique sua conexão) — use a leitura manual abaixo.';
+                    }
+                })
+                .catch(function (err) {
+                    var msg = 'Não foi possível acessar a câmera.';
+                    if (err && err.name === 'NotAllowedError') msg = 'Permissão de câmera negada — use a leitura manual abaixo.';
+                    if (err && err.name === 'NotFoundError') msg = 'Nenhuma câmera disponível neste dispositivo — use a leitura manual abaixo.';
+                    stageEmptyText.textContent = msg;
+                });
+        }
+
+        function stopCamera() {
+            if (detectTimer) { clearInterval(detectTimer); detectTimer = null; }
+            if (mediaStream) { mediaStream.getTracks().forEach(function (t) { t.stop(); }); mediaStream = null; }
+            video.srcObject = null;
+            stage.classList.remove('has-video');
+        }
+
+        function scanFrame() {
+            if (locked || !mediaStream || typeof window.jsQR !== 'function') return;
+            if (video.readyState !== video.HAVE_ENOUGH_DATA || !video.videoWidth) return;
+
+            scanCanvas.width = video.videoWidth;
+            scanCanvas.height = video.videoHeight;
+            scanCtx.drawImage(video, 0, 0, scanCanvas.width, scanCanvas.height);
+
+            var imageData;
+            try {
+                imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+            } catch (e) {
+                return;
+            }
+
+            var resultado = window.jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+            if (resultado && resultado.data) handleCodigo(resultado.data);
+        }
+
+        function abrirOverlay() {
+            overlay.style.display = 'flex';
+            locked = false;
+            clearOverlayError();
+            viewfinder.classList.remove('is-success', 'is-error');
+            hint.textContent = 'Aponte a câmera para o QR Code do transformador';
+            startCamera();
+        }
+
+        function fecharOverlay() {
+            stopCamera();
+            overlay.style.display = 'none';
+        }
+
+        function handleCodigo(raw) {
+            if (locked) return;
+            var codigo = (raw || '').trim();
+            if (!codigo) return;
+            locked = true;
+            clearOverlayError();
+
+            var body = new URLSearchParams({
+                acao: 'confirmar_inicio',
+                id_projeto: IDPROJETO,
+                ns_transformador: NS,
+                codigo: codigo
+            });
+            fetch(API, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString()
+            }).then(function (r) {
+                return r.json().catch(function () { return { sucesso: false, erro: 'Resposta inválida do servidor.' }; });
+            }).then(function (res) {
+                if (res && res.sucesso) {
+                    flashViewfinder(true);
+                    stopCamera();
+                    hint.textContent = 'Início registrado! Fechando…';
+                    announce('Início do retrabalho registrado.');
+                    if (res.data_inicio) {
+                        var ts = Date.parse(res.data_inicio.replace(' ', 'T'));
+                        if (!isNaN(ts)) {
+                            var d = new Date(ts);
+                            var pad = function (n) { return String(n).padStart(2, '0'); };
+                            display.value = pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + String(d.getFullYear()).slice(-2)
+                                + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+                        }
+                    }
+                    setTimeout(fecharOverlay, 900);
+                    return;
+                }
+                flashViewfinder(false);
+                showOverlayError((res && res.erro) || 'Falha ao registrar início.');
+                announce((res && res.erro) || 'Falha ao registrar início.');
+                setTimeout(function () {
+                    locked = false;
+                    viewfinder.classList.remove('is-success', 'is-error');
+                }, 1500);
+            }).catch(function () {
+                flashViewfinder(false);
+                showOverlayError('Falha de conexão ao registrar início.');
+                setTimeout(function () {
+                    locked = false;
+                    viewfinder.classList.remove('is-success', 'is-error');
+                }, 1500);
+            });
+        }
+
+        scanBtn.addEventListener('click', abrirOverlay);
+        if (closeBtn) closeBtn.addEventListener('click', fecharOverlay);
+        overlay.addEventListener('click', function (e) { if (e.target === overlay) fecharOverlay(); });
+
+        if (manualBtn && manualInput) {
+            manualBtn.addEventListener('click', function () { if (manualInput.value.trim()) handleCodigo(manualInput.value); });
+            manualInput.addEventListener('keydown', function (e) { if (e.key === 'Enter' && manualInput.value.trim()) handleCodigo(manualInput.value); });
+        }
+    }());
 
 }());

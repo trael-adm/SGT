@@ -177,22 +177,16 @@ function derivarStatus(array $c): string
     return 'agu_abertura';
 }
 
-/** Valida os campos. Retorna string de erro ou null se OK. $idAtual exclui o próprio registro na edição. */
-function validarRetrabalho(PDO $pdo, array $c, int $idReprova, int $idAtual = 0): ?string
+/** Valida projeto/NS/datas — comum a toda gravação, com ou sem código de reprova novo. */
+function validarCamposComuns(PDO $pdo, array $c, int $idAtual = 0): ?string
 {
     if ($c['id_projeto'] === null)           return 'Selecione o projeto.';
     if ($c['ns_transformador'] === null)     return 'Informe o N° de série do transformador.';
-    if ($idReprova <= 0)                     return 'Selecione o código de reprova.';
 
     // Projeto precisa existir
     $q = $pdo->prepare("SELECT id FROM projetos WHERE id = ? AND deleted_at IS NULL");
     $q->execute([$c['id_projeto']]);
     if (!$q->fetch()) return 'Projeto inválido.';
-
-    // Reprova precisa existir e estar ativa
-    $q = $pdo->prepare("SELECT id FROM reprovas WHERE id = ? AND ativo = 1");
-    $q->execute([$idReprova]);
-    if (!$q->fetch()) return 'Código de reprova inválido.';
 
     // Unicidade do N° de série: o mesmo NS não pode estar em outro projeto
     $q = $pdo->prepare("
@@ -215,23 +209,70 @@ function validarRetrabalho(PDO $pdo, array $c, int $idReprova, int $idAtual = 0)
     return null;
 }
 
+/** Valida só o código de reprova (existe e ativo). */
+function validarReprovaCodigo(PDO $pdo, int $idReprova): ?string
+{
+    if ($idReprova <= 0) return 'Selecione o código de reprova.';
+    $q = $pdo->prepare("SELECT id FROM reprovas WHERE id = ? AND ativo = 1");
+    $q->execute([$idReprova]);
+    if (!$q->fetch()) return 'Código de reprova inválido.';
+    return null;
+}
+
+/** Valida os campos + o código de reprova. Retorna string de erro ou null se OK. $idAtual exclui o próprio registro na edição. */
+function validarRetrabalho(PDO $pdo, array $c, int $idReprova, int $idAtual = 0): ?string
+{
+    return validarCamposComuns($pdo, $c, $idAtual) ?? validarReprovaCodigo($pdo, $idReprova);
+}
+
 try {
     $pdo = getDB();
 
     switch ($acao) {
 
-        // ─── Registrar novo(s) retrabalho(s) — 1+ reprovas numa mesma triagem ──
+        // ─── Registrar Triagem — 0+ reprovas novas, além das já existentes ─────
+        // A Triagem (chegada/causa/observações/setores/anexos) é compartilhada por
+        // todo o lote de um mesmo N° de série + projeto. Uma nova reprova é opcional
+        // aqui: se já existe pelo menos 1 reprova aberta para este NS/projeto (ex.:
+        // a que criou o retrabalho lá na Produção), o envio só precisa atualizar os
+        // dados da Triagem nela — não é obrigatório abrir outra reprova a cada envio.
         case 'registrar': {
             $c        = lerCamposRetrabalho();
             $reprovas = lerReprovasEmLote();
 
-            if (!$reprovas) {
+            $stmtExist = $pdo->prepare("
+                SELECT id, id_lote, data_chegada, data_inicio FROM retrabalhos
+                WHERE id_projeto = ? AND ns_transformador = ? AND deleted_at IS NULL AND status <> 'finalizado'
+            ");
+            $stmtExist->execute([$c['id_projeto'], $c['ns_transformador']]);
+            $existentes    = $stmtExist->fetchAll();
+            $idsExistentes = array_map(fn ($r) => (int) $r['id'], $existentes);
+
+            // Este form (Triagem) não coleta data_chegada nem data_inicio — quem grava
+            // isso são os scans de QR separados ("Confirmar Chegada" e o de início, ver
+            // acao=confirmar_chegada/confirmar_inicio). Uma reprova nova adicionada aqui
+            // herda o que já foi confirmado nas reprovas existentes, e a sincronização
+            // abaixo nunca sobrescreve o que já estava gravado.
+            $dataChegadaExistente = null;
+            $dataInicioExistente  = null;
+            foreach ($existentes as $ex) {
+                if ($dataChegadaExistente === null && $ex['data_chegada']) $dataChegadaExistente = $ex['data_chegada'];
+                if ($dataInicioExistente === null && $ex['data_inicio'])   $dataInicioExistente  = $ex['data_inicio'];
+            }
+
+            if (!$reprovas && !$idsExistentes) {
                 http_response_code(400);
                 echo json_encode(['sucesso' => false, 'erro' => 'Adicione ao menos uma reprova.']);
                 exit;
             }
+
+            if ($err = validarCamposComuns($pdo, $c)) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => $err]);
+                exit;
+            }
             foreach ($reprovas as $i => $rep) {
-                if ($err = validarRetrabalho($pdo, $c, $rep['id_reprova'])) {
+                if ($err = validarReprovaCodigo($pdo, $rep['id_reprova'])) {
                     http_response_code(400);
                     echo json_encode(['sucesso' => false, 'erro' => 'Reprova ' . ($i + 1) . ': ' . $err]);
                     exit;
@@ -248,33 +289,55 @@ try {
             $status      = derivarStatus($c);
             $concluidoEm = ($status === 'finalizado') ? date('Y-m-d H:i:s') : null;
 
-            // Responsável = usuário logado (fixo). Status derivado dos dados. Triagem
-            // (chegada/causa/observações/setores/anexos) é a mesma para todo o lote.
+            // Reaproveita o id_lote já aberto para este NS/projeto (mesma sessão de
+            // Triagem) — só nasce um lote novo quando não havia nenhuma reprova prévia.
+            $idLote = null;
+            foreach ($existentes as $ex) {
+                if ($ex['id_lote']) { $idLote = (int) $ex['id_lote']; break; }
+            }
+
+            // Responsável = usuário logado (fixo). Status derivado dos dados.
             $stmt = $pdo->prepare("
                 INSERT INTO retrabalhos
                     (id_responsavel, id_projeto, ns_transformador, id_reprova,
                      data_reprova, data_chegada, data_inicio, data_finalizacao, status,
                      observacoes, causa_raiz, causa_reprova, setores_destino,
-                     id_criador, concluido_em)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     id_criador, concluido_em, id_lote)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
+            $dataChegadaNova = $c['data_chegada'] ?? $dataChegadaExistente;
+            $dataInicioNova  = $c['data_inicio'] ?? $dataInicioExistente;
             $novosIds = [];
             foreach ($reprovas as $rep) {
                 $stmt->execute([
                     $userId, $c['id_projeto'], $c['ns_transformador'], $rep['id_reprova'],
-                    $rep['data_reprova'], $c['data_chegada'], $c['data_inicio'], $c['data_finalizacao'], $status,
+                    $rep['data_reprova'], $dataChegadaNova, $dataInicioNova, $c['data_finalizacao'], $status,
                     $c['observacoes'], $c['causa_raiz'], $c['causa_reprova'], $c['setores_destino'],
-                    $userId, $concluidoEm,
+                    $userId, $concluidoEm, $idLote,
                 ]);
                 $novosIds[] = (int) $pdo->lastInsertId();
             }
 
-            // Marca todo o lote com o id do 1º registro: reprovas da mesma triagem contam
-            // como 1 ocorrência só nas Repetências (ver COALESCE(id_lote, id) em relacao.php).
-            if ($novosIds) {
-                $ph = implode(',', array_fill(0, count($novosIds), '?'));
-                $pdo->prepare("UPDATE retrabalhos SET id_lote = ? WHERE id IN ($ph)")
-                    ->execute([$novosIds[0], ...$novosIds]);
+            if ($idLote === null) {
+                $idLote = $idsExistentes[0] ?? $novosIds[0] ?? null;
+            }
+
+            // A Triagem é compartilhada: sincroniza os campos em TODAS as reprovas
+            // abertas deste NS/projeto, novas e já existentes — não só nas novas.
+            // data_chegada e data_inicio ficam de fora do SET: nunca são sobrescritas por aqui.
+            $todosIds = array_merge($idsExistentes, $novosIds);
+            if ($todosIds) {
+                $ph = implode(',', array_fill(0, count($todosIds), '?'));
+                $pdo->prepare("
+                    UPDATE retrabalhos SET
+                        id_lote = COALESCE(id_lote, ?), data_finalizacao = ?,
+                        status = ?, observacoes = ?, causa_raiz = ?, causa_reprova = ?, setores_destino = ?, concluido_em = ?
+                    WHERE id IN ($ph)
+                ")->execute([
+                    $idLote, $c['data_finalizacao'],
+                    $status, $c['observacoes'], $c['causa_raiz'], $c['causa_reprova'], $c['setores_destino'], $concluidoEm,
+                    ...$todosIds,
+                ]);
             }
 
             // "Laboratório" em Próximos setores manda o transformador de volta pra lá —
@@ -284,16 +347,26 @@ try {
             // têm tela própria no Produção, então não geram nada aqui por enquanto.
             $setoresDestino = $c['setores_destino'] !== null ? explode(',', $c['setores_destino']) : [];
             if (in_array('laboratorio', $setoresDestino, true)) {
-                $pdo->prepare("
-                    INSERT INTO producao_etapas
-                        (ns_transformador, id_projeto, estacao, status, data_inicio, id_responsavel, id_criador)
-                    VALUES (?, ?, 'LAB', 'aguardando_retorno', NOW(), ?, ?)
-                ")->execute([$c['ns_transformador'], $c['id_projeto'], $userId, $userId]);
+                // A Triagem pode ser reenviada mais de uma vez (nova reprova é opcional
+                // agora) — sem essa checagem, cada reenvio com "Laboratório" marcado
+                // duplicaria a linha na aba Retornos do Produção.
+                $jaAguardando = $pdo->prepare("
+                    SELECT id FROM producao_etapas
+                    WHERE ns_transformador = ? AND estacao = 'LAB' AND status = 'aguardando_retorno' AND deleted_at IS NULL
+                ");
+                $jaAguardando->execute([$c['ns_transformador']]);
+                if (!$jaAguardando->fetch()) {
+                    $pdo->prepare("
+                        INSERT INTO producao_etapas
+                            (ns_transformador, id_projeto, estacao, status, data_inicio, id_responsavel, id_criador)
+                        VALUES (?, ?, 'LAB', 'aguardando_retorno', NOW(), ?, ?)
+                    ")->execute([$c['ns_transformador'], $c['id_projeto'], $userId, $userId]);
+                }
             }
 
-            vincularAnexos($pdo, $arquivos, $novosIds, $userId);
+            vincularAnexos($pdo, $arquivos, $todosIds, $userId);
 
-            $msg = count($novosIds) > 1 ? count($novosIds) . ' reprovas registradas.' : 'Retrabalho registrado.';
+            $msg = count($novosIds) > 1 ? count($novosIds) . ' reprovas registradas.' : 'Triagem registrada.';
             echo json_encode(['sucesso' => true, 'mensagem' => $msg, 'ids' => $novosIds]);
             break;
         }
@@ -416,6 +489,69 @@ try {
 
             $pdo->prepare("UPDATE retrabalhos SET data_chegada = CURDATE() WHERE id = ?")->execute([$id]);
             echo json_encode(['sucesso' => true, 'mensagem' => 'Chegada confirmada.']);
+            break;
+        }
+
+        // ─── Registrar início do retrabalho (dia + horário) via leitura de QR ──
+        // Mesma resolução de código do confirmar_chegada (etiqueta de OF -> planilha
+        // NS.OF, com N° de série puro como reserva), conferida contra o NS/projeto
+        // da Triagem atual — nunca contra um id vindo do cliente. data_inicio é
+        // compartilhada por todo o lote (mesma NS/projeto), então grava em todas as
+        // reprovas ainda abertas de uma vez (ver o mesmo compartilhamento em 'registrar').
+        case 'confirmar_inicio': {
+            $idProjeto = (int) ($_POST['id_projeto'] ?? 0);
+            $ns        = trim((string) ($_POST['ns_transformador'] ?? ''));
+            $codigo    = trim((string) ($_POST['codigo'] ?? ''));
+
+            if ($idProjeto <= 0 || $ns === '') {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Registro inválido.']);
+                exit;
+            }
+            if ($codigo === '') {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Informe o código lido.']);
+                exit;
+            }
+
+            $stmt = $pdo->prepare("SELECT codigo FROM projetos WHERE id = ? AND deleted_at IS NULL");
+            $stmt->execute([$idProjeto]);
+            $projeto = $stmt->fetch();
+            if (!$projeto) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Projeto não encontrado.']);
+                exit;
+            }
+
+            $cdOf    = extrairCdOfDaEtiqueta($codigo);
+            $dadosOF = $cdOf !== null ? buscarPlanilhaOF($cdOf) : null;
+            if ($dadosOF && $dadosOF['num_serie'] !== '') {
+                $nsLido   = $dadosOF['num_serie'];
+                $projLido = $dadosOF['cd_referencia'] !== '' ? $dadosOF['cd_referencia'] : null;
+            } else {
+                $nsLido   = $codigo;
+                $projLido = null;
+            }
+
+            $nsConfere   = $nsLido === $ns;
+            $projConfere = $projLido === null || $projLido === $projeto['codigo'];
+
+            if (!$nsConfere || !$projConfere) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' =>
+                    'Transformador não confere: esperado NS ' . $ns . ' / Projeto ' . $projeto['codigo']
+                    . ', lido NS ' . $nsLido . ($projLido !== null ? ' / Projeto ' . $projLido : '') . '.'
+                ]);
+                exit;
+            }
+
+            $agora = date('Y-m-d H:i:s');
+            $pdo->prepare("
+                UPDATE retrabalhos SET data_inicio = ?
+                WHERE id_projeto = ? AND ns_transformador = ? AND deleted_at IS NULL AND status <> 'finalizado'
+            ")->execute([$agora, $idProjeto, $ns]);
+
+            echo json_encode(['sucesso' => true, 'mensagem' => 'Início do retrabalho registrado.', 'data_inicio' => $agora]);
             break;
         }
 

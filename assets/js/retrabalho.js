@@ -110,13 +110,19 @@
     });
 
     // ─── Auto-refresh (só na Relação de Retrabalhos — index.php não tem essa tabela) ─
+    // Espera o DOMContentLoaded porque este script roda antes de app.js (que
+    // define iniciarAutoRefresh) — ele só é incluído no footer, mais abaixo.
     var rtTableWrap = document.getElementById('rt-table-wrap');
-    if (rtTableWrap && typeof window.iniciarAutoRefresh === 'function') {
-        window.iniciarAutoRefresh({
-            seletores: ['#rt-table-wrap', '.rt-pager'],
-            intervaloS: 30,
-            elIndicador: document.getElementById('rt-autorefresh-indicador'),
-            modaisPausa: ['#rt-modal']
+    if (rtTableWrap) {
+        document.addEventListener('DOMContentLoaded', function () {
+            if (typeof window.iniciarAutoRefresh === 'function') {
+                window.iniciarAutoRefresh({
+                    seletores: ['#rt-table-wrap', '.rt-pager'],
+                    intervaloS: 30,
+                    elIndicador: document.getElementById('rt-autorefresh-indicador'),
+                    modaisPausa: ['#rt-modal']
+                });
+            }
         });
     }
 

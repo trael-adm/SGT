@@ -180,13 +180,19 @@
     });
 
     // ─── Auto-refresh ────────────────────────────────────────────────────────
+    // Espera o DOMContentLoaded porque este script roda antes de app.js (que
+    // define iniciarAutoRefresh) — ele só é incluído no footer, mais abaixo.
     var lstTableWrap = document.getElementById('lst-table-wrap');
-    if (lstTableWrap && typeof window.iniciarAutoRefresh === 'function') {
-        window.iniciarAutoRefresh({
-            seletores: ['#lst-table-wrap', '.lst-pager'],
-            intervaloS: 30,
-            elIndicador: document.getElementById('lst-autorefresh-indicador'),
-            modaisPausa: ['#rep-modal']
+    if (lstTableWrap) {
+        document.addEventListener('DOMContentLoaded', function () {
+            if (typeof window.iniciarAutoRefresh === 'function') {
+                window.iniciarAutoRefresh({
+                    seletores: ['#lst-table-wrap', '.lst-pager'],
+                    intervaloS: 30,
+                    elIndicador: document.getElementById('lst-autorefresh-indicador'),
+                    modaisPausa: ['#rep-modal']
+                });
+            }
         });
     }
 }());
