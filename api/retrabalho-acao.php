@@ -683,16 +683,20 @@ try {
             }
 
             $agora = date('Y-m-d H:i:s');
+            $hoje  = date('Y-m-d');
             $pdo->prepare("
                 UPDATE producao_etapas SET deleted_at = NOW()
                 WHERE ns_transformador = ? AND id_projeto = ? AND estacao = 'LAB'
                   AND status = 'aguardando_retorno' AND deleted_at IS NULL
             ")->execute([$ns, $idProjeto]);
 
+            // data_finalizacao = data em que o retorno foi confirmado aprovado (esta ação)
+            // — mesmo campo preenchido manualmente no fluxo de causa raiz, mas aqui é
+            // automático, já que a aprovação no Laboratório é o que encerra o retrabalho.
             $pdo->prepare("
-                UPDATE retrabalhos SET status = 'aprovado', concluido_em = ?
+                UPDATE retrabalhos SET status = 'aprovado', concluido_em = ?, data_finalizacao = ?
                 WHERE ns_transformador = ? AND id_projeto = ? AND deleted_at IS NULL AND status NOT IN ('finalizado', 'aprovado')
-            ")->execute([$agora, $ns, $idProjeto]);
+            ")->execute([$agora, $hoje, $ns, $idProjeto]);
 
             echo json_encode(['sucesso' => true, 'mensagem' => 'Retorno aprovado.']);
             break;

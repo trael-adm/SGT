@@ -205,8 +205,8 @@ foreach ($grupos as &$g) {
 unset($g);
 $grupos = array_values($grupos);
 
-// Prioridade mais urgente primeiro quando ordenado (vermelho = mais urgente).
-const RT_PRIORIDADE_RANK = ['vermelho' => 5, 'laranja' => 4, 'amarelo' => 3, 'verde' => 2, 'azul' => 1];
+// Prioridade mais urgente primeiro quando ordenado (emergente = mais urgente).
+const RT_PRIORIDADE_RANK = ['emergente' => 4, 'urgente' => 3, 'importante' => 2, 'neutro' => 1];
 
 /** Valor de um grupo (projeto) usado para ordenar a listagem principal. */
 function rtGroupSortValue(array $g, string $col): string|int

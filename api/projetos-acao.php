@@ -61,7 +61,7 @@ try {
         case 'pedido_prioridade': {
             $id         = (int) ($_POST['id'] ?? 0);
             $prioridade = trim((string) ($_POST['prioridade'] ?? ''));
-            $validas    = ['vermelho', 'laranja', 'amarelo', 'verde', 'azul'];
+            $validas    = ['emergente', 'urgente', 'importante', 'neutro'];
 
             if ($id <= 0 || !in_array($prioridade, $validas, true)) {
                 http_response_code(400);

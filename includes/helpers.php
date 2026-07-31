@@ -192,19 +192,18 @@ function retrabalhoMateriaisCatalogo(PDO $pdo): array
 }
 
 /**
- * Níveis de prioridade de um Pedido — mesma escala de cores do protocolo de
- * triagem de saúde (Manchester), sem o tempo-alvo de atendimento (não se aplica
- * aqui). Definido nesta faixa por ora, a pedido do usuário.
+ * Níveis de prioridade de um Pedido. Todo pedido nasce "neutro" (ver coluna
+ * `prioridade` em pedidos, NOT NULL DEFAULT 'neutro') até alguém mudar
+ * manualmente em pages/pedidos/prioridade.php.
  * Slug => rótulo/cores do badge, na ordem de exibição (mais urgente primeiro).
  */
 function pedidoPrioridades(): array
 {
     return [
-        'vermelho' => ['label' => 'Emergência',    'bg' => '#fee2e2', 'fg' => '#dc2626'],
-        'laranja'  => ['label' => 'Muito Urgente', 'bg' => '#ffedd5', 'fg' => '#c2410c'],
-        'amarelo'  => ['label' => 'Urgente',        'bg' => '#fef9c3', 'fg' => '#a16207'],
-        'verde'    => ['label' => 'Pouco Urgente', 'bg' => '#dcfce7', 'fg' => '#16a34a'],
-        'azul'     => ['label' => 'Não Urgente',   'bg' => '#dbeafe', 'fg' => '#2563eb'],
+        'emergente'  => ['label' => 'Emergente',  'bg' => '#fee2e2', 'fg' => '#dc2626'],
+        'urgente'    => ['label' => 'Urgente',    'bg' => '#ffedd5', 'fg' => '#c2410c'],
+        'importante' => ['label' => 'Importante', 'bg' => '#fef9c3', 'fg' => '#a16207'],
+        'neutro'     => ['label' => 'Neutro',     'bg' => '#f1f5f9', 'fg' => '#64748b'],
     ];
 }
 
