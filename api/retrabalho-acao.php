@@ -290,13 +290,18 @@ try {
         // para este NS/projeto (ex.: a que criou o retrabalho lá na Produção), o
         // envio só precisa atualizar os dados da Triagem nela — não é obrigatório
         // abrir outra reprova a cada envio.
+        // "aberta" aqui exclui finalizado E aprovado: um NS que já passou por um
+        // ciclo encerrado (aprovado no retorno ao Laboratório, por ex.) e volta a
+        // reprovar depois é um novo ciclo — não pode herdar data_chegada/data_inicio
+        // do ciclo antigo, senão a Triagem pula direto pra "Triagem" sem pedir o
+        // scan de "Confirmar Chegada" de novo (ver acao=confirmar_chegada).
         case 'registrar': {
             $c        = lerCamposRetrabalho();
             $reprovas = lerReprovasEmLote();
 
             $stmtExist = $pdo->prepare("
                 SELECT id, id_lote, data_chegada, data_inicio FROM retrabalhos
-                WHERE id_projeto = ? AND ns_transformador = ? AND deleted_at IS NULL AND status <> 'finalizado'
+                WHERE id_projeto = ? AND ns_transformador = ? AND deleted_at IS NULL AND status NOT IN ('finalizado', 'aprovado')
             ");
             $stmtExist->execute([$c['id_projeto'], $c['ns_transformador']]);
             $existentes    = $stmtExist->fetchAll();
@@ -646,7 +651,7 @@ try {
             $agora = date('Y-m-d H:i:s');
             $pdo->prepare("
                 UPDATE retrabalhos SET data_inicio = ?
-                WHERE id_projeto = ? AND ns_transformador = ? AND deleted_at IS NULL AND status <> 'finalizado'
+                WHERE id_projeto = ? AND ns_transformador = ? AND deleted_at IS NULL AND status NOT IN ('finalizado', 'aprovado')
             ")->execute([$agora, $idProjeto, $ns]);
 
             echo json_encode(['sucesso' => true, 'mensagem' => 'Início do retrabalho registrado.', 'data_inicio' => $agora]);
