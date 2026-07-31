@@ -54,9 +54,14 @@ $stmt = $pdo->prepare("
 $stmt->execute([$idProjeto, $ns]);
 $itens = $stmt->fetchAll();
 
+// Reprovas já encerradas (finalizado/aprovado) saem desta lista — ficam só na
+// Relação do Histórico (ver pages/retrabalho/historico.php), mesmo padrão da
+// Relação de Retrabalhos.
+$itensAbertos = array_values(array_filter($itens, fn ($r) => !in_array($r['status'], ['finalizado', 'aprovado'], true)));
+
 // Se já existe reprova aberta (não finalizada) para este NS/projeto, uma reprova
 // nova na Triagem é opcional — ver acao=registrar em api/retrabalho-acao.php.
-$temReprovaAberta = (bool) array_filter($itens, fn ($r) => $r['status'] !== 'finalizado');
+$temReprovaAberta = (bool) $itensAbertos;
 
 // data_inicio é compartilhada por todo o lote — pega a primeira já gravada (se houver).
 $dataInicioAtual = null;
@@ -194,12 +199,12 @@ function rtdBlocoReprova(array $reprovas): string
     <div class="card-header">
         <div>
             <div class="card-title">Reprovas registradas</div>
-            <div class="card-subtitle" id="rtd-reprovas-subtitle"><?= count($itens) ?> reprova(s) — excluir remove o código; sem nenhuma reprova, este N° de série sai da Relação de Retrabalhos</div>
+            <div class="card-subtitle" id="rtd-reprovas-subtitle"><?= count($itensAbertos) ?> reprova(s) — excluir remove o código; sem nenhuma reprova, este N° de série sai da Relação de Retrabalhos</div>
         </div>
         <button type="button" class="btn btn-danger btn-sm" id="rtd-toggle-add" aria-expanded="false">+ Nova Reprova</button>
     </div>
     <div id="rtd-reprovas-lista">
-    <?php foreach ($itens as $r): ?>
+    <?php foreach ($itensAbertos as $r): ?>
         <div class="rtd-item" data-id="<?= (int) $r['id'] ?>">
             <div class="rtd-item-del-wrap">
                 <button type="button" class="rtd-item-del js-remover-reprova" data-id="<?= (int) $r['id'] ?>" title="Excluir esta reprova">

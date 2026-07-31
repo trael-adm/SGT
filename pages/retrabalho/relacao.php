@@ -49,7 +49,18 @@ $pagina = max(1, (int) ($_GET['pagina'] ?? 1));
 // Data de referência do lançamento: reprova → início → created_at
 $dataExpr = 'DATE(COALESCE(r.data_reprova, r.data_inicio, r.created_at))';
 
-$where  = ['r.deleted_at IS NULL'];
+// Enviado para o Laboratório (checkbox "Próximos setores" na Triagem) também sai
+// daqui enquanto aguarda o retorno — vive na aba Retornos do Produção (ver
+// pages/producao/retornos.php) até ser aprovado (-> Histórico) ou reprovado
+// (-> volta pra cá, ver acao=reprovar_retorno em api/retrabalho-acao.php).
+$where  = [
+    'r.deleted_at IS NULL',
+    "NOT EXISTS (
+        SELECT 1 FROM producao_etapas pe
+        WHERE pe.ns_transformador = r.ns_transformador AND pe.id_projeto = r.id_projeto
+          AND pe.estacao = 'LAB' AND pe.status = 'aguardando_retorno' AND pe.deleted_at IS NULL
+    )",
+];
 $params = [];
 
 if ($fLocal !== '')   { $where[] = 'rep.local = ?';   $params[] = $fLocal; }

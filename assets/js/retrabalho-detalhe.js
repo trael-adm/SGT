@@ -100,6 +100,25 @@
                     if (crErro) { crErro.textContent = (res && res.erro) || 'Erro ao salvar a causa raiz.'; crErro.style.display = 'block'; }
                     return;
                 }
+
+                // Causa raiz preenchida finaliza esta reprova — some da lista, igual à
+                // exclusão, já que finalizado/aprovado só aparecem na Relação do Histórico.
+                if (res.status === 'finalizado' || res.status === 'aprovado') {
+                    var itemFinalizado = crBtnAtual ? crBtnAtual.closest('.rtd-item') : null;
+                    fecharCausaRaiz();
+                    if (itemFinalizado) itemFinalizado.remove();
+
+                    var restantes = listaReprovas.querySelectorAll('.rtd-item').length;
+                    if (restantes === 0) {
+                        window.location.href = VOLTAR || window.location.href;
+                        return;
+                    }
+                    if (subtitleReprovas) {
+                        subtitleReprovas.textContent = restantes + ' reprova(s) — excluir remove o código; sem nenhuma reprova, este N° de série sai da Relação de Retrabalhos';
+                    }
+                    return;
+                }
+
                 if (crBtnAtual) {
                     var texto = crTexto.value.trim();
                     crBtnAtual.setAttribute('data-causa-raiz', texto);
