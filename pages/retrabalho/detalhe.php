@@ -323,7 +323,7 @@ function rtdBlocoReprova(array $reprovas): string
             <div id="rtd-causaraiz-erro" style="display:none;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:14px;"></div>
             <label class="form-label" for="rtd-causaraiz-texto">Descreva a causa raiz desta reprova</label>
             <textarea id="rtd-causaraiz-texto" placeholder="Ex.: &quot;Fio rompido por fadiga no ponto de solda da bobina AT&quot;"></textarea>
-            <p class="rtd-hint">Preenchida, esta reprova específica passa para "Finalizado" — as demais reprovas deste N° de série não são afetadas.</p>
+            <p class="rtd-hint">Salva só o texto por enquanto — esta reprova específica passa para "Finalizado" ao enviar a Triagem (botão "Enviar" no fim da página). As demais reprovas deste N° de série não são afetadas.</p>
         </div>
         <div class="modal-foot">
             <button type="button" class="btn btn-secondary" id="rtd-causaraiz-cancelar">Cancelar</button>

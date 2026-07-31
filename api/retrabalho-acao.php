@@ -285,7 +285,8 @@ try {
         // ─── Registrar Triagem — 0+ reprovas novas, além das já existentes ─────
         // A Triagem (chegada/observações/setores/materiais/anexos) é compartilhada
         // por todo o lote de um mesmo N° de série + projeto — causa raiz é exceção,
-        // ver acao=definir_causa_raiz (por reprova, não entra nesta sincronização).
+        // rascunhada por reprova em acao=definir_causa_raiz, mas só finaliza a
+        // reprova quando a Triagem inteira é reenviada (aqui, mais abaixo).
         // Uma nova reprova é opcional aqui: se já existe pelo menos 1 reprova aberta
         // para este NS/projeto (ex.: a que criou o retrabalho lá na Produção), o
         // envio só precisa atualizar os dados da Triagem nela — não é obrigatório
@@ -384,10 +385,6 @@ try {
             // A Triagem é compartilhada: sincroniza os campos em TODAS as reprovas
             // abertas deste NS/projeto, novas e já existentes — não só nas novas.
             // data_chegada e data_inicio ficam de fora do SET: nunca são sobrescritas por aqui.
-            // status/causa_raiz/concluido_em também ficam de fora: causa_raiz agora é por
-            // reprova (ver acao=definir_causa_raiz), então status/concluido_em derivados
-            // dela também são por reprova — sincronizar aqui sobrescreveria uma reprova já
-            // finalizada toda vez que a Triagem fosse reenviada.
             $todosIds = array_merge($idsExistentes, $novosIds);
             if ($todosIds) {
                 $ph = implode(',', array_fill(0, count($todosIds), '?'));
@@ -401,6 +398,14 @@ try {
                     $c['observacoes'], $c['setores_destino'],
                     ...$todosIds,
                 ]);
+
+                // Causa raiz é rascunhada por reprova (acao=definir_causa_raiz, sem finalizar
+                // ainda) — só finaliza de fato quando a Triagem inteira é reenviada, aqui.
+                // Não afeta reprovas sem causa raiz nem as já encerradas.
+                $pdo->prepare("
+                    UPDATE retrabalhos SET status = 'finalizado', concluido_em = COALESCE(concluido_em, NOW())
+                    WHERE id IN ($ph) AND causa_raiz IS NOT NULL AND status NOT IN ('finalizado', 'aprovado')
+                ")->execute($todosIds);
             }
 
             gravarMateriaisUsados($pdo, (int) $idLote, lerMateriaisUsados($pdo), $userId);
@@ -439,8 +444,11 @@ try {
         // ─── Causa raiz de UMA reprova específica ──────────────────────────────
         // Ao contrário dos demais campos da Triagem, causa raiz não é compartilhada
         // entre as reprovas do mesmo N° de série — cada uma tem a sua, definida
-        // aqui (popup em pages/retrabalho/detalhe.php). Preenchida, finaliza só
-        // esta reprova; as demais do mesmo lote continuam com o status que já tinham.
+        // aqui (popup em pages/retrabalho/detalhe.php). Só grava o texto — NÃO
+        // finaliza a reprova ainda: isso só acontece ao reenviar a Triagem inteira
+        // (botão "Enviar" -> acao=registrar), que finaliza toda reprova com causa
+        // raiz preenchida. Dá pra rascunhar a causa raiz e continuar mexendo na
+        // Triagem antes de confirmar o envio.
         case 'definir_causa_raiz': {
             $id        = (int) ($_POST['id'] ?? 0);
             $causaRaiz = trim((string) ($_POST['causa_raiz'] ?? ''));
@@ -451,25 +459,18 @@ try {
                 exit;
             }
 
-            $stmt = $pdo->prepare("SELECT status, data_finalizacao, concluido_em FROM retrabalhos WHERE id = ? AND deleted_at IS NULL");
+            $stmt = $pdo->prepare("SELECT id FROM retrabalhos WHERE id = ? AND deleted_at IS NULL");
             $stmt->execute([$id]);
-            $atual = $stmt->fetch();
-            if (!$atual) {
+            if (!$stmt->fetch()) {
                 http_response_code(400);
                 echo json_encode(['sucesso' => false, 'erro' => 'Reprova não encontrada.']);
                 exit;
             }
 
             $causaRaizVal = $causaRaiz !== '' ? $causaRaiz : null;
-            $status = derivarStatus(['causa_raiz' => $causaRaizVal, 'data_finalizacao' => $atual['data_finalizacao']], $atual['status']);
-            $concluidoEm = in_array($status, ['finalizado', 'aprovado'], true)
-                ? ($atual['concluido_em'] ?: date('Y-m-d H:i:s'))
-                : null;
+            $pdo->prepare("UPDATE retrabalhos SET causa_raiz = ? WHERE id = ?")->execute([$causaRaizVal, $id]);
 
-            $pdo->prepare("UPDATE retrabalhos SET causa_raiz = ?, status = ?, concluido_em = ? WHERE id = ?")
-                ->execute([$causaRaizVal, $status, $concluidoEm, $id]);
-
-            echo json_encode(['sucesso' => true, 'mensagem' => 'Causa raiz salva.', 'status' => $status]);
+            echo json_encode(['sucesso' => true, 'mensagem' => 'Causa raiz salva.']);
             break;
         }
 
