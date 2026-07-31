@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../config/conexao.php';
 require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../includes/helpers.php';
+require_once __DIR__ . '/../../includes/planilha-ns-of.php';
 
 requireLogin();
 
@@ -17,7 +18,9 @@ $fFamilia = trim((string) ($_GET['familia'] ?? ''));
 $fMes     = trim((string) ($_GET['mes'] ?? ''));
 
 $LOCAIS_VALIDOS  = ['IQF', 'LAB', 'GER'];
-$STATUS_VALIDOS  = ['agu_abertura', 'agu_causa_raiz', 'finalizado'];
+// Finalizado/Aprovado escondidos a pedido — esses status agora vivem só na
+// Relação do Histórico (ver pages/retrabalho/historico.php).
+$STATUS_VALIDOS  = ['agu_abertura', 'agu_causa_raiz'];
 $DIAS_FLAG       = 15; // acima disso, sinaliza "parado há muito tempo"
 
 if (!in_array($fLocal, $LOCAIS_VALIDOS, true)) $fLocal = '';
@@ -32,7 +35,7 @@ if (isset($_GET['status_touched'])) {
 
 // Ordenação (clique nas colunas da tabela) — agora em nível de projeto (grupo).
 // Sem "sort" na URL, usa a ordenação padrão: projeto com o caso mais urgente primeiro.
-$SORT_COLS_VALIDAS = ['pedido', 'projeto', 'descricao', 'potencia', 'classe', 'registros', 'repetencias'];
+$SORT_COLS_VALIDAS = ['data_pcp', 'prioridade', 'pedido', 'projeto', 'descricao', 'potencia', 'classe', 'registros', 'repetencias'];
 $sortCol = (string) ($_GET['sort'] ?? '');
 if ($sortCol !== '' && !in_array($sortCol, $SORT_COLS_VALIDAS, true)) $sortCol = '';
 $sortDir = ($_GET['dir'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
@@ -84,7 +87,7 @@ $sql = "
     SELECT r.*,
            u.nome    AS responsavel_nome,
            pr.codigo AS projeto_codigo, pr.descricao AS projeto_descricao, pr.id_pedido AS id_pedido,
-           ped.numero AS pedido_numero,
+           ped.numero AS pedido_numero, ped.prioridade AS pedido_prioridade,
            rep.codigo AS reprova_codigo, rep.familia AS reprova_familia,
            rep.descricao AS reprova_descricao, rep.local AS reprova_local
     $fromSql
@@ -107,18 +110,23 @@ $qtdPorNs = $pdo->query("
 // Contado em dias úteis (seg-sex) a partir da data de início do retrabalho (não da reprova).
 $hoje        = new DateTime('today');
 $RANK_FLAG   = ['vermelho' => 4, 'laranja' => 3, 'amarelo' => 2, 'verde' => 1];
-$RANK_STATUS = ['agu_abertura' => 2, 'agu_causa_raiz' => 1, 'finalizado' => 0];
+$RANK_STATUS = ['agu_abertura' => 2, 'agu_causa_raiz' => 1, 'finalizado' => 0, 'aprovado' => 0];
+// "finalizado" (causa raiz documentada) e "aprovado" (retorno ao Laboratório
+// aprovado sem causa raiz) são os dois status encerrados — tratados igual aqui.
+$STATUS_ENCERRADOS = ['finalizado', 'aprovado'];
 foreach ($registros as &$r) {
     $r['_qtdReprovas'] = $qtdPorNs[$r['ns_transformador']] ?? 1;
+    $r['_dataPcp']     = buscarDataPcpPorNs((string) $r['ns_transformador']);
+    $encerrado = in_array($r['status'], $STATUS_ENCERRADOS, true);
 
     $baseData = $r['data_inicio'] ?? $r['data_reprova'] ?? $r['created_at'];
     $dias = null;
     if ($baseData) {
         $ini = new DateTime(substr((string) $baseData, 0, 10));
-        if ($r['status'] === 'finalizado' && $r['concluido_em']) {
+        if ($encerrado && $r['concluido_em']) {
             $fim  = new DateTime(substr((string) $r['concluido_em'], 0, 10));
             $dias = diasUteisEntre($ini, $fim);
-        } elseif ($r['status'] !== 'finalizado') {
+        } elseif (!$encerrado) {
             $dias = diasUteisEntre($ini, $hoje);
         }
     }
@@ -127,7 +135,7 @@ foreach ($registros as &$r) {
     // Flag por faixa de dias em retrabalho (só para os em aberto):
     // verde 1-3 · amarelo 4-5 · laranja 6-10 · vermelho 11+
     $corFlag = null;
-    if ($r['status'] !== 'finalizado' && $dias !== null) {
+    if (!$encerrado && $dias !== null) {
         if ($dias <= 3)      $corFlag = 'verde';
         elseif ($dias <= 5)  $corFlag = 'amarelo';
         elseif ($dias <= 10) $corFlag = 'laranja';
@@ -150,6 +158,7 @@ foreach ($registros as $r) {
             'projeto_codigo'    => $r['projeto_codigo'],
             'projeto_descricao' => $r['projeto_descricao'],
             'pedido_numero'     => $r['pedido_numero'],
+            'prioridade'        => $r['pedido_prioridade'],
             'potencia'          => $potencia,
             'classe'            => $classe,
             'itens'             => [],
@@ -158,6 +167,7 @@ foreach ($registros as $r) {
             '_statusRank'       => 0,
             '_dias'             => -1,
             '_maxId'            => 0,
+            '_dataPcp'          => null,
         ];
     }
     $g = &$grupos[$gid];
@@ -166,6 +176,9 @@ foreach ($registros as $r) {
     $g['_statusRank'] = max($g['_statusRank'], $r['_statusRank']);
     $g['_dias']       = max($g['_dias'], $r['_dias'] ?? -1);
     $g['_maxId']      = max($g['_maxId'], (int) $r['id']);
+    if ($r['_dataPcp'] !== null && ($g['_dataPcp'] === null || $r['_dataPcp'] < $g['_dataPcp'])) {
+        $g['_dataPcp'] = $r['_dataPcp'];
+    }
     if ($r['_qtdReprovas'] > 1) $g['ns_repetidos'][(string) $r['ns_transformador']] = true;
     unset($g);
 }
@@ -181,10 +194,15 @@ foreach ($grupos as &$g) {
 unset($g);
 $grupos = array_values($grupos);
 
+// Prioridade mais urgente primeiro quando ordenado (vermelho = mais urgente).
+const RT_PRIORIDADE_RANK = ['vermelho' => 5, 'laranja' => 4, 'amarelo' => 3, 'verde' => 2, 'azul' => 1];
+
 /** Valor de um grupo (projeto) usado para ordenar a listagem principal. */
 function rtGroupSortValue(array $g, string $col): string|int
 {
     return match ($col) {
+        'data_pcp'    => (string) ($g['_dataPcp'] ?? ''),
+        'prioridade'  => RT_PRIORIDADE_RANK[$g['prioridade'] ?? ''] ?? 0,
         'pedido'      => (string) ($g['pedido_numero'] ?? ''),
         'projeto'     => (string) ($g['projeto_codigo'] ?? ''),
         'descricao'   => (string) ($g['projeto_descricao'] ?? ''),
@@ -239,12 +257,14 @@ $statusMap = [
     'agu_abertura'   => ['label' => 'Agu. Abertura',   'bg' => '#fef2f2', 'fg' => '#dc2626'],
     'agu_causa_raiz' => ['label' => 'Agu. Causa Raiz', 'bg' => '#fffbeb', 'fg' => '#d97706'],
     'finalizado'     => ['label' => 'Finalizado',      'bg' => '#ecfdf5', 'fg' => '#16a34a'],
+    'aprovado'       => ['label' => 'Aprovado',        'bg' => '#eff6ff', 'fg' => '#2563eb'],
 ];
 $localMap = [
     'IQF' => ['label' => 'IQF', 'title' => 'Inspeção final', 'bg' => '#eff6ff', 'fg' => '#2563eb'],
     'LAB' => ['label' => 'LAB', 'title' => 'Laboratório',    'bg' => '#f5f3ff', 'fg' => '#7c3aed'],
     'GER' => ['label' => 'GER', 'title' => 'Geral',          'bg' => '#f0fdf4', 'fg' => '#16a34a'],
 ];
+$prioridadesInfo = pedidoPrioridades();
 
 function fmtDataBR(?string $iso): string
 {
@@ -310,11 +330,12 @@ layoutHeader($pageTitle);
     .rt-th-link:hover { color:#E89B1C; text-decoration:none; }
     .rt-th-link.active { color:#1a3d2a; font-weight:700; }
     .rt-table td { padding:9px 10px; border-bottom:1px solid var(--color-border,#f1f5f9); vertical-align:middle; }
-    .rt-table th:nth-child(2), .rt-table td:nth-child(2),
     .rt-table th:nth-child(3), .rt-table td:nth-child(3),
     .rt-table th:nth-child(4), .rt-table td:nth-child(4),
-    .rt-table th:nth-child(7), .rt-table td:nth-child(7),
-    .rt-table th:nth-child(8), .rt-table td:nth-child(8) { text-align:center; }
+    .rt-table th:nth-child(5), .rt-table td:nth-child(5),
+    .rt-table th:nth-child(6), .rt-table td:nth-child(6),
+    .rt-table th:nth-child(9), .rt-table td:nth-child(9),
+    .rt-table th:nth-child(10), .rt-table td:nth-child(10) { text-align:center; }
     .rt-table tr:hover td { background:var(--color-surface-2,#f9fafb); }
     .rt-code { font-family:'JetBrains Mono',monospace; font-weight:600; }
     .rt-badge { display:inline-block; padding:2px 9px; border-radius:9999px; font-size:11px; font-weight:600; white-space:nowrap; }
@@ -332,6 +353,9 @@ layoutHeader($pageTitle);
     .rt-btn-chegada { background:#16a34a; border:1px solid #16a34a; border-radius:8px; padding:6px 12px; display:inline-flex; align-items:center; gap:6px; cursor:pointer; color:#fff; text-decoration:none; font-size:12px; font-weight:600; white-space:nowrap; }
     .rt-btn-chegada:hover { background:#15803d; border-color:#15803d; color:#fff; text-decoration:none; }
     .rt-btn-chegada svg { width:14px; height:14px; }
+    .rt-del-btn { background:none; border:1px solid var(--color-border,#e5e7eb); border-radius:6px; width:28px; height:28px; padding:0; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; color:var(--color-text-muted,#9aa3b8); }
+    .rt-del-btn svg { width:14px; height:14px; }
+    .rt-del-btn:hover { border-color:#dc2626; color:#dc2626; background:#fef2f2; }
     .rt-toggle-btn { background:#fff; border:1px solid var(--color-border,#e5e7eb); border-radius:6px; width:24px; height:24px; padding:0; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; font-size:15px; font-weight:700; line-height:1; color:var(--color-text-secondary,#5a6480); }
     .rt-toggle-btn:hover { border-color:#E89B1C; color:#E89B1C; }
     .rt-detail-row { display:none; }
@@ -373,7 +397,6 @@ layoutHeader($pageTitle);
             Listagem detalhada de todos os retrabalhos, com filtros e paginação
         </p>
     </div>
-    <button type="button" class="rt-btn-acc" id="btn-novo-retrabalho">+ Registrar um retrabalho</button>
 </div>
 
 <!-- Abas por local -->
@@ -423,7 +446,7 @@ layoutHeader($pageTitle);
         <div class="rt-filtros-right">
             <div class="rt-check-row">
                 <span class="lbl">Mostrar:</span>
-                <?php foreach ($statusMap as $k => $info): ?>
+                <?php foreach ($STATUS_VALIDOS as $k): $info = $statusMap[$k]; ?>
                     <label>
                         <input type="checkbox" name="status[]" value="<?= $k ?>" onchange="this.form.submit()" <?= in_array($k, $fStatus, true) ? 'checked' : '' ?>>
                         <?= htmlspecialchars($info['label']) ?>
@@ -439,6 +462,8 @@ layoutHeader($pageTitle);
                 <tr>
                     <th style="width:32px;"></th>
                     <?php
+                    rtSortTh('Data PCP', 'data_pcp');
+                    rtSortTh('Prioridade', 'prioridade');
                     rtSortTh('Pedido', 'pedido');
                     rtSortTh('Projeto', 'projeto');
                     rtSortTh('Descrição', 'descricao');
@@ -451,13 +476,20 @@ layoutHeader($pageTitle);
             </thead>
             <tbody>
                 <?php if (!$gruposPagina): ?>
-                    <tr><td colspan="8"><div class="rt-empty">Nenhum retrabalho encontrado para os filtros selecionados.</div></td></tr>
+                    <tr><td colspan="10"><div class="rt-empty">Nenhum retrabalho encontrado para os filtros selecionados.</div></td></tr>
                 <?php else: foreach ($gruposPagina as $g):
                     $detId = 'rt-det-' . $g['id_projeto'] . '-' . $g['_maxId'];
+                    $gPrio = $prioridadesInfo[$g['prioridade']] ?? null;
                 ?>
                     <tr class="rt-group-row">
                         <td>
                             <button type="button" class="rt-toggle-btn js-toggle-grupo" data-target="<?= htmlspecialchars($detId) ?>" aria-expanded="false" title="Mostrar números de série">+</button>
+                        </td>
+                        <td><?= $g['_dataPcp'] !== null ? htmlspecialchars(fmtDataBR($g['_dataPcp'])) : '—' ?></td>
+                        <td>
+                            <?php if ($gPrio): ?>
+                                <span class="rt-badge" style="background:<?= $gPrio['bg'] ?>;color:<?= $gPrio['fg'] ?>;"><?= htmlspecialchars($gPrio['label']) ?></span>
+                            <?php else: ?>—<?php endif; ?>
                         </td>
                         <td><?= htmlspecialchars($g['pedido_numero'] ?? '—') ?></td>
                         <td><span class="rt-code"><?= htmlspecialchars($g['projeto_codigo'] ?? '—') ?></span></td>
@@ -474,14 +506,14 @@ layoutHeader($pageTitle);
                         </td>
                     </tr>
                     <tr class="rt-detail-row" id="<?= htmlspecialchars($detId) ?>">
-                        <td colspan="8">
+                        <td colspan="10">
                             <div class="rt-detail-wrap">
                                 <div style="overflow-x:auto;">
                                 <table class="rt-subtable">
                                     <thead>
                                         <tr>
                                             <th>N° Série</th><th>Contenção</th><th>Família</th><th>Local</th><th>Responsável</th>
-                                            <th>Status</th><th>Parado há</th><th>Data reprova</th><th>Flags</th><th>Reincidências</th><th></th>
+                                            <th>Status</th><th>Parado há</th><th>Data reprova</th><th>Flags</th><th>Reincidências</th><th></th><th></th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -491,7 +523,7 @@ layoutHeader($pageTitle);
                                             $diasTxt = '—';
                                             $diasClass = '';
                                             if ($r['_dias'] !== null) {
-                                                if ($r['status'] === 'finalizado') {
+                                                if (in_array($r['status'], ['finalizado', 'aprovado'], true)) {
                                                     $diasTxt = $r['_dias'] . 'd (concluído)';
                                                 } else {
                                                     $diasTxt = $r['_dias'] . 'd';
@@ -538,6 +570,11 @@ layoutHeader($pageTitle);
                                                             Triagem
                                                         </a>
                                                     <?php endif; ?>
+                                                </td>
+                                                <td>
+                                                    <button type="button" class="rt-del-btn js-del-reprova" data-id="<?= (int) $r['id'] ?>" title="Excluir esta reprova">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                                                    </button>
                                                 </td>
                                             </tr>
                                         <?php endforeach; ?>

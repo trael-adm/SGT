@@ -95,6 +95,31 @@
         });
     }
 
+    // ─── Excluir uma reprova direto da lista (sem abrir a Triagem) ─────────────
+    // Delegado no document (mesmo motivo do toggle de grupo, logo abaixo): o
+    // auto-refresh recria a tabela periodicamente. Exclusão é soft delete (acao=
+    // excluir) — se essa era a última reprova do N° de série, ele some da lista
+    // no próximo refresh (mesmo filtro deleted_at IS NULL usado na consulta).
+    document.addEventListener('click', function (e) {
+        var btn = e.target.closest('.js-del-reprova');
+        if (!btn || btn.disabled) return;
+
+        if (!window.confirm('Excluir esta reprova? Esta ação não pode ser desfeita por aqui.')) return;
+
+        btn.disabled = true;
+        postAcao({ acao: 'excluir', id: btn.dataset.id }).then(function (res) {
+            if (res && res.sucesso) {
+                window.location.reload();
+            } else {
+                notify((res && res.erro) || 'Erro ao excluir a reprova.', 'danger');
+                btn.disabled = false;
+            }
+        }).catch(function () {
+            notify('Falha de conexão ao excluir a reprova.', 'danger');
+            btn.disabled = false;
+        });
+    });
+
     // ─── Expandir / recolher grupo (projeto) na Relação de Retrabalhos ─────────
     // Delegado no document (não em cada botão): sobrevive à troca de HTML da
     // tabela pelo auto-refresh (ver iniciarAutoRefresh() em app.js), que recria

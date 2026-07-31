@@ -14,13 +14,14 @@ if ($_sRelSelf === '') $_sRelSelf = '/';
 // Retrabalho/Projetos ficam escondidos nessa seção (mas continuam normais nas demais).
 // O mesmo vale ao contrário: dentro de Retrabalho/Relação/Projetos, o item Produção some.
 $_sEmProducao   = str_starts_with($_sRelSelf, '/pages/producao/');
-$_sEmRetrabalho = str_starts_with($_sRelSelf, '/pages/retrabalho/') || str_starts_with($_sRelSelf, '/pages/projetos/');
+$_sEmRetrabalho = str_starts_with($_sRelSelf, '/pages/retrabalho/') || str_starts_with($_sRelSelf, '/pages/projetos/')
+    || str_starts_with($_sRelSelf, '/pages/pedidos/');
 
 // Itens do menu, agrupados por subtítulo (nav-group-label). Um grupo com 'rotulo' null
 // não imprime cabeçalho — segue direto após o grupo anterior.
 $_sGrupos = [
     [
-        'rotulo' => 'Fábrica',
+        'rotulo' => $_sEmRetrabalho ? 'Retrabalho' : 'Fábrica',
         'itens'  => [
             [
                 'href'  => '/index.php',
@@ -68,9 +69,20 @@ $_sGrupos = [
                 'esconderEmProducao' => true,
             ],
             [
-                'href'  => '/pages/projetos/index.php',
-                'label' => 'Projetos',
-                'icon'  => '<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>',
+                'href'  => '/pages/pedidos/prioridade.php',
+                'label' => 'Prioridade',
+                'icon'  => '<circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>',
+                'esconderEmProducao' => true,
+            ],
+        ],
+    ],
+    [
+        'rotulo' => 'Análise',
+        'itens'  => [
+            [
+                'href'  => '/pages/retrabalho/historico.php',
+                'label' => 'Histórico',
+                'icon'  => '<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>',
                 'esconderEmProducao' => true,
             ],
         ],

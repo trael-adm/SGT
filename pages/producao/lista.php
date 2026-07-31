@@ -21,12 +21,8 @@ $fMes     = trim((string) ($_GET['mes'] ?? ''));
 if (!in_array($fEstacao, $ESTACOES_VALIDAS, true)) $fEstacao = '';
 if (!preg_match('/^\d{4}-\d{2}$/', $fMes))          $fMes = '';
 
-// "Mostrar" (status): sem toque no form ainda, mostra tudo por padrão.
-if (isset($_GET['status_touched'])) {
-    $fStatus = array_values(array_intersect((array) ($_GET['status'] ?? []), $STATUS_VALIDOS));
-} else {
-    $fStatus = $STATUS_VALIDOS;
-}
+// "Mostrar" (status): checkboxes escondidos a pedido — mostra sempre tudo.
+$fStatus = $STATUS_VALIDOS;
 
 // Ordenação (clique nas colunas da tabela)
 $SORT_COLS_VALIDAS = ['ns', 'projeto', 'pedido', 'estacao', 'status', 'inicio', 'fim', 'responsavel'];
@@ -181,8 +177,7 @@ function lstSortTh(string $label, string $key): void
        . htmlspecialchars($label) . $seta . '</a></th>';
 }
 
-$temFiltroAtivo = $fBusca !== '' || $fEstacao !== '' || $fMes !== ''
-    || (isset($_GET['status_touched']) && $fStatus !== $STATUS_VALIDOS);
+$temFiltroAtivo = $fBusca !== '' || $fEstacao !== '' || $fMes !== '';
 
 $pageTitle = 'Lista de Registros';
 require_once __DIR__ . '/../../includes/layout.php';
@@ -276,7 +271,6 @@ layoutHeader($pageTitle);
     <!-- Filtros -->
     <form method="GET" class="lst-filtros" id="lst-filtros">
         <input type="hidden" name="estacao" value="<?= htmlspecialchars($fEstacao) ?>">
-        <input type="hidden" name="status_touched" value="1">
 
         <div class="lst-filtros-left">
             <input type="search" name="busca" value="<?= htmlspecialchars($fBusca) ?>" placeholder="Buscar N° de série, projeto, pedido, responsável…" style="min-width:280px;">
@@ -292,18 +286,6 @@ layoutHeader($pageTitle);
             <?php if ($temFiltroAtivo): ?>
                 <a href="<?= htmlspecialchars($base) ?>/pages/producao/lista.php" class="lst-btn-secondary">Limpar</a>
             <?php endif; ?>
-        </div>
-
-        <div class="lst-filtros-right">
-            <div class="lst-check-row">
-                <span class="lbl">Mostrar:</span>
-                <?php foreach ($statusMap as $k => $info): ?>
-                    <label>
-                        <input type="checkbox" name="status[]" value="<?= $k ?>" onchange="this.form.submit()" <?= in_array($k, $fStatus, true) ? 'checked' : '' ?>>
-                        <?= htmlspecialchars($info['label']) ?>
-                    </label>
-                <?php endforeach; ?>
-            </div>
         </div>
     </form>
 

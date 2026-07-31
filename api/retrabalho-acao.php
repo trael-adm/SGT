@@ -81,6 +81,55 @@ function lerSetoresDestino(): ?string
 }
 
 /**
+ * Lê o checklist de materiais utilizados (`material_usado[]` + `material_qtd[id]`,
+ * mais o item livre `material_outro_*`). Cada item marcado vira uma linha em
+ * retrabalho_material_uso — ver gravarMateriaisUsados(). IDs fora do catálogo
+ * ativo são ignorados (o catálogo é a fonte de verdade, igual setores_destino).
+ */
+function lerMateriaisUsados(PDO $pdo): array
+{
+    $catalogoIds = array_column($pdo->query("SELECT id FROM retrabalho_materiais_catalogo WHERE ativo = 1")->fetchAll(), 'id');
+    $marcados    = array_map('intval', (array) ($_POST['material_usado'] ?? []));
+    $qtds        = (array) ($_POST['material_qtd'] ?? []);
+
+    $itens = [];
+    foreach (array_unique($marcados) as $idMaterial) {
+        if (!in_array($idMaterial, $catalogoIds, true)) continue;
+        $qtd = (float) str_replace(',', '.', (string) ($qtds[$idMaterial] ?? 0));
+        $itens[] = ['id_material' => $idMaterial, 'material_outro' => null, 'quantidade' => max(0, $qtd)];
+    }
+
+    if (($_POST['material_outro_check'] ?? '') === '1') {
+        $desc = trim((string) ($_POST['material_outro_desc'] ?? ''));
+        if ($desc !== '') {
+            $qtd = (float) str_replace(',', '.', (string) ($_POST['material_outro_qtd'] ?? 0));
+            $itens[] = ['id_material' => null, 'material_outro' => $desc, 'quantidade' => max(0, $qtd)];
+        }
+    }
+
+    return $itens;
+}
+
+/**
+ * Grava o checklist de materiais utilizados na Triagem: como o formulário envia
+ * sempre o conjunto completo (igual causa/observações/setores), substitui tudo
+ * que já estava gravado para este lote em vez de acumular reenvios.
+ */
+function gravarMateriaisUsados(PDO $pdo, int $idLote, array $itens, int $userId): void
+{
+    $pdo->prepare("DELETE FROM retrabalho_material_uso WHERE id_lote = ?")->execute([$idLote]);
+    if (!$itens) return;
+
+    $stmt = $pdo->prepare("
+        INSERT INTO retrabalho_material_uso (id_lote, id_material, material_outro, quantidade, id_criador)
+        VALUES (?, ?, ?, ?, ?)
+    ");
+    foreach ($itens as $it) {
+        $stmt->execute([$idLote, $it['id_material'], $it['material_outro'], $it['quantidade'], $userId]);
+    }
+}
+
+/**
  * Move os anexos enviados em `anexos[]` (multipart) para o diretório final, uma
  * única vez. Valida extensão + MIME real do arquivo. Retorna a lista de arquivos
  * movidos (para depois vincular a 1+ retrabalhos com vincularAnexos()) ou uma
@@ -168,12 +217,15 @@ function vincularAnexos(PDO $pdo, array $arquivos, array $idsRetrabalho, int $us
  * Deriva o status a partir dos dados (fluxo por etapas, automático ao salvar):
  *   causa raiz preenchida        -> finalizado
  *   data de finalização presente -> agu_causa_raiz
+ *   já está "aprovado" (retorno ao Laboratório aprovado) -> mantém, a menos que
+ *   os campos acima empurrem o fluxo adiante
  *   senão                        -> agu_abertura
  */
-function derivarStatus(array $c): string
+function derivarStatus(array $c, ?string $statusAtual = null): string
 {
     if ($c['causa_raiz'] !== null)       return 'finalizado';
     if ($c['data_finalizacao'] !== null) return 'agu_causa_raiz';
+    if ($statusAtual === 'aprovado')     return 'aprovado';
     return 'agu_abertura';
 }
 
@@ -231,11 +283,13 @@ try {
     switch ($acao) {
 
         // ─── Registrar Triagem — 0+ reprovas novas, além das já existentes ─────
-        // A Triagem (chegada/causa/observações/setores/anexos) é compartilhada por
-        // todo o lote de um mesmo N° de série + projeto. Uma nova reprova é opcional
-        // aqui: se já existe pelo menos 1 reprova aberta para este NS/projeto (ex.:
-        // a que criou o retrabalho lá na Produção), o envio só precisa atualizar os
-        // dados da Triagem nela — não é obrigatório abrir outra reprova a cada envio.
+        // A Triagem (chegada/observações/setores/materiais/anexos) é compartilhada
+        // por todo o lote de um mesmo N° de série + projeto — causa raiz é exceção,
+        // ver acao=definir_causa_raiz (por reprova, não entra nesta sincronização).
+        // Uma nova reprova é opcional aqui: se já existe pelo menos 1 reprova aberta
+        // para este NS/projeto (ex.: a que criou o retrabalho lá na Produção), o
+        // envio só precisa atualizar os dados da Triagem nela — não é obrigatório
+        // abrir outra reprova a cada envio.
         case 'registrar': {
             $c        = lerCamposRetrabalho();
             $reprovas = lerReprovasEmLote();
@@ -325,20 +379,26 @@ try {
             // A Triagem é compartilhada: sincroniza os campos em TODAS as reprovas
             // abertas deste NS/projeto, novas e já existentes — não só nas novas.
             // data_chegada e data_inicio ficam de fora do SET: nunca são sobrescritas por aqui.
+            // status/causa_raiz/concluido_em também ficam de fora: causa_raiz agora é por
+            // reprova (ver acao=definir_causa_raiz), então status/concluido_em derivados
+            // dela também são por reprova — sincronizar aqui sobrescreveria uma reprova já
+            // finalizada toda vez que a Triagem fosse reenviada.
             $todosIds = array_merge($idsExistentes, $novosIds);
             if ($todosIds) {
                 $ph = implode(',', array_fill(0, count($todosIds), '?'));
                 $pdo->prepare("
                     UPDATE retrabalhos SET
                         id_lote = COALESCE(id_lote, ?), data_finalizacao = ?,
-                        status = ?, observacoes = ?, causa_raiz = ?, causa_reprova = ?, setores_destino = ?, concluido_em = ?
+                        observacoes = ?, setores_destino = ?
                     WHERE id IN ($ph)
                 ")->execute([
                     $idLote, $c['data_finalizacao'],
-                    $status, $c['observacoes'], $c['causa_raiz'], $c['causa_reprova'], $c['setores_destino'], $concluidoEm,
+                    $c['observacoes'], $c['setores_destino'],
                     ...$todosIds,
                 ]);
             }
+
+            gravarMateriaisUsados($pdo, (int) $idLote, lerMateriaisUsados($pdo), $userId);
 
             // "Laboratório" em Próximos setores manda o transformador de volta pra lá —
             // cai na aba Retornos do Produção (ver pages/producao/retornos.php) até o
@@ -371,6 +431,43 @@ try {
             break;
         }
 
+        // ─── Causa raiz de UMA reprova específica ──────────────────────────────
+        // Ao contrário dos demais campos da Triagem, causa raiz não é compartilhada
+        // entre as reprovas do mesmo N° de série — cada uma tem a sua, definida
+        // aqui (popup em pages/retrabalho/detalhe.php). Preenchida, finaliza só
+        // esta reprova; as demais do mesmo lote continuam com o status que já tinham.
+        case 'definir_causa_raiz': {
+            $id        = (int) ($_POST['id'] ?? 0);
+            $causaRaiz = trim((string) ($_POST['causa_raiz'] ?? ''));
+
+            if ($id <= 0) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Reprova inválida.']);
+                exit;
+            }
+
+            $stmt = $pdo->prepare("SELECT status, data_finalizacao, concluido_em FROM retrabalhos WHERE id = ? AND deleted_at IS NULL");
+            $stmt->execute([$id]);
+            $atual = $stmt->fetch();
+            if (!$atual) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Reprova não encontrada.']);
+                exit;
+            }
+
+            $causaRaizVal = $causaRaiz !== '' ? $causaRaiz : null;
+            $status = derivarStatus(['causa_raiz' => $causaRaizVal, 'data_finalizacao' => $atual['data_finalizacao']], $atual['status']);
+            $concluidoEm = in_array($status, ['finalizado', 'aprovado'], true)
+                ? ($atual['concluido_em'] ?: date('Y-m-d H:i:s'))
+                : null;
+
+            $pdo->prepare("UPDATE retrabalhos SET causa_raiz = ?, status = ?, concluido_em = ? WHERE id = ?")
+                ->execute([$causaRaizVal, $status, $concluidoEm, $id]);
+
+            echo json_encode(['sucesso' => true, 'mensagem' => 'Causa raiz salva.', 'status' => $status]);
+            break;
+        }
+
         // ─── Editar retrabalho ────────────────────────────────────────────────
         case 'editar': {
             $id = (int) ($_POST['id'] ?? 0);
@@ -389,7 +486,8 @@ try {
             }
 
             // Carregar carimbo atual para preservar a data de finalização já registrada
-            $stmtCur = $pdo->prepare("SELECT concluido_em FROM retrabalhos WHERE id = ? AND deleted_at IS NULL");
+            // e o status "aprovado" (não deve reverter sozinho por causa desta edição)
+            $stmtCur = $pdo->prepare("SELECT concluido_em, status FROM retrabalhos WHERE id = ? AND deleted_at IS NULL");
             $stmtCur->execute([$id]);
             $atual = $stmtCur->fetch();
             if (!$atual) {
@@ -397,8 +495,8 @@ try {
                 exit;
             }
 
-            $status      = derivarStatus($c);
-            $concluidoEm = ($status === 'finalizado')
+            $status      = derivarStatus($c, $atual['status']);
+            $concluidoEm = in_array($status, ['finalizado', 'aprovado'], true)
                 ? ($atual['concluido_em'] ?: date('Y-m-d H:i:s'))
                 : null;
 
@@ -552,6 +650,88 @@ try {
             ")->execute([$agora, $idProjeto, $ns]);
 
             echo json_encode(['sucesso' => true, 'mensagem' => 'Início do retrabalho registrado.', 'data_inicio' => $agora]);
+            break;
+        }
+
+        // ─── Aprovar retorno ao Laboratório ─────────────────────────────────────
+        // Tela "Retornos ao Laboratório": o transformador foi reinspecionado e
+        // passou. Resolve a pendência de retorno (mesmo soft-delete que a leitura
+        // de QR faz em api/producao-acao.php::case 'confirmar') e marca todas as
+        // reprovas ainda abertas deste NS/projeto como "aprovado" — status distinto
+        // de "finalizado" (que representa causa raiz já documentada). Aparece na
+        // Relação do Histórico.
+        case 'aprovar_retorno': {
+            $idProjeto = (int) ($_POST['id_projeto'] ?? 0);
+            $ns        = trim((string) ($_POST['ns_transformador'] ?? ''));
+
+            if ($idProjeto <= 0 || $ns === '') {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Registro inválido.']);
+                exit;
+            }
+
+            $stmtRet = $pdo->prepare("
+                SELECT id FROM producao_etapas
+                WHERE ns_transformador = ? AND id_projeto = ? AND estacao = 'LAB'
+                  AND status = 'aguardando_retorno' AND deleted_at IS NULL
+            ");
+            $stmtRet->execute([$ns, $idProjeto]);
+            if (!$stmtRet->fetch()) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Este transformador não está aguardando retorno.']);
+                exit;
+            }
+
+            $agora = date('Y-m-d H:i:s');
+            $pdo->prepare("
+                UPDATE producao_etapas SET deleted_at = NOW()
+                WHERE ns_transformador = ? AND id_projeto = ? AND estacao = 'LAB'
+                  AND status = 'aguardando_retorno' AND deleted_at IS NULL
+            ")->execute([$ns, $idProjeto]);
+
+            $pdo->prepare("
+                UPDATE retrabalhos SET status = 'aprovado', concluido_em = ?
+                WHERE ns_transformador = ? AND id_projeto = ? AND deleted_at IS NULL AND status NOT IN ('finalizado', 'aprovado')
+            ")->execute([$agora, $ns, $idProjeto]);
+
+            echo json_encode(['sucesso' => true, 'mensagem' => 'Retorno aprovado.']);
+            break;
+        }
+
+        // ─── Reprovar retorno ao Laboratório ────────────────────────────────────
+        // O transformador voltou a falhar na reinspeção: resolve a pendência de
+        // retorno (some da lista de "Aguardando retorno"), mas não mexe nas
+        // reprovas já registradas — elas continuam abertas na Relação de
+        // Retrabalhos, mantendo o histórico do mesmo problema já cadastrado.
+        case 'reprovar_retorno': {
+            $idProjeto = (int) ($_POST['id_projeto'] ?? 0);
+            $ns        = trim((string) ($_POST['ns_transformador'] ?? ''));
+
+            if ($idProjeto <= 0 || $ns === '') {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Registro inválido.']);
+                exit;
+            }
+
+            $stmtRet = $pdo->prepare("
+                SELECT id FROM producao_etapas
+                WHERE ns_transformador = ? AND id_projeto = ? AND estacao = 'LAB'
+                  AND status = 'aguardando_retorno' AND deleted_at IS NULL
+            ");
+            $stmtRet->execute([$ns, $idProjeto]);
+            if (!$stmtRet->fetch()) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Este transformador não está aguardando retorno.']);
+                exit;
+            }
+
+            $pdo->prepare("
+                UPDATE producao_etapas SET deleted_at = NOW()
+                WHERE ns_transformador = ? AND id_projeto = ? AND estacao = 'LAB'
+                  AND status = 'aguardando_retorno' AND deleted_at IS NULL
+            ")->execute([$ns, $idProjeto]);
+
+            echo json_encode(['sucesso' => true, 'mensagem' => 'Retorno reprovado — mantido na Relação de Retrabalhos.']);
             break;
         }
 

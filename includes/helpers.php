@@ -179,6 +179,36 @@ function retrabalhoSetoresTriagem(): array
 }
 
 /**
+ * Catálogo fixo de materiais/peças exibido na Triagem do retrabalho (checklist
+ * de "o que foi gasto e quantidade", preenchido antes da Causa da Reprova).
+ * Fonte: retrabalho_materiais_catalogo (ver _inicial/migrar-retrabalho-materiais.sql).
+ */
+function retrabalhoMateriaisCatalogo(PDO $pdo): array
+{
+    return $pdo->query("
+        SELECT id, descricao, unidade FROM retrabalho_materiais_catalogo
+        WHERE ativo = 1 ORDER BY ordem, id
+    ")->fetchAll();
+}
+
+/**
+ * Níveis de prioridade de um Pedido — mesma escala de cores do protocolo de
+ * triagem de saúde (Manchester), sem o tempo-alvo de atendimento (não se aplica
+ * aqui). Definido nesta faixa por ora, a pedido do usuário.
+ * Slug => rótulo/cores do badge, na ordem de exibição (mais urgente primeiro).
+ */
+function pedidoPrioridades(): array
+{
+    return [
+        'vermelho' => ['label' => 'Emergência',    'bg' => '#fee2e2', 'fg' => '#dc2626'],
+        'laranja'  => ['label' => 'Muito Urgente', 'bg' => '#ffedd5', 'fg' => '#c2410c'],
+        'amarelo'  => ['label' => 'Urgente',        'bg' => '#fef9c3', 'fg' => '#a16207'],
+        'verde'    => ['label' => 'Pouco Urgente', 'bg' => '#dcfce7', 'fg' => '#16a34a'],
+        'azul'     => ['label' => 'Não Urgente',   'bg' => '#dbeafe', 'fg' => '#2563eb'],
+    ];
+}
+
+/**
  * Formata segundos em texto legível: "2h 30min", "45min", "30s"
  */
 function fmtDurSegmentoPHP(int $segundos): string

@@ -34,6 +34,133 @@
         });
     }
 
+    var listaReprovas    = document.getElementById('rtd-reprovas-lista');
+    var subtitleReprovas = document.getElementById('rtd-reprovas-subtitle');
+
+    // ─── Causa raiz de uma reprova específica (popup) ──────────────────────────
+    // Cada reprova tem sua própria causa raiz — ao contrário dos outros campos da
+    // Triagem (causa da reprova/observações/setores), que são compartilhados por
+    // todo o lote, este é gravado numa ação separada (acao=definir_causa_raiz,
+    // ver api/retrabalho-acao.php) que só toca esta reprova, inclusive no status
+    // (finaliza só ela, sem mexer nas demais do mesmo N° de série).
+    var crModal   = document.getElementById('rtd-causaraiz-modal');
+    var crIdEl    = document.getElementById('rtd-causaraiz-id');
+    var crTexto   = document.getElementById('rtd-causaraiz-texto');
+    var crErro    = document.getElementById('rtd-causaraiz-erro');
+    var crSalvar  = document.getElementById('rtd-causaraiz-salvar');
+    var crBtnAtual = null;
+
+    function abrirCausaRaiz(btn) {
+        crBtnAtual = btn;
+        crIdEl.value = btn.getAttribute('data-id');
+        crTexto.value = btn.getAttribute('data-causa-raiz') || '';
+        if (crErro) { crErro.style.display = 'none'; crErro.textContent = ''; }
+        if (crModal) crModal.style.display = 'flex';
+    }
+
+    function fecharCausaRaiz() {
+        if (crModal) crModal.style.display = 'none';
+        crBtnAtual = null;
+    }
+
+    if (listaReprovas) {
+        listaReprovas.addEventListener('click', function (e) {
+            var btn = e.target.closest('.js-abrir-causa-raiz');
+            if (btn) abrirCausaRaiz(btn);
+        });
+    }
+
+    ['rtd-causaraiz-close', 'rtd-causaraiz-cancelar'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('click', fecharCausaRaiz);
+    });
+    if (crModal) {
+        crModal.addEventListener('click', function (e) { if (e.target === crModal) fecharCausaRaiz(); });
+    }
+
+    if (crSalvar) {
+        crSalvar.addEventListener('click', function () {
+            if (crErro) { crErro.style.display = 'none'; crErro.textContent = ''; }
+            crSalvar.disabled = true;
+
+            var body = new URLSearchParams({
+                acao: 'definir_causa_raiz',
+                id: crIdEl.value,
+                causa_raiz: crTexto.value
+            });
+            fetch(API, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString()
+            }).then(function (r) {
+                return r.json().catch(function () { return { sucesso: false, erro: 'Resposta inválida do servidor.' }; });
+            }).then(function (res) {
+                crSalvar.disabled = false;
+                if (!res || !res.sucesso) {
+                    if (crErro) { crErro.textContent = (res && res.erro) || 'Erro ao salvar a causa raiz.'; crErro.style.display = 'block'; }
+                    return;
+                }
+                if (crBtnAtual) {
+                    var texto = crTexto.value.trim();
+                    crBtnAtual.setAttribute('data-causa-raiz', texto);
+                    crBtnAtual.textContent = texto ? '✓ Ver / editar causa raiz' : '+ Adicionar causa raiz';
+                }
+                fecharCausaRaiz();
+            }).catch(function () {
+                crSalvar.disabled = false;
+                if (crErro) { crErro.textContent = 'Falha de conexão ao salvar a causa raiz.'; crErro.style.display = 'block'; }
+            });
+        });
+    }
+
+    // ─── Excluir uma reprova já registrada ─────────────────────────────────────
+    // Exclusão é soft delete (acao=excluir, ver api/retrabalho-acao.php) — some da
+    // lista imediatamente. Se essa era a última reprova deste N° de série, o
+    // registro inteiro sai da Relação de Retrabalhos (mesmo filtro deleted_at IS
+    // NULL usado lá): aqui, isso significa que não sobra mais nada pra mostrar
+    // nesta página, então volta pra Relação — o usuário pode começar do zero
+    // (escanear + registrar reprovas novas) como se nunca tivesse histórico.
+    if (listaReprovas) {
+        listaReprovas.addEventListener('click', function (e) {
+            var btn = e.target.closest('.js-remover-reprova');
+            if (!btn) return;
+
+            if (!window.confirm('Excluir esta reprova? Esta ação não pode ser desfeita por aqui.')) return;
+
+            var id = btn.getAttribute('data-id');
+            btn.disabled = true;
+
+            var body = new URLSearchParams({ acao: 'excluir', id: id });
+            fetch(API, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString()
+            }).then(function (r) {
+                return r.json().catch(function () { return { sucesso: false, erro: 'Resposta inválida do servidor.' }; });
+            }).then(function (res) {
+                if (!res || !res.sucesso) {
+                    alert((res && res.erro) || 'Erro ao excluir a reprova.');
+                    btn.disabled = false;
+                    return;
+                }
+                var item = btn.closest('.rtd-item');
+                if (item) item.remove();
+
+                var restantes = listaReprovas.querySelectorAll('.rtd-item').length;
+                if (restantes === 0) {
+                    window.location.href = VOLTAR || window.location.href;
+                    return;
+                }
+                if (subtitleReprovas) {
+                    subtitleReprovas.textContent = restantes + ' reprova(s) — excluir remove o código; sem nenhuma reprova, este N° de série sai da Relação de Retrabalhos';
+                }
+            }).catch(function () {
+                alert('Falha de conexão ao excluir a reprova.');
+                btn.disabled = false;
+            });
+        });
+    }
+
     // ─── Blocos repetíveis de "Código de reprova" (uma triagem, várias reprovas) ─
     var blocosWrap = document.getElementById('rtd-reprova-blocos');
     var addBlocoBtn = document.getElementById('rtd-add-bloco');
@@ -91,6 +218,17 @@
     function criarBlocoVazio() {
         var tpl = document.getElementById('rtd-bloco-template');
         return tpl.content.firstElementChild.cloneNode(true);
+    }
+
+    // ─── Materiais utilizados: marca o checkbox sozinho ao digitar quantidade/descrição ──
+    var materiaisWrap = document.querySelector('.rtd-materiais');
+    if (materiaisWrap) {
+        materiaisWrap.addEventListener('input', function (e) {
+            if (!e.target.matches('input[type=number], input.rtd-material-outros-desc')) return;
+            var item = e.target.closest('.rtd-material-item');
+            var chk = item && item.querySelector('.js-material-check');
+            if (chk && e.target.value.trim() !== '') chk.checked = true;
+        });
     }
 
     // ─── Envio (Triagem + 1 ou mais reprovas) ──────────────────────────────────

@@ -47,23 +47,48 @@ function buscarPlanilhaOF(string $cdOf): ?array
 }
 
 /**
- * Carrega o índice cd_of -> dados, cacheado em disco e reconstruído
- * automaticamente sempre que o arquivo fonte mudar (mtime + tamanho).
- * Evita reprocessar dezenas de milhares de linhas a cada leitura de etiqueta:
- * a planilha inteira leva alguns segundos para reprocessar; o cache carrega
- * em milissegundos.
+ * Data PCP (DataEntraProducao) de um N° de série, para exibição na Relação de
+ * Retrabalhos (coluna "Data PCP"). Devolve null se o NS não constar na última
+ * versão carregada da planilha ou não tiver essa data preenchida.
  */
+function buscarDataPcpPorNs(string $ns): ?string
+{
+    $ns = trim($ns);
+    if ($ns === '') return null;
+    $indice = carregarIndicePlanilhaOFPorNs();
+    return $indice[$ns]['data_pcp'] ?? null;
+}
+
+/** Índice cd_of -> dados (etiqueta de OF), ver construirIndicePlanilhaOF(). */
 function carregarIndicePlanilhaOF(): array
+{
+    return carregarIndiceCompletoPlanilhaOF()['porCdOf'];
+}
+
+/** Índice N° de série -> dados (ex.: Data PCP), ver construirIndicePlanilhaOF(). */
+function carregarIndicePlanilhaOFPorNs(): array
+{
+    return carregarIndiceCompletoPlanilhaOF()['porNs'];
+}
+
+/**
+ * Carrega os dois índices da planilha (por cd_of e por N° de série), cacheados
+ * em disco e reconstruídos automaticamente sempre que o arquivo fonte mudar
+ * (mtime + tamanho). Evita reprocessar dezenas de milhares de linhas a cada
+ * leitura de etiqueta: a planilha inteira leva alguns segundos para
+ * reprocessar; o cache carrega em milissegundos.
+ */
+function carregarIndiceCompletoPlanilhaOF(): array
 {
     static $memo = null;
     if ($memo !== null) return $memo;
 
-    if (!is_file(PLANILHA_NS_OF_ARQUIVO)) return $memo = [];
+    if (!is_file(PLANILHA_NS_OF_ARQUIVO)) return $memo = ['porCdOf' => [], 'porNs' => []];
 
     // Prefixo de versão do formato do índice em cache — muda sempre que o conjunto de
-    // colunas extraídas mudar (ex.: adição de descricao/cliente), forçando reconstrução
-    // mesmo que o arquivo fonte não tenha sido tocado.
-    $assinatura = 'v2:' . filemtime(PLANILHA_NS_OF_ARQUIVO) . ':' . filesize(PLANILHA_NS_OF_ARQUIVO);
+    // colunas extraídas mudar (ex.: adição de descricao/cliente/DataEntraProducao),
+    // forçando reconstrução mesmo que o arquivo fonte não tenha sido tocado.
+    $assinatura = 'v3:' . filemtime(PLANILHA_NS_OF_ARQUIVO) . ':' . filesize(PLANILHA_NS_OF_ARQUIVO);
 
     if (is_file(PLANILHA_NS_OF_CACHE)) {
         $raw    = @file_get_contents(PLANILHA_NS_OF_CACHE);
@@ -83,12 +108,13 @@ function carregarIndicePlanilhaOF(): array
 }
 
 /**
- * Lê o .xlsx via PharData e monta o índice. Os índices de coluna vêm da
+ * Lê o .xlsx via PharData e monta os dois índices (por cd_of e por N° de
+ * série) numa única passada pelas linhas. Os índices de coluna vêm da
  * definição da tabela do Excel (xl/tables/table1.xml) em vez de fixos por
  * letra — sobrevive a reordenação de colunas na planilha de origem. Se a
  * estrutura interna mudar de forma inesperada, cai nos índices padrão
  * observados no arquivo atual (A=NumSerie, E=cd_Referencia, F=ds_Prod,
- * G=cdPedido, O=cd_of, T=NomeCli).
+ * G=cdPedido, N=DataEntraProducao, O=cd_of, T=NomeCli).
  */
 function construirIndicePlanilhaOF(string $caminhoXlsx): array
 {
@@ -108,7 +134,10 @@ function construirIndicePlanilhaOF(string $caminhoXlsx): array
         }
     }
 
-    $colunas = ['NumSerie' => 0, 'cd_Referencia' => 4, 'ds_Prod' => 5, 'cdPedido' => 6, 'cd_of' => 14, 'NomeCli' => 19];
+    $colunas = [
+        'NumSerie' => 0, 'cd_Referencia' => 4, 'ds_Prod' => 5, 'cdPedido' => 6,
+        'DataEntraProducao' => 13, 'cd_of' => 14, 'NomeCli' => 19,
+    ];
     if (isset($phar['xl/tables/table1.xml'])) {
         $tabela = simplexml_load_string($phar['xl/tables/table1.xml']->getContent());
         $mapa = [];
@@ -123,9 +152,10 @@ function construirIndicePlanilhaOF(string $caminhoXlsx): array
 
     $xmlPath = 'phar://' . str_replace('\\', '/', $caminhoXlsx) . '/xl/worksheets/sheet1.xml';
     $reader  = new XMLReader();
-    if (!$reader->open($xmlPath)) return [];
+    if (!$reader->open($xmlPath)) return ['porCdOf' => [], 'porNs' => []];
 
-    $indice = [];
+    $porCdOf = [];
+    $porNs   = [];
     while ($reader->read()) {
         if ($reader->nodeType !== XMLReader::ELEMENT || $reader->name !== 'row') continue;
 
@@ -141,11 +171,20 @@ function construirIndicePlanilhaOF(string $caminhoXlsx): array
             $cells[$idx] = $val;
         }
 
+        $ns      = trim((string) ($cells[$colunas['NumSerie']] ?? ''));
+        $dataPcp = converterSerialExcelParaData((string) ($cells[$colunas['DataEntraProducao']] ?? ''));
+
+        // Primeira ocorrência do NS que tiver Data PCP preenchida — o mesmo NS pode
+        // repetir linha na planilha (reprocessamentos da consulta externa).
+        if ($ns !== '' && $dataPcp !== null && !isset($porNs[$ns])) {
+            $porNs[$ns] = ['data_pcp' => $dataPcp];
+        }
+
         $cdOf = trim((string) ($cells[$colunas['cd_of']] ?? ''));
         if ($cdOf === '' || !is_numeric($cdOf)) continue;
 
-        $indice[(string) (int) $cdOf] = [
-            'num_serie'     => trim((string) ($cells[$colunas['NumSerie']] ?? '')),
+        $porCdOf[(string) (int) $cdOf] = [
+            'num_serie'     => $ns,
             'cd_referencia' => trim((string) ($cells[$colunas['cd_Referencia']] ?? '')),
             'descricao'     => trim((string) ($cells[$colunas['ds_Prod']] ?? '')),
             'cd_pedido'     => trim((string) ($cells[$colunas['cdPedido']] ?? '')),
@@ -154,7 +193,17 @@ function construirIndicePlanilhaOF(string $caminhoXlsx): array
     }
     $reader->close();
 
-    return $indice;
+    return ['porCdOf' => $porCdOf, 'porNs' => $porNs];
+}
+
+/** Converte um serial de data do Excel (dias desde 30/12/1899) em 'Y-m-d'. Null se não for numérico. */
+function converterSerialExcelParaData(string $bruto): ?string
+{
+    $bruto = trim($bruto);
+    if ($bruto === '' || !is_numeric($bruto)) return null;
+    $serial = (float) $bruto;
+    if ($serial <= 0) return null;
+    return gmdate('Y-m-d', (int) round(($serial - 25569) * 86400));
 }
 
 function colunaLetraParaIndice(string $ref): int

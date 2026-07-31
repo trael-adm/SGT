@@ -57,6 +57,24 @@ try {
             break;
         }
 
+        // ─── Pedido: definir prioridade (página independente de controle) ─────
+        case 'pedido_prioridade': {
+            $id         = (int) ($_POST['id'] ?? 0);
+            $prioridade = trim((string) ($_POST['prioridade'] ?? ''));
+            $validas    = ['vermelho', 'laranja', 'amarelo', 'verde', 'azul'];
+
+            if ($id <= 0 || !in_array($prioridade, $validas, true)) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Pedido ou prioridade inválidos.']);
+                exit;
+            }
+
+            $stmt = $pdo->prepare("UPDATE pedidos SET prioridade = ? WHERE id = ? AND deleted_at IS NULL");
+            $stmt->execute([$prioridade, $id]);
+            echo json_encode(['sucesso' => true, 'mensagem' => 'Prioridade atualizada.']);
+            break;
+        }
+
         // ─── Pedido: excluir (soft delete) ────────────────────────────────────
         case 'pedido_excluir': {
             $id = (int) ($_POST['id'] ?? 0);
