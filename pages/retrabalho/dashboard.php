@@ -912,10 +912,10 @@ layoutHeader($pageTitle);
 .dash-kpi-column {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 16px;
     background: var(--dash-red);
     border-radius: 20px;
-    padding: 14px;
+    padding: 16px;
     box-shadow: 0 8px 30px rgba(229, 9, 20, 0.25);
     height: 100%;
 }
@@ -1412,7 +1412,7 @@ body.tv-mode .dash-page-wrapper {
 
         </div>
 
-        <!-- Coluna Lateral Direita: 4 Cards de KPIs Vermelhos -->
+        <!-- Coluna Lateral Direita: 3 Cards de KPIs Vermelhos -->
         <div class="dash-kpi-column">
             
             <!-- Card 1: Total Reprovados -->
@@ -1431,12 +1431,6 @@ body.tv-mode .dash-page-wrapper {
             <div class="dash-kpi-card">
                 <div class="dash-kpi-label">+5 Dias Reprovados</div>
                 <div class="dash-kpi-value"><?= htmlspecialchars($mais5DiasExibicao) ?></div>
-            </div>
-
-            <!-- Card 4: Custo Total de Retrabalho em R$ -->
-            <div class="dash-kpi-card">
-                <div class="dash-kpi-label">Custo de Retrabalho</div>
-                <div class="dash-kpi-value dash-kpi-value-custo" id="kpiCustoTotal"><?= $custoTotalFormatado ?></div>
             </div>
 
         </div>
@@ -1526,9 +1520,7 @@ body.tv-mode .dash-page-wrapper {
         });
         const custoFmt = 'R$ ' + somaCustoVisivel.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         const elTopCusto = document.getElementById('topCustoTotal');
-        const elKpiCusto = document.getElementById('kpiCustoTotal');
         if (elTopCusto) elTopCusto.textContent = custoFmt;
-        if (elKpiCusto) elKpiCusto.textContent = custoFmt;
     }
 
     window.limparFiltroMotivo = function () {
@@ -1558,9 +1550,7 @@ body.tv-mode .dash-page-wrapper {
         // 4. Restaurar custo total original
         const custoOrigFmt = <?= json_encode($custoTotalFormatado) ?>;
         const elTopCusto = document.getElementById('topCustoTotal');
-        const elKpiCusto = document.getElementById('kpiCustoTotal');
         if (elTopCusto) elTopCusto.textContent = custoOrigFmt;
-        if (elKpiCusto) elKpiCusto.textContent = custoOrigFmt;
     };
 
     // ─── Plugin Customizado Chart.js para Valores no Topo das Barras ─────────
