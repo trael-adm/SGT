@@ -181,10 +181,12 @@ if ($acao === 'salvar_usuario') {
 
         $pdo->commit();
         echo json_encode(['sucesso' => true, 'id' => $id, 'criado' => date('d/m/Y')]);
-    } catch (Exception $e) {
-        $pdo->rollBack();
+    } catch (\Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
         http_response_code(500);
-        echo json_encode(['sucesso' => false, 'erro' => 'Erro interno ao salvar usuário.']);
+        echo json_encode(['sucesso' => false, 'erro' => 'Erro ao salvar usuário: ' . $e->getMessage()]);
     }
     exit;
 }
