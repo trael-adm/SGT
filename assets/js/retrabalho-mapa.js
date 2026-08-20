@@ -524,14 +524,7 @@
                     </div>
 
                     <div class="card-reprovas-section">
-                        <div class="reprovas-header-flex">
-                            <span class="dt-label">Reprovas / Motivos de Retrabalho:</span>
-                            ${IS_ADMIN ? `
-                            <button type="button" class="btn-mover-setor-pill btn-mover-setor" data-ns="${esc(t.ns)}" data-projeto="${t.id_projeto}" data-setor-atual="${codigo}" title="Mover para outro setor">
-                                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
-                                Mover para &rarr;
-                            </button>` : ''}
-                        </div>
+                        <span class="dt-label">Reprovas / Motivos de Retrabalho:</span>
                         <div class="reprovas-wrap">${reprovasHtml}</div>
                     </div>
 
@@ -550,7 +543,7 @@
                         ${IS_ADMIN ? `
                         <button type="button" class="btn-card-action btn-mover-setor" data-ns="${esc(t.ns)}" data-projeto="${t.id_projeto}" data-setor-atual="${codigo}">
                             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
-                            Mover para &rarr;
+                            Mover Card &rarr;
                         </button>` : ''}
                     </div>
                 </div>
