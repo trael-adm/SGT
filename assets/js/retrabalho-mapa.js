@@ -156,6 +156,9 @@
 
             fecharModalMover();
             await carregarDados(true);
+            if (state.drawerSetor) {
+                abrirDrawer(state.drawerSetor);
+            }
         } catch (err) {
             alert('Falha de conexão ao mover o transformador.');
             if (cardEl) cardEl.classList.remove('is-loading');

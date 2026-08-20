@@ -773,34 +773,52 @@ try {
 
             $slugDestino = $MAPA_SETOR_SLUG[$setorDestino];
 
-            $sqlWhere = "ns_transformador = ? AND deleted_at IS NULL AND status != 'finalizado'";
-            $params = [$slugDestino, $ns];
-            if ($idProjeto > 0) {
-                $sqlWhere .= " AND id_projeto = ?";
-                $params[] = $idProjeto;
+            // 1. Localiza se existe registro de retrabalho ou etapa para esse NS
+            $stmtCheck = $pdo->prepare("
+                SELECT id, id_projeto, status, setores_destino 
+                FROM retrabalhos 
+                WHERE ns_transformador = ? AND deleted_at IS NULL
+                ORDER BY (status != 'finalizado') DESC, id DESC
+                LIMIT 1
+            ");
+            $stmtCheck->execute([$ns]);
+            $retExistente = $stmtCheck->fetch();
+
+            if ($idProjeto <= 0 && $retExistente && !empty($retExistente['id_projeto'])) {
+                $idProjeto = (int) $retExistente['id_projeto'];
             }
 
-            // Atualiza retrabalhos ativos; se estava aguardando chegada no posto anterior, desbloqueia para o novo setor
-            $stmt = $pdo->prepare("
+            if ($idProjeto <= 0) {
+                $stmtEt = $pdo->prepare("
+                    SELECT id_projeto FROM producao_etapas 
+                    WHERE ns_transformador = ? AND id_projeto > 0 AND deleted_at IS NULL 
+                    ORDER BY id DESC LIMIT 1
+                ");
+                $stmtEt->execute([$ns]);
+                $idProjeto = (int) ($stmtEt->fetchColumn() ?: 0);
+            }
+
+            if (!$retExistente && $idProjeto <= 0) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => "Transformador NS {$ns} não encontrado no sistema."]);
+                exit;
+            }
+
+            // 2. Atualiza registros de retrabalho ativos deste NS
+            $stmtUp = $pdo->prepare("
                 UPDATE retrabalhos 
                 SET setores_destino = ?,
                     status = IF(status = 'agu_chegada', 'agu_abertura', status),
                     data_chegada = IF(status = 'agu_chegada' AND data_chegada IS NULL, CURDATE(), data_chegada)
-                WHERE $sqlWhere
+                WHERE ns_transformador = ? AND deleted_at IS NULL
             ");
-            $stmt->execute($params);
+            $stmtUp->execute([$slugDestino, $ns]);
 
-            if ($stmt->rowCount() === 0) {
-                http_response_code(400);
-                echo json_encode(['sucesso' => false, 'erro' => 'Nenhum retrabalho ativo encontrado para este transformador.']);
-                exit;
-            }
-
-            // Sincroniza producao_etapas se foi enviado para Retorno IF, Retorno LAB ou estações de produção
+            // 3. Sincroniza producao_etapas se foi enviado para Retorno IF, Retorno LAB ou estações de produção
             if (in_array($slugDestino, ['laboratorio', 'inspecao_final'], true)) {
                 sincronizarRetornosProducaoEtapas($pdo, $ns, $idProjeto, $slugDestino, $userId);
             } else {
-                // Se saiu para outro setor fabril, finaliza retornos pendentes em producao_etapas para não prender no mapa
+                // Se saiu para outro setor fabril, finaliza retornos pendentes em producao_etapas
                 $pdo->prepare("
                     UPDATE producao_etapas 
                     SET status = 'concluido', data_fim = NOW() 
@@ -808,20 +826,24 @@ try {
                 ")->execute([$ns]);
             }
 
-            // Auditoria
+            // 4. Auditoria
             try {
                 $pdo->prepare("
                     INSERT INTO logs_atividade (id_usuario, tipo, descricao, ip, user_agent)
                     VALUES (?, 'acao', ?, ?, ?)
                 ")->execute([
                     $userId,
-                    "Moveu NS {$ns} para o setor {$setorDestino}",
+                    "Moveu NS {$ns} para {$setorDestino} ({$slugDestino})",
                     $_SERVER['REMOTE_ADDR'] ?? '',
                     $_SERVER['HTTP_USER_AGENT'] ?? ''
                 ]);
             } catch (\Throwable $t) {}
 
-            echo json_encode(['sucesso' => true, 'mensagem' => 'Transformador movido para ' . $setorDestino . '.']);
+            $msg = in_array($setorDestino, ['RET_IF', 'RET_LAB'], true)
+                ? ($setorDestino === 'RET_IF' ? 'Transformador enviado para a aba Retornos da Inspeção Final com sucesso!' : 'Transformador enviado para a aba Retornos do Laboratório com sucesso!')
+                : 'Transformador movido com sucesso para ' . $setorDestino . '!';
+
+            echo json_encode(['sucesso' => true, 'mensagem' => $msg]);
             break;
         }
 
