@@ -83,15 +83,31 @@ $idLotes = array_values(array_unique(array_map(
 $materiaisPorLote = [];
 if ($idLotes) {
     $ph = implode(',', array_fill(0, count($idLotes), '?'));
-    $stmtMat = $pdo->prepare("
-        SELECT id_lote, codigo, descricao, unidade, quantidade, preco_medio
-        FROM retrabalho_material_uso
-        WHERE id_lote IN ($ph)
-        ORDER BY id
-    ");
-    $stmtMat->execute($idLotes);
-    foreach ($stmtMat->fetchAll() as $m) {
-        $materiaisPorLote[(int) $m['id_lote']][] = $m;
+    try {
+        $stmtMat = $pdo->prepare("
+            SELECT id_lote, codigo, descricao, unidade, quantidade, preco_medio
+            FROM retrabalho_material_uso
+            WHERE id_lote IN ($ph)
+            ORDER BY id
+        ");
+        $stmtMat->execute($idLotes);
+        foreach ($stmtMat->fetchAll() as $m) {
+            $materiaisPorLote[(int) $m['id_lote']][] = $m;
+        }
+    } catch (\Throwable $e) {
+        try {
+            $stmtMat = $pdo->prepare("
+                SELECT id_lote, codigo, descricao, unidade, quantidade
+                FROM retrabalho_material_uso
+                WHERE id_lote IN ($ph)
+                ORDER BY id
+            ");
+            $stmtMat->execute($idLotes);
+            foreach ($stmtMat->fetchAll() as $m) {
+                $m['preco_medio'] = null;
+                $materiaisPorLote[(int) $m['id_lote']][] = $m;
+            }
+        } catch (\Throwable $e2) {}
     }
 }
 foreach ($registros as &$r) {
