@@ -743,7 +743,7 @@ try {
         // (etapa ativa/aguardando_retorno ou status agu_chegada) — mesma limitação
         // que a edição manual de setores_destino já tinha em 'editar'.
         case 'mover_setor': {
-            if (!hasAcesso('admin')) {
+            if (!isAdmin() && !hasAcesso('admin')) {
                 http_response_code(403);
                 echo json_encode(['sucesso' => false, 'erro' => 'Apenas administradores podem mover transformadores entre setores.']);
                 exit;
@@ -760,26 +760,64 @@ try {
                 'BOB'  => 'bobinagem_at',
                 'PINT' => 'pintura',
                 'CALD' => 'solda',
-                'RET'  => null, // limpa o destino explícito -> volta ao setor de retrabalho (padrão)
+                'RET'  => 'retrabalho',
             ];
 
-            if ($ns === '' || $idProjeto <= 0 || !array_key_exists($setorDestino, $MAPA_SETOR_SLUG)) {
+            if ($ns === '' || !array_key_exists($setorDestino, $MAPA_SETOR_SLUG)) {
                 http_response_code(400);
                 echo json_encode(['sucesso' => false, 'erro' => 'Dados inválidos para mover o transformador.']);
                 exit;
             }
 
+            $slugDestino = $MAPA_SETOR_SLUG[$setorDestino];
+
+            $sqlWhere = "ns_transformador = ? AND deleted_at IS NULL AND status != 'finalizado'";
+            $params = [$slugDestino, $ns];
+            if ($idProjeto > 0) {
+                $sqlWhere .= " AND id_projeto = ?";
+                $params[] = $idProjeto;
+            }
+
+            // Atualiza retrabalhos ativos; se estava aguardando chegada no posto anterior, desbloqueia para o novo setor
             $stmt = $pdo->prepare("
-                UPDATE retrabalhos SET setores_destino = ?
-                WHERE id_projeto = ? AND ns_transformador = ? AND deleted_at IS NULL AND status != 'finalizado'
+                UPDATE retrabalhos 
+                SET setores_destino = ?,
+                    status = IF(status = 'agu_chegada', 'agu_abertura', status),
+                    data_chegada = IF(status = 'agu_chegada' AND data_chegada IS NULL, CURDATE(), data_chegada)
+                WHERE $sqlWhere
             ");
-            $stmt->execute([$MAPA_SETOR_SLUG[$setorDestino], $idProjeto, $ns]);
+            $stmt->execute($params);
 
             if ($stmt->rowCount() === 0) {
                 http_response_code(400);
                 echo json_encode(['sucesso' => false, 'erro' => 'Nenhum retrabalho ativo encontrado para este transformador.']);
                 exit;
             }
+
+            // Sincroniza producao_etapas se foi movido para LAB ou MF
+            if (in_array($setorDestino, ['LAB', 'MF'], true)) {
+                sincronizarRetornosProducaoEtapas($pdo, $ns, $idProjeto, $slugDestino, $userId);
+            } else {
+                // Se saiu do LAB/MF para outro setor fabril, finaliza retornos pendentes em producao_etapas para não prender no mapa
+                $pdo->prepare("
+                    UPDATE producao_etapas 
+                    SET status = 'concluido', data_fim = NOW() 
+                    WHERE ns_transformador = ? AND status IN ('aguardando_retorno', 'em_andamento') AND deleted_at IS NULL
+                ")->execute([$ns]);
+            }
+
+            // Auditoria
+            try {
+                $pdo->prepare("
+                    INSERT INTO logs_atividade (id_usuario, tipo, descricao, ip, user_agent)
+                    VALUES (?, 'acao', ?, ?, ?)
+                ")->execute([
+                    $userId,
+                    "Moveu NS {$ns} para o setor {$setorDestino}",
+                    $_SERVER['REMOTE_ADDR'] ?? '',
+                    $_SERVER['HTTP_USER_AGENT'] ?? ''
+                ]);
+            } catch (\Throwable $t) {}
 
             echo json_encode(['sucesso' => true, 'mensagem' => 'Transformador movido para ' . $setorDestino . '.']);
             break;

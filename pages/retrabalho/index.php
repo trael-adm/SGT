@@ -1040,6 +1040,39 @@ layoutHeader($pageTitle);
     box-shadow: 0 4px 12px rgba(232, 160, 32, 0.25);
 }
 
+.reprovas-header-flex {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.btn-mover-setor-pill {
+    background: #fffbeb;
+    color: #b45309;
+    border: 1px solid #fde68a;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.18s ease;
+    white-space: nowrap;
+    box-shadow: 0 1px 2px rgba(180, 83, 9, 0.08);
+}
+
+.btn-mover-setor-pill:hover {
+    background: #e8a020;
+    border-color: #e8a020;
+    color: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(232, 160, 32, 0.25);
+}
+
 /* ==========================================================================
    MODAL "MOVER PARA OUTRO SETOR" (somente admin)
    ========================================================================== */
@@ -1548,7 +1581,7 @@ layoutHeader($pageTitle);
     window.APP_URL = <?= json_encode($base) ?>;
     window.MAPA_API = <?= json_encode($base . '/api/retrabalho-mapa-api.php') ?>;
     window.RETRABALHO_ACAO_API = <?= json_encode($base . '/api/retrabalho-acao.php') ?>;
-    window.IS_ADMIN = <?= json_encode(hasAcesso('admin')) ?>;
+    window.IS_ADMIN = <?= json_encode(isAdmin() || hasAcesso('admin')) ?>;
 </script>
 <?php $mapaJsVer = @filemtime(__DIR__ . '/../../assets/js/retrabalho-mapa.js') ?: (defined('APP_VERSION') ? APP_VERSION : '1'); ?>
 <script src="<?= htmlspecialchars($base) ?>/assets/js/retrabalho-mapa.js?v=<?= htmlspecialchars((string) $mapaJsVer) ?>"></script>

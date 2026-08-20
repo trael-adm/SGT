@@ -15,7 +15,7 @@ scratch/
 node_modules/
 .claude/
 .gemini/
-_inicial/dump_producao.sql
+_inicial/dump_*.sql
 _inicial/dados_producao.sql
 _inicial/backup_*.sql
 _inicial/sessao_*.md

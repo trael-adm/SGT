@@ -95,6 +95,14 @@ function currentUser(): array
     return $_SESSION['usuario'] ?? [];
 }
 
+function isAdmin(): bool
+{
+    if (!isLoggedIn()) return false;
+    $user = currentUser();
+    if (in_array((int) ($user['id_perfil'] ?? 0), [1, 201, 202], true)) return true;
+    return hasAcesso('admin') || hasAcesso('adm.usu') || hasAcesso('adm.per');
+}
+
 function requireLogin(): void
 {
     if (!isLoggedIn()) {

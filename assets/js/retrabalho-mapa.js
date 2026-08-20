@@ -58,6 +58,15 @@
     // case 'mover_setor'. PCP/ENG/ALMX ficam de fora: nenhuma regra do mapa
     // coloca peças nesses setores, então "mover" pra lá não teria efeito visível.
     const SETORES_MOVER = ['LAB', 'MF', 'ME', 'BOB', 'PINT', 'CALD', 'RET'];
+    const NOMES_SETORES = {
+        LAB: 'Laboratório de Ensaios',
+        MF: 'Montagem Final',
+        RET: 'Setor de Retrabalho',
+        ME: 'Montagem Elétrica',
+        BOB: 'Bobinagem (AT / BT)',
+        PINT: 'Pintura e Tratamento',
+        CALD: 'Caldeiraria e Solda',
+    };
 
     let moverContexto = null; // { ns, idProjeto, setorAtual }
 
@@ -68,19 +77,21 @@
         const grid = document.getElementById('moverSetorGrid');
         if (!overlay || !grid) return;
 
-        if (nsEl) nsEl.textContent = `NS ${ns} — atualmente em ${setorAtual}`;
+        const nomeAtual = NOMES_SETORES[setorAtual] || setorAtual;
+        if (nsEl) nsEl.textContent = `NS ${ns} — atualmente em: ${nomeAtual} (${setorAtual})`;
 
         const setoresInfo = (state.dados && state.dados.setores) || {};
         const opcoes = SETORES_MOVER.filter(cod => cod !== setorAtual);
 
         grid.innerHTML = opcoes.map(cod => {
-            const info = setoresInfo[cod] || { nome: cod };
+            const info = setoresInfo[cod] || {};
+            const nomeExibir = info.nome || NOMES_SETORES[cod] || cod;
             return `
                 <button type="button" class="mover-setor-card" data-destino="${cod}">
                     <span class="ms-icon">${ICONS[cod] || ''}</span>
                     <span class="ms-info">
                         <span class="ms-code">${cod}</span>
-                        <span class="ms-nome">${esc(info.nome || '')}</span>
+                        <span class="ms-nome">${esc(nomeExibir)}</span>
                     </span>
                 </button>
             `;
@@ -513,7 +524,14 @@
                     </div>
 
                     <div class="card-reprovas-section">
-                        <span class="dt-label">Reprovas / Motivos de Retrabalho:</span>
+                        <div class="reprovas-header-flex">
+                            <span class="dt-label">Reprovas / Motivos de Retrabalho:</span>
+                            ${IS_ADMIN ? `
+                            <button type="button" class="btn-mover-setor-pill btn-mover-setor" data-ns="${esc(t.ns)}" data-projeto="${t.id_projeto}" data-setor-atual="${codigo}" title="Mover para outro setor">
+                                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+                                Mover para &rarr;
+                            </button>` : ''}
+                        </div>
                         <div class="reprovas-wrap">${reprovasHtml}</div>
                     </div>
 
