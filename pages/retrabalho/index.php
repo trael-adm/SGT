@@ -989,9 +989,15 @@ layoutHeader($pageTitle);
 .card-actions-row {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
     margin-top: 10px;
     padding-top: 10px;
     border-top: 1px solid #f1f5f9;
+}
+
+.card-actions-row .btn-card-action {
+    flex: 1 1 140px;
 }
 
 .btn-card-action {
@@ -1019,6 +1025,160 @@ layoutHeader($pageTitle);
     border-color: #133a27;
     color: #ffffff;
     box-shadow: 0 4px 12px rgba(19, 58, 39, 0.15);
+}
+
+.btn-mover-setor {
+    background: #fffbeb;
+    color: #b45309;
+    border: 1px solid #fde68a;
+}
+
+.btn-mover-setor:hover {
+    background: #e8a020;
+    border-color: #e8a020;
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(232, 160, 32, 0.25);
+}
+
+/* ==========================================================================
+   MODAL "MOVER PARA OUTRO SETOR" (somente admin)
+   ========================================================================== */
+.mover-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    z-index: 10001;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+.mover-modal-overlay.is-open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.mover-modal {
+    background: #ffffff;
+    border-radius: 14px;
+    width: 440px;
+    max-width: 100%;
+    max-height: 82vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.3);
+    transform: translateY(10px);
+    transition: transform 0.2s ease;
+}
+
+.mover-modal-overlay.is-open .mover-modal {
+    transform: translateY(0);
+}
+
+.mover-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 18px 20px;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+}
+
+.mover-modal-header h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.mover-modal-header small {
+    color: #64748b;
+    font-size: 12px;
+}
+
+.mover-modal-hint {
+    margin: 16px 20px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+}
+
+.mover-setor-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    padding: 6px 20px 20px;
+}
+
+.mover-setor-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1.5px solid #e2e8f0;
+    background: #f8fafc;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: left;
+    font-family: inherit;
+}
+
+.mover-setor-card:hover {
+    border-color: #e8a020;
+    background: #fffbeb;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 14px rgba(232, 160, 32, 0.15);
+}
+
+.mover-setor-card.is-loading {
+    opacity: 0.55;
+    pointer-events: none;
+}
+
+.mover-setor-card .ms-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: #133a27;
+    color: #e8a020;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.mover-setor-card .ms-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+.mover-setor-card .ms-info {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.mover-setor-card .ms-code {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 800;
+    font-size: 13px;
+    color: #0f172a;
+}
+
+.mover-setor-card .ms-nome {
+    font-size: 10.5px;
+    color: #64748b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .drawer-empty-state {
@@ -1369,9 +1529,26 @@ layoutHeader($pageTitle);
     </div>
 </aside>
 
+<!-- ─── Modal "Mover para Outro Setor" (somente admin) ────────────────────── -->
+<div class="mover-modal-overlay" id="moverModalOverlay">
+    <div class="mover-modal">
+        <div class="mover-modal-header">
+            <div>
+                <h3>Mover Transformador</h3>
+                <small id="moverModalNs">NS —</small>
+            </div>
+            <button type="button" class="btn-close-drawer" id="btnCloseMoverModal" title="Fechar">&times;</button>
+        </div>
+        <div class="mover-modal-hint">Selecione o setor de destino</div>
+        <div class="mover-setor-grid" id="moverSetorGrid"></div>
+    </div>
+</div>
+
 <script>
     window.APP_URL = <?= json_encode($base) ?>;
     window.MAPA_API = <?= json_encode($base . '/api/retrabalho-mapa-api.php') ?>;
+    window.RETRABALHO_ACAO_API = <?= json_encode($base . '/api/retrabalho-acao.php') ?>;
+    window.IS_ADMIN = <?= json_encode(hasAcesso('admin')) ?>;
 </script>
 <?php $mapaJsVer = @filemtime(__DIR__ . '/../../assets/js/retrabalho-mapa.js') ?: (defined('APP_VERSION') ? APP_VERSION : '1'); ?>
 <script src="<?= htmlspecialchars($base) ?>/assets/js/retrabalho-mapa.js?v=<?= htmlspecialchars((string) $mapaJsVer) ?>"></script>

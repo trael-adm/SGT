@@ -50,6 +50,80 @@
         return '';
     }
 
+    // ─── Mover para Outro Setor (somente admin) ────────────────────────────────
+    const IS_ADMIN = window.IS_ADMIN === true;
+
+    // Setores que o mapa sabe posicionar via setores_destino (ver 3ª prioridade
+    // em api/retrabalho-mapa-api.php) — mesmo mapa de api/retrabalho-acao.php,
+    // case 'mover_setor'. PCP/ENG/ALMX ficam de fora: nenhuma regra do mapa
+    // coloca peças nesses setores, então "mover" pra lá não teria efeito visível.
+    const SETORES_MOVER = ['LAB', 'MF', 'ME', 'BOB', 'PINT', 'CALD', 'RET'];
+
+    let moverContexto = null; // { ns, idProjeto, setorAtual }
+
+    function abrirModalMover(ns, idProjeto, setorAtual) {
+        moverContexto = { ns, idProjeto, setorAtual };
+        const overlay = document.getElementById('moverModalOverlay');
+        const nsEl = document.getElementById('moverModalNs');
+        const grid = document.getElementById('moverSetorGrid');
+        if (!overlay || !grid) return;
+
+        if (nsEl) nsEl.textContent = `NS ${ns} — atualmente em ${setorAtual}`;
+
+        const setoresInfo = (state.dados && state.dados.setores) || {};
+        const opcoes = SETORES_MOVER.filter(cod => cod !== setorAtual);
+
+        grid.innerHTML = opcoes.map(cod => {
+            const info = setoresInfo[cod] || { nome: cod };
+            return `
+                <button type="button" class="mover-setor-card" data-destino="${cod}">
+                    <span class="ms-icon">${ICONS[cod] || ''}</span>
+                    <span class="ms-info">
+                        <span class="ms-code">${cod}</span>
+                        <span class="ms-nome">${esc(info.nome || '')}</span>
+                    </span>
+                </button>
+            `;
+        }).join('');
+
+        overlay.classList.add('is-open');
+    }
+
+    function fecharModalMover() {
+        const overlay = document.getElementById('moverModalOverlay');
+        if (overlay) overlay.classList.remove('is-open');
+        moverContexto = null;
+    }
+
+    async function executarMoverSetor(destinoCod, cardEl) {
+        if (!moverContexto) return;
+        if (cardEl) cardEl.classList.add('is-loading');
+
+        try {
+            const api = window.RETRABALHO_ACAO_API || (getAppBase() + '/api/retrabalho-acao.php');
+            const body = new FormData();
+            body.append('acao', 'mover_setor');
+            body.append('ns_transformador', moverContexto.ns);
+            body.append('id_projeto', moverContexto.idProjeto);
+            body.append('setor_destino', destinoCod);
+
+            const resp = await fetch(api, { method: 'POST', body });
+            const json = await resp.json().catch(() => ({ sucesso: false, erro: 'Resposta inválida do servidor.' }));
+
+            if (!json.sucesso) {
+                alert(json.erro || 'Erro ao mover o transformador.');
+                if (cardEl) cardEl.classList.remove('is-loading');
+                return;
+            }
+
+            fecharModalMover();
+            await carregarDados(true);
+        } catch (err) {
+            alert('Falha de conexão ao mover o transformador.');
+            if (cardEl) cardEl.classList.remove('is-loading');
+        }
+    }
+
     // ─── Carregamento de Dados ──────────────────────────────────────────────────
     async function carregarDados(silencioso = false) {
         if (!silencioso) {
@@ -455,6 +529,11 @@
                             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 2v7.31L4.65 19.3A2 2 0 0 0 6.4 22h11.2a2 2 0 0 0 1.75-2.7L14 9.31V2"/><path d="M8.5 2h7"/></svg>
                             Ver no Laboratório &rarr;
                         </a>` : ''}
+                        ${IS_ADMIN ? `
+                        <button type="button" class="btn-card-action btn-mover-setor" data-ns="${esc(t.ns)}" data-projeto="${t.id_projeto}" data-setor-atual="${codigo}">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+                            Mover para &rarr;
+                        </button>` : ''}
                     </div>
                 </div>
             `;
@@ -568,8 +647,36 @@
         if (overlay) overlay.addEventListener('click', fecharDrawer);
 
         document.addEventListener('keydown', e => {
-            if (e.key === 'Escape') fecharDrawer();
+            if (e.key === 'Escape') {
+                fecharModalMover();
+                fecharDrawer();
+            }
         });
+
+        // Modal "Mover para Outro Setor" (somente admin): abrir a partir do botão
+        // no card, escolher o setor de destino, ou fechar clicando fora / no X.
+        if (IS_ADMIN) {
+            document.addEventListener('click', e => {
+                const btnMover = e.target.closest('.btn-mover-setor');
+                if (btnMover) {
+                    abrirModalMover(btnMover.dataset.ns, btnMover.dataset.projeto, btnMover.dataset.setorAtual);
+                    return;
+                }
+                const cardDestino = e.target.closest('.mover-setor-card');
+                if (cardDestino) {
+                    executarMoverSetor(cardDestino.dataset.destino, cardDestino);
+                }
+            });
+
+            const btnCloseMover = document.getElementById('btnCloseMoverModal');
+            const moverOverlay = document.getElementById('moverModalOverlay');
+            if (btnCloseMover) btnCloseMover.addEventListener('click', fecharModalMover);
+            if (moverOverlay) {
+                moverOverlay.addEventListener('click', e => {
+                    if (e.target === moverOverlay) fecharModalMover();
+                });
+            }
+        }
 
         // Botão de Refresh Manual
         const btnRefresh = document.getElementById('btnRefreshMapa');

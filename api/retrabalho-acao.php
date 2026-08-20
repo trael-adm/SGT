@@ -735,6 +735,56 @@ try {
             break;
         }
 
+        // ─── Mover manualmente para outro setor (Mapa de Retrabalho, só admin) ──
+        // Atalho administrativo do mesmo mecanismo que já move a peça no mapa:
+        // sobrescreve setores_destino do lote aberto (ver 'setor' calculado em
+        // api/retrabalho-mapa-api.php, 3ª prioridade). Não mexe em producao_etapas,
+        // então não tem efeito se a peça estiver no LAB/MF por 1ª/2ª prioridade
+        // (etapa ativa/aguardando_retorno ou status agu_chegada) — mesma limitação
+        // que a edição manual de setores_destino já tinha em 'editar'.
+        case 'mover_setor': {
+            if (!hasAcesso('admin')) {
+                http_response_code(403);
+                echo json_encode(['sucesso' => false, 'erro' => 'Apenas administradores podem mover transformadores entre setores.']);
+                exit;
+            }
+
+            $ns           = trim((string) ($_POST['ns_transformador'] ?? ''));
+            $idProjeto    = (int) ($_POST['id_projeto'] ?? 0);
+            $setorDestino = strtoupper(trim((string) ($_POST['setor_destino'] ?? '')));
+
+            $MAPA_SETOR_SLUG = [
+                'LAB'  => 'laboratorio',
+                'MF'   => 'montagem_final',
+                'ME'   => 'montagem_nucleo',
+                'BOB'  => 'bobinagem_at',
+                'PINT' => 'pintura',
+                'CALD' => 'solda',
+                'RET'  => null, // limpa o destino explícito -> volta ao setor de retrabalho (padrão)
+            ];
+
+            if ($ns === '' || $idProjeto <= 0 || !array_key_exists($setorDestino, $MAPA_SETOR_SLUG)) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Dados inválidos para mover o transformador.']);
+                exit;
+            }
+
+            $stmt = $pdo->prepare("
+                UPDATE retrabalhos SET setores_destino = ?
+                WHERE id_projeto = ? AND ns_transformador = ? AND deleted_at IS NULL AND status != 'finalizado'
+            ");
+            $stmt->execute([$MAPA_SETOR_SLUG[$setorDestino], $idProjeto, $ns]);
+
+            if ($stmt->rowCount() === 0) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Nenhum retrabalho ativo encontrado para este transformador.']);
+                exit;
+            }
+
+            echo json_encode(['sucesso' => true, 'mensagem' => 'Transformador movido para ' . $setorDestino . '.']);
+            break;
+        }
+
         // ─── Confirmar chegada física ao retrabalho via leitura de QR ──────────
         // O código lido é resolvido do mesmo jeito que a leitura de QR de Produção
         // (etiqueta de OF -> planilha NS.OF, com N° de série puro como reserva) e
