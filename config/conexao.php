@@ -41,11 +41,11 @@ require_once __DIR__ . '/versao.php';
     // 3) Arquivo .env
     // 4) Defaults
     $config = [
-        'DB_HOST' => $getEnv('MYSQLHOST', $env['DB_HOST'] ?? 'mysql.railway.internal'),
-        'DB_NAME' => $getEnv('MYSQLDATABASE', $env['DB_NAME'] ?? 'railway'),
-        'DB_USER' => $getEnv('MYSQLUSER', $env['DB_USER'] ?? 'root'),
-        'DB_PASS' => $getEnv('MYSQLPASSWORD', $env['DB_PASS'] ?? ''),
-        'DB_PORT' => $getEnv('MYSQLPORT', $env['DB_PORT'] ?? '3306'),
+        'DB_HOST' => $getEnv('MYSQLHOST', $getEnv('MYSQL_HOST', $env['DB_HOST'] ?? 'mysql.railway.internal')),
+        'DB_NAME' => $getEnv('MYSQLDATABASE', $getEnv('MYSQL_DATABASE', $env['DB_NAME'] ?? 'railway')),
+        'DB_USER' => $getEnv('MYSQLUSER', $getEnv('MYSQL_USER', $env['DB_USER'] ?? 'root')),
+        'DB_PASS' => $getEnv('MYSQLPASSWORD', $getEnv('MYSQL_PASSWORD', $env['DB_PASS'] ?? '')),
+        'DB_PORT' => $getEnv('MYSQLPORT', $getEnv('MYSQL_PORT', $env['DB_PORT'] ?? '3306')),
 
         'APP_URL' => $getEnv('APP_URL', $env['APP_URL'] ?? ''),
         'APP_ENV' => $getEnv('APP_ENV', $env['APP_ENV'] ?? 'local'),
