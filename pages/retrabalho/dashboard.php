@@ -218,6 +218,49 @@ foreach ($rawRegistros as $row) {
     $registros[] = $row;
 }
 
+// ─── Consolidação e Cálculo do Custo Total de Materiais Utilizados ───────────
+$lotesUnicos = [];
+foreach ($rawRegistros as $r) {
+    $idL = !empty($r['id_lote']) ? (int) $r['id_lote'] : null;
+    if ($idL) {
+        $lotesUnicos[$idL] = true;
+    }
+}
+$lotesIds = array_keys($lotesUnicos);
+
+$custoTotalMateriais = 0.0;
+$totalItensMateriais = 0;
+$custoPorLote = [];
+
+if (!empty($lotesIds)) {
+    $ph = implode(',', array_fill(0, count($lotesIds), '?'));
+    $stmtCusto = $pdo->prepare("
+        SELECT rmu.id_lote,
+               COALESCE(SUM(rmu.quantidade * COALESCE(rmu.preco_medio, 0)), 0) AS custo_lote,
+               COUNT(*) AS total_itens
+        FROM retrabalho_material_uso rmu
+        WHERE rmu.id_lote IN ($ph)
+        GROUP BY rmu.id_lote
+    ");
+    $stmtCusto->execute($lotesIds);
+    foreach ($stmtCusto->fetchAll(PDO::FETCH_ASSOC) as $rowC) {
+        $idL = (int) $rowC['id_lote'];
+        $cVal = (float) $rowC['custo_lote'];
+        $custoPorLote[$idL] = $cVal;
+        $custoTotalMateriais += $cVal;
+        $totalItensMateriais += (int) $rowC['total_itens'];
+    }
+}
+
+// Vincula o custo do lote a cada registro para filtros dinâmicos
+foreach ($registros as &$r) {
+    $idL = !empty($r['id_lote']) ? (int) $r['id_lote'] : 0;
+    $r['custo_reprova'] = $custoPorLote[$idL] ?? 0.0;
+}
+unset($r);
+
+$custoTotalFormatado = 'R$ ' . number_format($custoTotalMateriais, 2, ',', '.');
+
 // ─── Ordenação da Planilha: Sempre pelo dia útil mais antigo primeiro ────────
 usort($registros, function ($a, $b) {
     if ($a['dias_uteis'] !== $b['dias_uteis']) {
@@ -668,6 +711,48 @@ layoutHeader($pageTitle);
 }
 .ddp-btn-clear:hover { color: var(--dash-red); }
 
+.dash-custo-card-top {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    height: 38px;
+    padding: 0 14px;
+    background: #fef2f2;
+    border: 1.5px solid var(--dash-red);
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(229, 9, 20, 0.08);
+    transition: all 0.2s ease;
+}
+.dash-custo-card-top:hover {
+    box-shadow: 0 4px 12px rgba(229, 9, 20, 0.16);
+    transform: translateY(-1px);
+}
+.dash-custo-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--dash-red);
+}
+.dash-custo-texts {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    line-height: 1.15;
+}
+.dash-custo-label {
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: #991b1b;
+    letter-spacing: 0.03em;
+}
+.dash-custo-val {
+    font-size: 15px;
+    font-weight: 900;
+    color: var(--dash-red);
+    font-family: 'JetBrains Mono', monospace;
+}
+
 .dash-filter-form {
     display: flex;
     flex-wrap: wrap;
@@ -776,79 +861,61 @@ layoutHeader($pageTitle);
 
 .dash-split-row {
     display: grid;
-    grid-template-columns: minmax(0, 1.62fr) minmax(0, 1fr);
+    grid-template-columns: 1fr 340px;
     gap: 20px;
-    min-width: 0;
-    width: 100%;
     align-items: start;
+    min-width: 0;
 }
 
 /* ─── Standard Dash Card ─────────────────────────────────────────────────── */
 .dash-card {
-    background: #ffffff;
-    border: 2px solid #ef4444;
+    background: var(--dash-card-bg);
+    border: 2px solid var(--dash-red);
     border-radius: 20px;
     padding: 16px 20px;
     box-shadow: 0 4px 16px rgba(229, 9, 20, 0.05);
-    position: relative;
     display: flex;
     flex-direction: column;
     min-width: 0;
-    overflow: hidden;
 }
 
 .dash-card-top {
-    flex: 0 0 auto;
-    padding: 16px 20px;
-}
-
-.dash-card-top .dash-card-header {
-    margin-bottom: 10px;
-}
-
-.dash-card-top .dash-chart-container {
-    height: 230px !important;
-    min-height: 230px !important;
-    flex: none !important;
+    padding: 14px 20px;
 }
 
 .dash-card-header {
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
     margin-bottom: 10px;
 }
 
 .dash-card-title {
-    font-size: 19px;
+    font-size: 18px;
     font-weight: 800;
     color: var(--dash-red);
-    letter-spacing: -0.01em;
     margin: 0;
+    text-align: center;
+    letter-spacing: -0.01em;
 }
 
 .dash-chart-container {
     position: relative;
     width: 100%;
     min-width: 0;
-    flex: 1;
-    min-height: 200px;
-}
-
-.dash-chart-container canvas {
-    max-width: 100% !important;
-    width: 100% !important;
 }
 
 /* ─── Right KPI Column ───────────────────────────────────────────────────── */
 .dash-kpi-column {
-    background: var(--dash-red);
-    border: 3px solid var(--dash-red);
-    border-radius: 22px;
-    padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    box-shadow: 0 8px 30px rgba(229, 9, 20, 0.28);
-    min-width: 0;
+    gap: 12px;
+    background: var(--dash-red);
+    border-radius: 20px;
+    padding: 14px;
+    box-shadow: 0 8px 30px rgba(229, 9, 20, 0.25);
+    height: 100%;
 }
 
 .dash-kpi-card {
@@ -1113,6 +1180,17 @@ body.tv-mode .dash-page-wrapper {
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                 <span>Atualizar</span>
             </button>
+
+            <!-- Card Topo: Contabilização de Custos em R$ -->
+            <div class="dash-custo-card-top" title="Custo total dos materiais utilizados">
+                <span class="dash-custo-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                </span>
+                <div class="dash-custo-texts">
+                    <span class="dash-custo-label">Custo de Materiais</span>
+                    <span class="dash-custo-val" id="topCustoTotal"><?= $custoTotalFormatado ?></span>
+                </div>
+            </div>
         </form>
 
         <!-- Filtro Multi-selecionável de Data (Hoje | Mês | Personalizável) -->
@@ -1283,12 +1361,12 @@ body.tv-mode .dash-page-wrapper {
                                 <?php if (empty($registros)): ?>
                                     <tr>
                                         <td colspan="6" style="text-align:center; padding: 24px; color: #94a3b8;">
-                                            Nenhuma reprovação encontrada com os filtros selecionados.
+                                             Nenhuma reprovação encontrada com os filtros selecionados.
                                         </td>
                                     </tr>
                                 <?php else: ?>
                                     <?php foreach ($registros as $r): ?>
-                                        <tr class="<?= $r['is_fora_prazo'] ? 'row-atrasada' : '' ?> item-row-reprova" data-motivo="<?= htmlspecialchars($r['motivo_fmt']) ?>">
+                                        <tr class="<?= $r['is_fora_prazo'] ? 'row-atrasada' : '' ?> item-row-reprova" data-motivo="<?= htmlspecialchars($r['motivo_fmt']) ?>" data-lote="<?= (int) ($r['id_lote'] ?? 0) ?>" data-custo="<?= (float) ($r['custo_reprova'] ?? 0) ?>">
                                             <td class="col-ns"><strong><?= htmlspecialchars($r['ns_fmt']) ?></strong></td>
                                             <td class="col-projeto"><?= htmlspecialchars($r['projeto_fmt']) ?></td>
                                             <td class="col-motivo" title="Clique para filtrar por este motivo" style="cursor:pointer;" onclick="alternarFiltroMotivo('<?= htmlspecialchars(addslashes($r['motivo_fmt'])) ?>')">
@@ -1332,7 +1410,7 @@ body.tv-mode .dash-page-wrapper {
 
         </div>
 
-        <!-- Coluna Lateral Direita: 3 Cards de KPIs Vermelhos -->
+        <!-- Coluna Lateral Direita: 4 Cards de KPIs Vermelhos -->
         <div class="dash-kpi-column">
             
             <!-- Card 1: Total Reprovados -->
@@ -1351,6 +1429,12 @@ body.tv-mode .dash-page-wrapper {
             <div class="dash-kpi-card">
                 <div class="dash-kpi-label">+5 Dias Reprovados</div>
                 <div class="dash-kpi-value"><?= htmlspecialchars($mais5DiasExibicao) ?></div>
+            </div>
+
+            <!-- Card 4: Custo Total em R$ -->
+            <div class="dash-kpi-card">
+                <div class="dash-kpi-label">Custo em R$</div>
+                <div class="dash-kpi-value dash-kpi-value-custo" id="kpiCustoTotal"><?= $custoTotalFormatado ?></div>
             </div>
 
         </div>
@@ -1420,6 +1504,29 @@ body.tv-mode .dash-page-wrapper {
         if (rowEmpty) {
             rowEmpty.style.display = (visiveis === 0) ? '' : 'none';
         }
+
+        // 4. Atualizar o custo dinâmico dos registros visíveis
+        let somaCustoVisivel = 0;
+        let lotesContados = new Set();
+        rows.forEach(tr => {
+            if (tr.style.display !== 'none') {
+                const idLote = tr.getAttribute('data-lote');
+                const custo = parseFloat(tr.getAttribute('data-custo') || 0);
+                if (idLote && idLote !== '0') {
+                    if (!lotesContados.has(idLote)) {
+                        lotesContados.add(idLote);
+                        somaCustoVisivel += custo;
+                    }
+                } else {
+                    somaCustoVisivel += custo;
+                }
+            }
+        });
+        const custoFmt = 'R$ ' + somaCustoVisivel.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const elTopCusto = document.getElementById('topCustoTotal');
+        const elKpiCusto = document.getElementById('kpiCustoTotal');
+        if (elTopCusto) elTopCusto.textContent = custoFmt;
+        if (elKpiCusto) elKpiCusto.textContent = custoFmt;
     }
 
     window.limparFiltroMotivo = function () {
@@ -1445,6 +1552,13 @@ body.tv-mode .dash-page-wrapper {
         const rowEmpty = document.getElementById('rowEmptyFiltro');
         if (banner) banner.style.display = 'none';
         if (rowEmpty) rowEmpty.style.display = 'none';
+
+        // 4. Restaurar custo total original
+        const custoOrigFmt = <?= json_encode($custoTotalFormatado) ?>;
+        const elTopCusto = document.getElementById('topCustoTotal');
+        const elKpiCusto = document.getElementById('kpiCustoTotal');
+        if (elTopCusto) elTopCusto.textContent = custoOrigFmt;
+        if (elKpiCusto) elKpiCusto.textContent = custoOrigFmt;
     };
 
     // ─── Plugin Customizado Chart.js para Valores no Topo das Barras ─────────
