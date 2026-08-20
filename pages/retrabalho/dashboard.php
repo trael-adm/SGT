@@ -1184,12 +1184,12 @@ body.tv-mode .dash-page-wrapper {
             </button>
 
             <!-- Card Topo: Contabilização de Custos em R$ -->
-            <div class="dash-custo-card-top" title="Custo total dos materiais utilizados">
+            <div class="dash-custo-card-top" title="Custo total de retrabalho dos materiais utilizados">
                 <span class="dash-custo-icon">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
                 </span>
                 <div class="dash-custo-texts">
-                    <span class="dash-custo-label">Custo de Materiais</span>
+                    <span class="dash-custo-label">Custo de Retrabalho</span>
                     <span class="dash-custo-val" id="topCustoTotal"><?= $custoTotalFormatado ?></span>
                 </div>
             </div>
@@ -1433,9 +1433,9 @@ body.tv-mode .dash-page-wrapper {
                 <div class="dash-kpi-value"><?= htmlspecialchars($mais5DiasExibicao) ?></div>
             </div>
 
-            <!-- Card 4: Custo Total em R$ -->
+            <!-- Card 4: Custo Total de Retrabalho em R$ -->
             <div class="dash-kpi-card">
-                <div class="dash-kpi-label">Custo em R$</div>
+                <div class="dash-kpi-label">Custo de Retrabalho</div>
                 <div class="dash-kpi-value dash-kpi-value-custo" id="kpiCustoTotal"><?= $custoTotalFormatado ?></div>
             </div>
 
