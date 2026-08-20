@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+@ini_set('memory_limit', '512M');
+
 /**
  * Índice cd_of -> {num_serie, cd_referencia, descricao, cd_pedido, cliente}
  * extraído de "PLANILHA QUE ATUALIZA/NS.OF.xlsx" (tabela NUMERO_DE_SERIE,

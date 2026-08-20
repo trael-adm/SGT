@@ -98,14 +98,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$email]);
                 $usuario = $stmt->fetch();
 
-                if ($usuario && $usuario['status'] === 'ativo' && password_verify($senha, $usuario['senha'])) {
+                $isAtivo = $usuario && (($usuario['status'] ?? '') === 'ativo' || (!isset($usuario['status']) && !empty($usuario['ativo'])));
+                if ($usuario && $isAtivo && password_verify($senha, $usuario['senha'])) {
                     session_regenerate_id(true);
                     $_SESSION['usuario'] = [
                         'id'          => $usuario['id'],
-                        'nome'        => $usuario['nome'],
-                        'email'       => $usuario['email'],
-                        'id_perfil'   => $usuario['id_perfil'],
-                        'id_alocacao' => $usuario['id_alocacao'],
+                        'nome'        => $usuario['nome'] ?? '',
+                        'email'       => $usuario['email'] ?? '',
+                        'id_perfil'   => $usuario['id_perfil'] ?? null,
+                        'id_alocacao' => $usuario['id_alocacao'] ?? $usuario['id_setor'] ?? null,
                         'e_executor'  => (bool)($usuario['e_executor'] ?? false),
                         'foto'        => $usuario['foto'] ?? null,
                     ];
@@ -119,8 +120,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     header('Location: ' . APP_URL . '/index.php');
                     exit;
                 } else {
-                    $idUsuario = ($usuario && $usuario['status'] !== 'ativo') ? $usuario['id'] : null;
-                    if ($usuario && isset($usuario['id']) && $usuario['status'] === 'ativo') {
+                    $idUsuario = ($usuario && !$isAtivo) ? $usuario['id'] : null;
+                    if ($usuario && isset($usuario['id']) && $isAtivo) {
                         $idUsuario = null; // senha errada, não revela o ID
                     }
 

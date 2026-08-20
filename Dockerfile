@@ -11,7 +11,10 @@ WORKDIR /app
 COPY . .
 
 # Garante que o diretório de uploads existe e é gravável
-RUN mkdir -p uploads && chmod -R 755 uploads
+RUN mkdir -p uploads storage/cache && chmod -R 777 uploads storage
+
+# Configura limite de memória do PHP para processar planilhas grandes
+RUN echo "memory_limit = 512M" > /usr/local/etc/php/conf.d/memory-limit.ini
 
 # Railway injeta a variável PORT — usa 80 como fallback local
-CMD php -S 0.0.0.0:${PORT:-80} -t .
+CMD php -d memory_limit=512M -S 0.0.0.0:${PORT:-80} -t .
