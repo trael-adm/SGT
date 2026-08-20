@@ -1134,7 +1134,7 @@ layoutHeader($pageTitle);
 }
 
 .mover-modal-hint {
-    margin: 16px 20px 8px;
+    margin: 14px 20px 6px;
     font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
@@ -1143,10 +1143,61 @@ layoutHeader($pageTitle);
 }
 
 .mover-setor-grid {
+    padding: 6px 20px 20px;
+}
+
+.mover-modal-section-title {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #475569;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.mover-retornos-row,
+.mover-setor-grid-inner {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 10px;
-    padding: 6px 20px 20px;
+    margin-bottom: 12px;
+}
+
+.mover-setor-card.card-retorno-destaque {
+    border-color: #bfdbfe;
+    background: #eff6ff;
+}
+
+.mover-setor-card.card-retorno-destaque:hover {
+    border-color: #2563eb;
+    background: #dbeafe;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 14px rgba(37, 99, 235, 0.18);
+}
+
+.mover-setor-card.card-retorno-destaque .ms-icon {
+    background: #1e40af;
+    color: #ffffff;
+}
+
+.mover-setor-card.card-retorno-lab {
+    border-color: #ddd6fe;
+    background: #f5f3ff;
+}
+
+.mover-setor-card.card-retorno-lab:hover {
+    border-color: #7c3aed;
+    background: #ede9fe;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 14px rgba(124, 58, 237, 0.18);
+}
+
+.mover-setor-card.card-retorno-lab .ms-icon {
+    background: #6d28d9;
+    color: #ffffff;
 }
 
 .mover-setor-card {

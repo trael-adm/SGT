@@ -20,6 +20,8 @@
 
     // Ícones SVG para os setores
     const ICONS = {
+        RET_IF: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
+        RET_LAB: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10 2v7.31L4.65 19.3A2 2 0 0 0 6.4 22h11.2a2 2 0 0 0 1.75-2.7L14 9.31V2"/><path d="M8.5 2h7"/></svg>',
         LAB: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 2v7.31L4.65 19.3A2 2 0 0 0 6.4 22h11.2a2 2 0 0 0 1.75-2.7L14 9.31V2"/><path d="M8.5 2h7"/><path d="M7 16h10"/></svg>',
         MF: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><circle cx="12" cy="10" r="3"/></svg>',
         RET: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/><circle cx="12" cy="12" r="2"/></svg>',
@@ -53,19 +55,15 @@
     // ─── Mover para Outro Setor (somente admin) ────────────────────────────────
     const IS_ADMIN = window.IS_ADMIN === true;
 
-    // Setores que o mapa sabe posicionar via setores_destino (ver 3ª prioridade
-    // em api/retrabalho-mapa-api.php) — mesmo mapa de api/retrabalho-acao.php,
-    // case 'mover_setor'. PCP/ENG/ALMX ficam de fora: nenhuma regra do mapa
-    // coloca peças nesses setores, então "mover" pra lá não teria efeito visível.
-    const SETORES_MOVER = ['LAB', 'MF', 'ME', 'BOB', 'PINT', 'CALD', 'RET'];
+    const SETORES_MOVER = ['RET', 'PINT', 'MF', 'ME', 'BOB', 'CALD'];
     const NOMES_SETORES = {
-        LAB: 'Laboratório de Ensaios',
-        MF: 'Montagem Final',
         RET: 'Setor de Retrabalho',
+        PINT: 'Pintura e Tratamento',
+        MF: 'Montagem Final',
         ME: 'Montagem Elétrica',
         BOB: 'Bobinagem (AT / BT)',
-        PINT: 'Pintura e Tratamento',
         CALD: 'Caldeiraria e Solda',
+        LAB: 'Laboratório de Ensaios',
     };
 
     let moverContexto = null; // { ns, idProjeto, setorAtual }
@@ -83,7 +81,7 @@
         const setoresInfo = (state.dados && state.dados.setores) || {};
         const opcoes = SETORES_MOVER.filter(cod => cod !== setorAtual);
 
-        grid.innerHTML = opcoes.map(cod => {
+        const setoresFabrilHtml = opcoes.map(cod => {
             const info = setoresInfo[cod] || {};
             const nomeExibir = info.nome || NOMES_SETORES[cod] || cod;
             return `
@@ -96,6 +94,35 @@
                 </button>
             `;
         }).join('');
+
+        grid.innerHTML = `
+            <div class="mover-modal-section-title">
+                <span>🔄 Enviar para Aba de Retornos</span>
+            </div>
+            <div class="mover-retornos-row">
+                <button type="button" class="mover-setor-card card-retorno-destaque" data-destino="RET_IF">
+                    <span class="ms-icon">${ICONS.RET_IF}</span>
+                    <span class="ms-info">
+                        <span class="ms-code" style="color: #1e40af;">Retorno IF</span>
+                        <span class="ms-nome" style="color: #1e3a8a; font-weight: 600;">Inspeção Final (IQF)</span>
+                    </span>
+                </button>
+                <button type="button" class="mover-setor-card card-retorno-lab" data-destino="RET_LAB">
+                    <span class="ms-icon">${ICONS.RET_LAB}</span>
+                    <span class="ms-info">
+                        <span class="ms-code" style="color: #6d28d9;">Retorno LAB</span>
+                        <span class="ms-nome" style="color: #581c87; font-weight: 600;">Laboratório de Ensaios</span>
+                    </span>
+                </button>
+            </div>
+
+            <div class="mover-modal-section-title" style="border-top: 1px solid #e2e8f0; margin-top: 10px; padding-top: 12px;">
+                <span>🏭 Mover para Setor Fabril</span>
+            </div>
+            <div class="mover-setor-grid-inner">
+                ${setoresFabrilHtml}
+            </div>
+        `;
 
         overlay.classList.add('is-open');
     }

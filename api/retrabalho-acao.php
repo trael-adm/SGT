@@ -754,13 +754,15 @@ try {
             $setorDestino = strtoupper(trim((string) ($_POST['setor_destino'] ?? '')));
 
             $MAPA_SETOR_SLUG = [
-                'LAB'  => 'laboratorio',
-                'MF'   => 'montagem_final',
-                'ME'   => 'montagem_nucleo',
-                'BOB'  => 'bobinagem_at',
-                'PINT' => 'pintura',
-                'CALD' => 'solda',
-                'RET'  => 'retrabalho',
+                'RET_IF'  => 'inspecao_final',
+                'RET_LAB' => 'laboratorio',
+                'LAB'     => 'laboratorio',
+                'MF'      => 'montagem_final',
+                'ME'      => 'montagem_nucleo',
+                'BOB'     => 'bobinagem_at',
+                'PINT'    => 'pintura',
+                'CALD'    => 'solda',
+                'RET'     => 'retrabalho',
             ];
 
             if ($ns === '' || !array_key_exists($setorDestino, $MAPA_SETOR_SLUG)) {
@@ -794,11 +796,11 @@ try {
                 exit;
             }
 
-            // Sincroniza producao_etapas se foi movido para LAB ou MF
-            if (in_array($setorDestino, ['LAB', 'MF'], true)) {
+            // Sincroniza producao_etapas se foi enviado para Retorno IF, Retorno LAB ou estações de produção
+            if (in_array($slugDestino, ['laboratorio', 'inspecao_final'], true)) {
                 sincronizarRetornosProducaoEtapas($pdo, $ns, $idProjeto, $slugDestino, $userId);
             } else {
-                // Se saiu do LAB/MF para outro setor fabril, finaliza retornos pendentes em producao_etapas para não prender no mapa
+                // Se saiu para outro setor fabril, finaliza retornos pendentes em producao_etapas para não prender no mapa
                 $pdo->prepare("
                     UPDATE producao_etapas 
                     SET status = 'concluido', data_fim = NOW() 
