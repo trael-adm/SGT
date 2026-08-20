@@ -10,18 +10,26 @@ $_sRelSelf = ($_sAppPath !== '' && str_starts_with($_sSelf, $_sAppPath))
     : $_sSelf;
 if ($_sRelSelf === '') $_sRelSelf = '/';
 
-// Dentro do módulo Produção, o menu mostra só Home + Produção — os itens de
-// Retrabalho/Projetos ficam escondidos nessa seção (mas continuam normais nas demais).
-// O mesmo vale ao contrário: dentro de Retrabalho/Relação/Projetos, o item Produção some.
-$_sEmProducao   = str_starts_with($_sRelSelf, '/pages/producao/');
-$_sEmRetrabalho = str_starts_with($_sRelSelf, '/pages/retrabalho/') || str_starts_with($_sRelSelf, '/pages/projetos/')
-    || str_starts_with($_sRelSelf, '/pages/pedidos/');
+// Contexto da URL para menus dinâmicos
+$isAdminContext = str_starts_with($_sRelSelf, '/pages/admin/');
+$isProducaoContext = str_starts_with($_sRelSelf, '/pages/producao/');
+$isRetrabalhoContext = str_starts_with($_sRelSelf, '/pages/retrabalho/') || str_starts_with($_sRelSelf, '/pages/pedidos/') || str_starts_with($_sRelSelf, '/pages/projetos/') || str_starts_with($_sRelSelf, '/pages/qualidade/');
+
+// Restrição de visualização de módulos no menu
+// Se estiver no painel Admin, esconde Laboratório e Retrabalho para manter a tela limpa
+$_hideProducao = !hasAcesso('tab:laboratorio') || $isAdminContext;
+$_hideInspecaoFinal = !hasAcesso('tab:inspecao_final') || $isAdminContext;
+$_hidePintura = !hasAcesso('tab:pintura') || $isAdminContext;
+$_hideRetrabalho = !hasAcesso('tab:retrabalho') || $isAdminContext;
+$_hideAnalise = !hasAcesso('tab:analise') || $isAdminContext;
+$_hideAdmin = !hasAcesso('admin') || !$isAdminContext;
 
 // Itens do menu, agrupados por subtítulo (nav-group-label). Um grupo com 'rotulo' null
 // não imprime cabeçalho — segue direto após o grupo anterior.
 $_sGrupos = [
     [
-        'rotulo' => $_sEmRetrabalho ? 'Retrabalho' : 'Fábrica',
+        'rotulo' => 'Fábrica',
+        'esconder' => false,
         'itens'  => [
             [
                 'href'  => '/index.php',
@@ -31,59 +39,146 @@ $_sGrupos = [
         ],
     ],
     [
+        'rotulo' => 'Administração',
+        'esconder' => $_hideAdmin,
+        'itens'  => [
+            [
+                'href'  => '/pages/admin/usuarios.php',
+                'label' => 'Usuários e Permissões',
+                'icon'  => '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>',
+                'permissao' => 'adm.usu'
+            ],
+            [
+                'href'  => '/pages/admin/perfis.php',
+                'label' => 'Perfis e Setores',
+                'icon'  => '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+                'permissao' => 'adm.per'
+            ],
+        ],
+    ],
+    [
         'rotulo' => 'Laboratório',
+        'esconder' => $_hideProducao,
         'itens'  => [
             [
                 'href'  => '/pages/producao/index.php',
-                'label' => 'Registro',
+                'label' => 'Registro de Reprova',
                 'icon'  => '<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
-                'esconderEmRetrabalho' => true,
+                'permissao' => 'lab.reg'
             ],
             [
                 'href'  => '/pages/producao/lista.php',
                 'label' => 'Lista',
                 'icon'  => '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
-                'esconderEmRetrabalho' => true,
+                'permissao' => 'lab.lis'
             ],
             [
                 'href'  => '/pages/producao/retornos.php',
                 'label' => 'Retornos',
                 'icon'  => '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>',
-                'esconderEmRetrabalho' => true,
+                'permissao' => 'lab.ret'
             ],
         ],
     ],
     [
-        'rotulo' => null,
+        'rotulo' => 'Inspeção Final',
+        'esconder' => $_hideInspecaoFinal,
         'itens'  => [
+            [
+                'href'  => '/pages/inspecao_final/index.php',
+                'label' => 'Registro de Reprova',
+                'icon'  => '<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
+                'permissao' => 'iqf.reg'
+            ],
+            [
+                'href'  => '/pages/inspecao_final/lista.php',
+                'label' => 'Lista',
+                'icon'  => '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+                'permissao' => 'iqf.lis'
+            ],
+            [
+                'href'  => '/pages/inspecao_final/retornos.php',
+                'label' => 'Retornos',
+                'icon'  => '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>',
+                'permissao' => 'iqf.ret'
+            ],
+        ],
+    ],
+    [
+        'rotulo' => 'Retrabalho',
+        'esconder' => $_hideRetrabalho,
+        'itens'  => [
+            [
+                'href'  => '/pages/retrabalho/dashboard.php',
+                'label' => 'Dashboard',
+                'icon'  => '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 16V10M12 16V7M17 16V13"/>',
+                'permissao' => 'ret.dash'
+            ],
             [
                 'href'  => '/pages/retrabalho/index.php',
                 'label' => 'Retrabalho',
                 'icon'  => '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>',
-                'esconderEmProducao' => true,
+                'permissao' => 'ret.pan'
             ],
             [
                 'href'  => '/pages/retrabalho/relacao.php',
                 'label' => 'Relação de Retrabalhos',
                 'icon'  => '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
-                'esconderEmProducao' => true,
+                'permissao' => 'ret.rel'
             ],
             [
                 'href'  => '/pages/pedidos/prioridade.php',
                 'label' => 'Prioridade',
                 'icon'  => '<circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>',
-                'esconderEmProducao' => true,
+                'permissao' => 'ret.pri'
+            ],
+        ],
+    ],
+    [
+        'rotulo' => 'Qualidade',
+        'esconder' => !hasAcesso('qua.tip') || $isAdminContext,
+        'itens'  => [
+            [
+                'href'  => '/pages/qualidade/reprovas.php',
+                'label' => 'Tipos de Reprova',
+                'icon'  => '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+                'permissao' => 'qua.tip'
+            ],
+        ],
+    ],
+    [
+        'rotulo' => 'Pintura',
+        'esconder' => $_hidePintura,
+        'itens'  => [
+            [
+                'href'  => '/pages/pintura/paint-check.php',
+                'label' => 'Paint Check (Robô)',
+                'icon'  => '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
+                'permissao' => 'pin.pai'
+            ],
+            [
+                'href'  => '/pages/pintura/relacao.php',
+                'label' => 'Relação de Retrabalhos',
+                'icon'  => '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+                'permissao' => 'pin.ret'
             ],
         ],
     ],
     [
         'rotulo' => 'Análise',
+        'esconder' => $_hideAnalise,
         'itens'  => [
+            [
+                'href'  => '/pages/retrabalho/acompanhamento.php',
+                'label' => 'Acompanhamento',
+                'icon'  => '<path d="M11 21H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v7"/><path d="M21 16v6"/><path d="M18 19h6"/><path d="M9 7h6"/><path d="M9 11h6"/><path d="M9 15h4"/>',
+                'permissao' => 'ana.aco'
+            ],
             [
                 'href'  => '/pages/retrabalho/historico.php',
                 'label' => 'Histórico',
                 'icon'  => '<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>',
-                'esconderEmProducao' => true,
+                'permissao' => 'ana.his'
             ],
         ],
     ],
@@ -104,12 +199,15 @@ $_sGrupos = [
     <!-- Navigation -->
     <nav class="sidebar-nav">
         <?php foreach ($_sGrupos as $_sGrupo):
-            $_sItensVisiveis = array_filter($_sGrupo['itens'], function ($item) use ($_sEmProducao, $_sEmRetrabalho) {
-                if ($_sEmProducao && !empty($item['esconderEmProducao'])) return false;
-                if ($_sEmRetrabalho && !empty($item['esconderEmRetrabalho'])) return false;
-                return true;
-            });
-            if (!$_sItensVisiveis) continue; // grupo inteiro escondido no contexto atual — nem o rótulo aparece
+            if (!empty($_sGrupo['esconder'])) continue; // Se o grupo estiver escondido para este usuário
+            
+            $_sItensVisiveis = [];
+            foreach ($_sGrupo['itens'] as $_i) {
+                if (!isset($_i['permissao']) || hasAcesso($_i['permissao'])) {
+                    $_sItensVisiveis[] = $_i;
+                }
+            }
+            if (!$_sItensVisiveis) continue;
         ?>
         <?php if ($_sGrupo['rotulo'] !== null): ?>
         <p class="nav-group-label"><?= htmlspecialchars($_sGrupo['rotulo']) ?></p>

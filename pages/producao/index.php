@@ -5,10 +5,21 @@ require_once __DIR__ . '/../../config/conexao.php';
 require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../includes/helpers.php';
 
-requireLogin();
+requireAcessoModulo('producao');
+
+$base = defined('APP_URL') ? APP_URL : '';
+
+if (!hasAcesso('lab.reg')) {
+    if (hasAcesso('lab.lis')) {
+        header('Location: ' . $base . '/pages/producao/lista.php');
+        exit;
+    } elseif (hasAcesso('lab.ret')) {
+        header('Location: ' . $base . '/pages/producao/retornos.php');
+        exit;
+    }
+}
 
 $pdo  = getDB();
-$base = defined('APP_URL') ? APP_URL : '';
 
 // Estação coberta nesta 1ª atividade do módulo (IQF/GER seguem o mesmo padrão de card
 // quando forem especificadas — ver PROJETO-SGT/producao-tela-spec.md).
@@ -42,10 +53,7 @@ require_once __DIR__ . '/../../includes/layout.php';
 layoutHeader($pageTitle);
 ?>
 
-<div style="margin-bottom:22px;">
-    <h1 style="font-size:var(--font-size-xl);font-weight:700;">Produção</h1>
-    <p style="color:var(--color-text-secondary);font-size:var(--font-size-base);margin-top:2px;">Acompanhamento das etapas no chão de fábrica</p>
-</div>
+
 
 <div class="station-grid">
 
@@ -56,7 +64,6 @@ layoutHeader($pageTitle);
                 <h2>Laboratório</h2>
                 <p class="station-card__sub" id="labSub">Nenhum transformador em andamento</p>
             </div>
-            <span class="station-timer" id="labTimer">00:00</span>
         </header>
 
         <div class="station-card__status" id="labStatus"></div>
@@ -150,8 +157,11 @@ layoutHeader($pageTitle);
     <div class="scan-overlay__error" id="overlayError"></div>
 
     <div class="scan-overlay__manual">
-        <label for="manualNs">Ou digite o número de série manualmente</label>
-        <div class="manual-row">
+        <button class="btn btn-secondary btn-block" id="showManualBtn" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect><line x1="6" y1="8" x2="6" y2="8"></line><line x1="10" y1="8" x2="10" y2="8"></line><line x1="14" y1="8" x2="14" y2="8"></line><line x1="18" y1="8" x2="18" y2="8"></line><line x1="6" y1="12" x2="6" y2="12"></line><line x1="10" y1="12" x2="10" y2="12"></line><line x1="14" y1="12" x2="14" y2="12"></line><line x1="18" y1="12" x2="18" y2="12"></line><line x1="7" y1="16" x2="17" y2="16"></line></svg>
+            Digitar manualmente
+        </button>
+        <div class="manual-row" id="manualInputRow" style="display:none; margin-top:12px;">
             <input id="manualNs" type="text" placeholder="Ex.: 900201" autocomplete="off">
             <button class="btn btn-secondary" id="manualBtn" type="button">Buscar</button>
         </div>

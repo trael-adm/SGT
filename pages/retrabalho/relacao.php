@@ -6,7 +6,7 @@ require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../includes/helpers.php';
 require_once __DIR__ . '/../../includes/planilha-ns-of.php';
 
-requireLogin();
+requireAcessoModulo('retrabalho');
 
 $pdo  = getDB();
 $base = defined('APP_URL') ? APP_URL : '';
@@ -18,8 +18,8 @@ $fFamilia = trim((string) ($_GET['familia'] ?? ''));
 $fMes     = trim((string) ($_GET['mes'] ?? ''));
 
 $LOCAIS_VALIDOS  = ['IQF', 'LAB', 'GER'];
-// Finalizado/Aprovado escondidos a pedido — esses status agora vivem só na
-// Relação do Histórico (ver pages/retrabalho/historico.php).
+// Finalizado escondido a pedido — esse status agora vive só na
+// Relação do Histórico (pages/retrabalho/historico.php).
 $STATUS_VALIDOS  = ['agu_abertura', 'agu_causa_raiz'];
 $DIAS_FLAG       = 15; // acima disso, sinaliza "parado há muito tempo"
 
@@ -35,7 +35,7 @@ if (isset($_GET['status_touched'])) {
 
 // Ordenação (clique nas colunas da tabela) — agora em nível de projeto (grupo).
 // Sem "sort" na URL, usa a ordenação padrão: projeto com o caso mais urgente primeiro.
-$SORT_COLS_VALIDAS = ['data_pcp', 'prioridade', 'pedido', 'projeto', 'descricao', 'potencia', 'classe', 'registros', 'repetencias'];
+$SORT_COLS_VALIDAS = ['data_pcp', 'prioridade', 'pedido', 'projeto', 'descricao', 'potencia', 'classe', 'registros', 'repetencias', 'ns', 'dias', 'flags', 'status'];
 $sortCol = (string) ($_GET['sort'] ?? '');
 if ($sortCol !== '' && !in_array($sortCol, $SORT_COLS_VALIDAS, true)) $sortCol = '';
 $sortDir = ($_GET['dir'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
@@ -55,10 +55,12 @@ $dataExpr = 'DATE(COALESCE(r.data_reprova, r.data_inicio, r.created_at))';
 // (-> volta pra cá, ver acao=reprovar_retorno em api/retrabalho-acao.php).
 $where  = [
     'r.deleted_at IS NULL',
+    "rep.familia NOT IN ('PINTURA', 'SERIGRAFIA', 'CAMADA')",
+    "(r.setores_destino NOT LIKE '%pintura%' OR r.setores_destino IS NULL)",
     "NOT EXISTS (
         SELECT 1 FROM producao_etapas pe
         WHERE pe.ns_transformador = r.ns_transformador AND pe.id_projeto = r.id_projeto
-          AND pe.estacao = 'LAB' AND pe.status = 'aguardando_retorno' AND pe.deleted_at IS NULL
+          AND pe.estacao IN ('LAB', 'IQF') AND pe.status = 'aguardando_retorno' AND pe.deleted_at IS NULL
     )",
 ];
 $params = [];
@@ -98,7 +100,8 @@ $sql = "
     SELECT r.*,
            u.nome    AS responsavel_nome,
            pr.codigo AS projeto_codigo, pr.descricao AS projeto_descricao, pr.id_pedido AS id_pedido,
-           ped.numero AS pedido_numero, ped.prioridade AS pedido_prioridade,
+           pr.prioridade AS projeto_prioridade, pr.sequencia AS projeto_sequencia,
+           ped.numero AS pedido_numero, ped.prioridade AS pedido_prioridade, ped.sequencia AS pedido_sequencia,
            rep.codigo AS reprova_codigo, rep.familia AS reprova_familia,
            rep.descricao AS reprova_descricao, rep.local AS reprova_local
     $fromSql
@@ -107,13 +110,33 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $registros = $stmt->fetchAll();
 
+// ─── Reprovas de Pintura/Serigrafia abertas (para identificação de peças mistas) ─
+$nsList = array_values(array_filter(array_unique(array_column($registros, 'ns_transformador'))));
+$pinturaReprovasPorNs = [];
+if ($nsList) {
+    $phNs = implode(',', array_fill(0, count($nsList), '?'));
+    $stmtPin = $pdo->prepare("
+        SELECT r.ns_transformador, rep.codigo, rep.descricao, rep.familia
+        FROM retrabalhos r
+        JOIN reprovas rep ON rep.id = r.id_reprova
+        WHERE r.ns_transformador IN ($phNs)
+          AND r.deleted_at IS NULL
+          AND r.status IN ('agu_abertura', 'agu_causa_raiz')
+          AND (rep.familia IN ('PINTURA', 'SERIGRAFIA', 'CAMADA') OR r.setores_destino LIKE '%pintura%')
+    ");
+    $stmtPin->execute($nsList);
+    foreach ($stmtPin->fetchAll(PDO::FETCH_ASSOC) as $pin) {
+        $pinturaReprovasPorNs[$pin['ns_transformador']][] = $pin;
+    }
+}
+
 // ─── Reincidências: quantas vezes cada N° de série já apareceu no retrabalho ───
 // Reprovas de uma mesma triagem (mesmo id_lote) contam como 1 única ocorrência —
 // só a quantidade de reprovas (qtdRegistros) soma cada uma individualmente.
 $qtdPorNs = $pdo->query("
     SELECT ns_transformador, COUNT(DISTINCT COALESCE(id_lote, id)) AS qtd
     FROM retrabalhos
-    WHERE deleted_at IS NULL
+    WHERE deleted_at IS NULL AND estacao IN ('LAB', 'IQF')
     GROUP BY ns_transformador
 ")->fetchAll(PDO::FETCH_KEY_PAIR);
 
@@ -121,16 +144,17 @@ $qtdPorNs = $pdo->query("
 // Contado em dias úteis (seg-sex) a partir da data de início do retrabalho (não da reprova).
 $hoje        = new DateTime('today');
 $RANK_FLAG   = ['vermelho' => 4, 'laranja' => 3, 'amarelo' => 2, 'verde' => 1];
-$RANK_STATUS = ['agu_abertura' => 2, 'agu_causa_raiz' => 1, 'finalizado' => 0, 'aprovado' => 0];
-// "finalizado" (causa raiz documentada) e "aprovado" (retorno ao Laboratório
-// aprovado sem causa raiz) são os dois status encerrados — tratados igual aqui.
-$STATUS_ENCERRADOS = ['finalizado', 'aprovado'];
+$RANK_STATUS = ['agu_abertura' => 2, 'agu_causa_raiz' => 1, 'finalizado' => 0];
+// "finalizado" (causa raiz documentada ou aprovado na reinspeção do Laboratório)
+// é o status encerrado.
+$STATUS_ENCERRADOS = ['finalizado'];
 foreach ($registros as &$r) {
-    $r['_qtdReprovas'] = $qtdPorNs[$r['ns_transformador']] ?? 1;
-    $r['_dataPcp']     = buscarDataPcpPorNs((string) $r['ns_transformador']);
+    $r['_qtdReprovas']     = $qtdPorNs[$r['ns_transformador']] ?? 1;
+    $r['_dataPcp']         = buscarDataPcpPorNs((string) $r['ns_transformador']);
+    $r['_pinturaReprovas'] = $pinturaReprovasPorNs[$r['ns_transformador']] ?? [];
     $encerrado = in_array($r['status'], $STATUS_ENCERRADOS, true);
-
-    $baseData = $r['data_inicio'] ?? $r['data_reprova'] ?? $r['created_at'];
+    // Usa a data da reprova (quando falhou) ou a data de criação do registro no sistema
+    $baseData = !empty($r['data_reprova']) ? $r['data_reprova'] : $r['created_at'];
     $dias = null;
     if ($baseData) {
         $ini = new DateTime(substr((string) $baseData, 0, 10));
@@ -158,27 +182,49 @@ foreach ($registros as &$r) {
 }
 unset($r);
 
-// ─── Agrupamento por projeto — o N° de série passa para o detalhe expansível ───
+// ─── Agrupamento por N° de Série ──────────────────────────────────────────────
 $grupos = [];
 foreach ($registros as $r) {
-    $gid = (int) ($r['id_projeto'] ?? 0);
+    $gid = (string) $r['ns_transformador'];
+    if ($gid === '') $gid = 's_ns_' . $r['id'];
+
     if (!isset($grupos[$gid])) {
         [$potencia, $classe] = parsePotenciaClasse($r['projeto_descricao'] ?? null);
+        
+        $ns_prio = $r['prioridade'] ?? 'neutro';
+        $pr_prio = $r['projeto_prioridade'] ?? 'neutro';
+        $ped_prio = $r['pedido_prioridade'] ?? 'neutro';
+        
+        $eff_prio = 'neutro';
+        if ($ns_prio !== 'neutro') {
+            $eff_prio = $ns_prio;
+        } elseif ($pr_prio !== 'neutro') {
+            $eff_prio = $pr_prio;
+        } else {
+            $eff_prio = $ped_prio;
+        }
+
+        // Data mais antiga do grupo (para FIFO)
+        $baseDataGrupo = !empty($r['data_reprova']) ? $r['data_reprova'] : $r['created_at'];
+
         $grupos[$gid] = [
-            'id_projeto'        => $gid,
+            'ns_transformador'  => $r['ns_transformador'],
+            'id_projeto'        => $r['id_projeto'] ?? 0,
             'projeto_codigo'    => $r['projeto_codigo'],
             'projeto_descricao' => $r['projeto_descricao'],
             'pedido_numero'     => $r['pedido_numero'],
-            'prioridade'        => $r['pedido_prioridade'],
+            'prioridade'        => $eff_prio,
             'potencia'          => $potencia,
             'classe'            => $classe,
             'itens'             => [],
-            'ns_repetidos'      => [],
             '_flagRank'         => 0,
             '_statusRank'       => 0,
             '_dias'             => -1,
             '_maxId'            => 0,
             '_dataPcp'          => null,
+            '_qtdReprovas'      => $r['_qtdReprovas'] ?? 1,
+            '_dataFifo'         => $baseDataGrupo,
+            '_pinturaReprovas'  => $r['_pinturaReprovas'] ?? [],
         ];
     }
     $g = &$grupos[$gid];
@@ -187,28 +233,30 @@ foreach ($registros as $r) {
     $g['_statusRank'] = max($g['_statusRank'], $r['_statusRank']);
     $g['_dias']       = max($g['_dias'], $r['_dias'] ?? -1);
     $g['_maxId']      = max($g['_maxId'], (int) $r['id']);
+    // Manter a data FIFO mais antiga do grupo
+    $baseDataItem = !empty($r['data_reprova']) ? $r['data_reprova'] : $r['created_at'];
+    if ($baseDataItem !== null && ($g['_dataFifo'] === null || $baseDataItem < $g['_dataFifo'])) {
+        $g['_dataFifo'] = $baseDataItem;
+    }
     if ($r['_dataPcp'] !== null && ($g['_dataPcp'] === null || $r['_dataPcp'] < $g['_dataPcp'])) {
         $g['_dataPcp'] = $r['_dataPcp'];
     }
-    if ($r['_qtdReprovas'] > 1) $g['ns_repetidos'][(string) $r['ns_transformador']] = true;
     unset($g);
 }
 foreach ($grupos as &$g) {
-    // Detalhe sempre ordenado pela reprova mais recente primeiro.
     usort($g['itens'], function (array $a, array $b): int {
         $cmp = strcmp((string) ($b['data_reprova'] ?? ''), (string) ($a['data_reprova'] ?? ''));
         return $cmp !== 0 ? $cmp : ($b['id'] <=> $a['id']);
     });
-    $g['qtdRegistros']   = count($g['itens']);
-    $g['qtdRepetencias'] = count($g['ns_repetidos']);
+    $g['qtdRegistros'] = count($g['itens']);
 }
 unset($g);
 $grupos = array_values($grupos);
 
-// Prioridade mais urgente primeiro quando ordenado (emergente = mais urgente).
+// ─── Ordenação padrão: Prioridade (desc) → FIFO por data (asc) ────────────────
 const RT_PRIORIDADE_RANK = ['emergente' => 4, 'urgente' => 3, 'importante' => 2, 'neutro' => 1];
 
-/** Valor de um grupo (projeto) usado para ordenar a listagem principal. */
+/** Valor de um grupo (N° série) usado para ordenar a listagem principal. */
 function rtGroupSortValue(array $g, string $col): string|int
 {
     return match ($col) {
@@ -216,23 +264,42 @@ function rtGroupSortValue(array $g, string $col): string|int
         'prioridade'  => RT_PRIORIDADE_RANK[$g['prioridade'] ?? ''] ?? 0,
         'pedido'      => (string) ($g['pedido_numero'] ?? ''),
         'projeto'     => (string) ($g['projeto_codigo'] ?? ''),
-        'descricao'   => (string) ($g['projeto_descricao'] ?? ''),
+        'ns'          => (string) ($g['ns_transformador'] ?? ''),
         'potencia'    => $g['potencia'] !== null ? (int) round((float) $g['potencia']) : -1,
         'classe'      => $g['classe']   !== null ? (int) round((float) $g['classe'])   : -1,
         'registros'   => $g['qtdRegistros'],
-        'repetencias' => $g['qtdRepetencias'],
-        // Padrão (sem coluna clicada): projeto com o pior flag/status/atraso primeiro.
-        default       => ($g['_flagRank'] * 1_000_000) + ($g['_statusRank'] * 100_000) + max(0, $g['_dias']),
+        'repetencias' => $g['_qtdReprovas'],
+        'dias'        => $g['_dias'],
+        'flags'       => $g['_flagRank'],
+        'status'      => $g['_statusRank'],
+        // Padrão (sem coluna clicada): Prioridade primeiro, FIFO depois
+        default       => 0,
     };
 }
 
 usort($grupos, function (array $a, array $b) use ($sortCol, $sortDir): int {
+    if ($sortCol === '' || $sortCol === 'default') {
+        // Ordenação padrão: 1° Prioridade desc, 2° FIFO por data asc
+        $prioA = RT_PRIORIDADE_RANK[$a['prioridade'] ?? ''] ?? 0;
+        $prioB = RT_PRIORIDADE_RANK[$b['prioridade'] ?? ''] ?? 0;
+        $cmp = $prioB <=> $prioA; // desc (emergente primeiro)
+        if ($cmp !== 0) return $cmp;
+        // Empate de prioridade: FIFO (data mais antiga primeiro)
+        return strcmp((string) ($a['_dataFifo'] ?? '9999'), (string) ($b['_dataFifo'] ?? '9999'));
+    }
+    // Ordenação por clique em coluna
     $va = rtGroupSortValue($a, $sortCol);
     $vb = rtGroupSortValue($b, $sortCol);
     $cmp = is_int($va) ? ($va <=> $vb) : strcasecmp((string) $va, (string) $vb);
     if ($sortDir === 'desc') $cmp = -$cmp;
-    return $cmp !== 0 ? $cmp : ($b['_maxId'] <=> $a['_maxId']);
+    return $cmp !== 0 ? $cmp : ($a['_maxId'] <=> $b['_maxId']);
 });
+
+// ─── Numeração da posição na fila (1°, 2°, 3°...) ─────────────────────────────
+foreach ($grupos as $k => &$g) {
+    $g['_posicaoFila'] = $k + 1;
+}
+unset($g);
 
 // ─── Paginação (sobre os grupos já ordenados) ──────────────────────────────────
 $totalRegistros = count($registros);
@@ -245,18 +312,28 @@ $gruposPagina = array_slice($grupos, $offset, $porPagina);
 // ─── Listas auxiliares (filtros + modal) ───────────────────────────────────────
 $pedidos  = $pdo->query("SELECT id, numero FROM pedidos WHERE deleted_at IS NULL ORDER BY numero")->fetchAll();
 $projetos = $pdo->query("SELECT id, codigo, descricao, id_pedido FROM projetos WHERE deleted_at IS NULL ORDER BY codigo")->fetchAll();
-$reprovas = $pdo->query("SELECT id, codigo, familia, descricao, local FROM reprovas WHERE ativo = 1 ORDER BY ordem, codigo")->fetchAll();
+$reprovas = $pdo->query("
+    SELECT id, codigo, familia, descricao, local 
+    FROM reprovas 
+    WHERE ativo = 1 
+      AND familia NOT IN ('PINTURA', 'SERIGRAFIA', 'CAMADA')
+    ORDER BY ordem, LENGTH(codigo), codigo
+")->fetchAll();
 
 $familiasDisponiveis = $pdo->query("
     SELECT DISTINCT familia FROM reprovas
     WHERE ativo = 1 AND familia IS NOT NULL AND familia <> ''
+      AND familia NOT IN ('PINTURA', 'SERIGRAFIA', 'CAMADA')
     ORDER BY familia
 ")->fetchAll(PDO::FETCH_COLUMN);
 
 $mesesDisponiveis = $pdo->query("
-    SELECT DISTINCT DATE_FORMAT(COALESCE(data_reprova, data_inicio, created_at), '%Y-%m') AS ym
-    FROM retrabalhos
-    WHERE deleted_at IS NULL
+    SELECT DISTINCT DATE_FORMAT(COALESCE(r.data_reprova, r.data_inicio, r.created_at), '%Y-%m') AS ym
+    FROM retrabalhos r
+    JOIN reprovas rep ON rep.id = r.id_reprova
+    WHERE r.deleted_at IS NULL
+      AND rep.familia NOT IN ('PINTURA', 'SERIGRAFIA', 'CAMADA')
+      AND (r.setores_destino NOT LIKE '%pintura%' OR r.setores_destino IS NULL)
     ORDER BY ym DESC
 ")->fetchAll(PDO::FETCH_COLUMN);
 
@@ -268,12 +345,16 @@ $statusMap = [
     'agu_abertura'   => ['label' => 'Agu. Abertura',   'bg' => '#fef2f2', 'fg' => '#dc2626'],
     'agu_causa_raiz' => ['label' => 'Agu. Causa Raiz', 'bg' => '#fffbeb', 'fg' => '#d97706'],
     'finalizado'     => ['label' => 'Finalizado',      'bg' => '#ecfdf5', 'fg' => '#16a34a'],
-    'aprovado'       => ['label' => 'Aprovado',        'bg' => '#eff6ff', 'fg' => '#2563eb'],
 ];
 $localMap = [
     'IQF' => ['label' => 'IQF', 'title' => 'Inspeção final', 'bg' => '#eff6ff', 'fg' => '#2563eb'],
     'LAB' => ['label' => 'LAB', 'title' => 'Laboratório',    'bg' => '#f5f3ff', 'fg' => '#7c3aed'],
     'GER' => ['label' => 'GER', 'title' => 'Geral',          'bg' => '#f0fdf4', 'fg' => '#16a34a'],
+];
+$respMap = [
+    'Laboratório'    => ['bg' => '#f5f3ff', 'fg' => '#7c3aed'],
+    'Inspeção Final' => ['bg' => '#eff6ff', 'fg' => '#2563eb'],
+    'Retrabalho'     => ['bg' => '#fff7ed', 'fg' => '#ea580c'],
 ];
 $prioridadesInfo = pedidoPrioridades();
 
@@ -342,9 +423,9 @@ layoutHeader($pageTitle);
     .rt-th-link.active { color:#1a3d2a; font-weight:700; }
     .rt-table td { padding:9px 10px; border-bottom:1px solid var(--color-border,#f1f5f9); vertical-align:middle; }
     .rt-table th:nth-child(3), .rt-table td:nth-child(3),
-    .rt-table th:nth-child(4), .rt-table td:nth-child(4),
     .rt-table th:nth-child(5), .rt-table td:nth-child(5),
     .rt-table th:nth-child(6), .rt-table td:nth-child(6),
+    .rt-table th:nth-child(7), .rt-table td:nth-child(7),
     .rt-table th:nth-child(9), .rt-table td:nth-child(9),
     .rt-table th:nth-child(10), .rt-table td:nth-child(10) { text-align:center; }
     .rt-table tr:hover td { background:var(--color-surface-2,#f9fafb); }
@@ -402,7 +483,6 @@ layoutHeader($pageTitle);
 <!-- Cabeçalho -->
 <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px;">
     <div>
-        <a href="<?= htmlspecialchars($base) ?>/pages/retrabalho/index.php" style="font-size:12px;color:var(--color-text-muted,#9aa3b8);text-decoration:none;">&larr; Painel de Retrabalho</a>
         <h1 style="font-size:var(--font-size-xl,20px);font-weight:700;margin-top:2px;">Relação de Retrabalhos</h1>
         <p class="text-secondary" style="font-size:13px;color:var(--color-text-secondary,#6b7280);margin-top:2px;">
             Listagem detalhada de todos os retrabalhos, com filtros e paginação
@@ -428,13 +508,16 @@ layoutHeader($pageTitle);
     </div>
 
     <!-- Filtros -->
-    <form method="GET" class="rt-filtros" id="rt-filtros">
+    <form method="GET" class="filter-bar" id="rt-filtros">
         <input type="hidden" name="local" value="<?= htmlspecialchars($fLocal) ?>">
         <input type="hidden" name="status_touched" value="1">
 
-        <div class="rt-filtros-left">
-            <input type="search" name="busca" value="<?= htmlspecialchars($fBusca) ?>" placeholder="Buscar projeto, pedido, NS, reprova, responsável…" style="min-width:260px;">
-            <select name="mes" onchange="this.form.submit()">
+        <div class="filter-group-left">
+            <div class="filter-search-wrap">
+                <svg class="filter-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input type="search" name="busca" class="filter-search-input" value="<?= htmlspecialchars($fBusca) ?>" placeholder="Buscar projeto, pedido, NS, reprova, responsável…">
+            </div>
+            <select name="mes" class="filter-select" onchange="this.form.submit()">
                 <option value="">Mês…</option>
                 <?php foreach ($mesesDisponiveis as $ym): if (!$ym) continue;
                     $lbl = ($MESES_PT[(int) substr($ym, 5, 2)] ?? $ym) . '/' . substr($ym, 0, 4);
@@ -442,19 +525,25 @@ layoutHeader($pageTitle);
                     <option value="<?= htmlspecialchars($ym) ?>" <?= $fMes === $ym ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option>
                 <?php endforeach; ?>
             </select>
-            <select name="familia" onchange="this.form.submit()">
+            <select name="familia" class="filter-select" onchange="this.form.submit()">
                 <option value="">Família…</option>
                 <?php foreach ($familiasDisponiveis as $fam): ?>
                     <option value="<?= htmlspecialchars($fam) ?>" <?= $fFamilia === $fam ? 'selected' : '' ?>><?= htmlspecialchars($fam) ?></option>
                 <?php endforeach; ?>
             </select>
-            <button type="submit" class="rt-btn-secondary">Filtrar</button>
+            <button type="submit" class="filter-btn filter-btn-secondary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                Filtrar
+            </button>
             <?php if ($temFiltroAtivo): ?>
-                <a href="<?= htmlspecialchars($base) ?>/pages/retrabalho/relacao.php" class="rt-btn-secondary">Limpar</a>
+                <a href="<?= htmlspecialchars($base) ?>/pages/retrabalho/relacao.php" class="filter-btn filter-btn-clear" title="Limpar filtros">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    Limpar
+                </a>
             <?php endif; ?>
         </div>
 
-        <div class="rt-filtros-right">
+        <div class="filter-group-right">
             <div class="rt-check-row">
                 <span class="lbl">Mostrar:</span>
                 <?php foreach ($STATUS_VALIDOS as $k): $info = $statusMap[$k]; ?>
@@ -468,130 +557,129 @@ layoutHeader($pageTitle);
     </form>
 
     <div style="overflow-x:auto;" id="rt-table-wrap">
-        <table class="rt-table">
+        <table class="rt-table" style="min-width:1400px;">
             <thead>
                 <tr>
-                    <th style="width:32px;"></th>
                     <?php
-                    rtSortTh('Data PCP', 'data_pcp');
+                    echo '<th style="width:32px;"></th>';
                     rtSortTh('Prioridade', 'prioridade');
+                    echo '<th>#</th>';
+                    rtSortTh('N° Série', 'ns');
                     rtSortTh('Pedido', 'pedido');
                     rtSortTh('Projeto', 'projeto');
-                    rtSortTh('Descrição', 'descricao');
                     rtSortTh('Potência', 'potencia');
                     rtSortTh('Classe', 'classe');
-                    rtSortTh('Reprovas', 'registros');
-                    rtSortTh('Repetências', 'repetencias');
+                    rtSortTh('Status', 'status');
+                    rtSortTh('Parado há', 'dias');
+                    rtSortTh('Flags', 'flags');
+                    rtSortTh('Reincidências', 'repetencias');
+                    echo '<th style="text-align:right;">Ações</th>';
                     ?>
                 </tr>
             </thead>
             <tbody>
                 <?php if (!$gruposPagina): ?>
-                    <tr><td colspan="10"><div class="rt-empty">Nenhum retrabalho encontrado para os filtros selecionados.</div></td></tr>
+                    <tr><td colspan="13"><div class="rt-empty">Nenhum retrabalho encontrado para os filtros selecionados.</div></td></tr>
                 <?php else: foreach ($gruposPagina as $g):
-                    $detId = 'rt-det-' . $g['id_projeto'] . '-' . $g['_maxId'];
                     $gPrio = $prioridadesInfo[$g['prioridade']] ?? null;
+                    $itemPrincipal = $g['itens'][0]; // Mais crítico/recente
                 ?>
                     <tr class="rt-group-row">
                         <td>
-                            <button type="button" class="rt-toggle-btn js-toggle-grupo" data-target="<?= htmlspecialchars($detId) ?>" aria-expanded="false" title="Mostrar números de série">+</button>
+                            <button type="button" class="rt-toggle-btn js-toggle-rt" data-target="rt-det-<?= (int)$itemPrincipal['id'] ?>" aria-expanded="false" title="Mostrar reprovas">+</button>
                         </td>
-                        <td><?= $g['_dataPcp'] !== null ? htmlspecialchars(fmtDataBR($g['_dataPcp'])) : '—' ?></td>
-                        <td>
+                        <td style="text-align:center;">
                             <?php if ($gPrio): ?>
-                                <span class="rt-badge" style="background:<?= $gPrio['bg'] ?>;color:<?= $gPrio['fg'] ?>;"><?= htmlspecialchars($gPrio['label']) ?></span>
+                                <span class="rt-badge" style="background:<?= $gPrio['bg'] ?>;color:<?= $gPrio['fg'] ?>;" title="<?= htmlspecialchars($gPrio['label']) ?>"><?= htmlspecialchars($gPrio['label']) ?></span>
                             <?php else: ?>—<?php endif; ?>
                         </td>
+                        <td style="text-align:center;"><span style="font-size:12px;color:var(--color-text-muted,#6b7280);font-weight:600;"><?= $g['_posicaoFila'] ?>°</span></td>
+                        <td><span class="rt-code" style="font-weight:700;color:#111827;"><?= htmlspecialchars($g['ns_transformador'] ?? '—') ?></span></td>
                         <td><?= htmlspecialchars($g['pedido_numero'] ?? '—') ?></td>
                         <td><span class="rt-code"><?= htmlspecialchars($g['projeto_codigo'] ?? '—') ?></span></td>
-                        <td><?= htmlspecialchars($g['projeto_descricao'] ?? '—') ?></td>
                         <td><?= $g['potencia'] !== null ? htmlspecialchars($g['potencia']) . ' kVA' : '—' ?></td>
                         <td><?= $g['classe'] !== null ? htmlspecialchars($g['classe']) . ' kV' : '—' ?></td>
-                        <td style="text-align:center;">
-                            <span class="rt-badge" style="background:#eef2ff;color:#4338ca;" title="<?= (int) $g['qtdRegistros'] ?> retrabalho(s) registrado(s) para este projeto"><?= (int) $g['qtdRegistros'] ?></span>
-                        </td>
-                        <td style="text-align:center;">
-                            <?php if ($g['qtdRepetencias'] > 0): ?>
-                                <span class="rt-badge" style="background:#fef2f2;color:#dc2626;" title="<?= (int) $g['qtdRepetencias'] ?> N° de série reincidente(s) neste projeto"><?= (int) $g['qtdRepetencias'] ?></span>
+                        
+                        <?php 
+                            $st = $statusMap[$itemPrincipal['status']] ?? $statusMap['agu_abertura'];
+                            $diasTxt = '—';
+                            $diasClass = '';
+                            if ($g['_dias'] >= 0) {
+                                if (in_array($itemPrincipal['status'], ['finalizado'], true)) {
+                                    $diasTxt = $g['_dias'] . 'd (concluído)';
+                                } else {
+                                    $diasTxt = $g['_dias'] . 'd';
+                                    $diasClass = $g['_dias'] > $DIAS_FLAG ? 'prazo-atraso' : ($g['_dias'] >= 7 ? 'prazo-risco' : 'prazo-ok');
+                                }
+                            }
+                        ?>
+                        <td style="text-align:center;vertical-align:middle;"><span class="rt-badge" style="background:<?= $st['bg'] ?>;color:<?= $st['fg'] ?>;"><?= $st['label'] ?></span></td>
+                        <td class="<?= $diasClass ?>" style="text-align:center;vertical-align:middle;font-size:12px;font-weight:600;"><?= htmlspecialchars($diasTxt) ?></td>
+                        
+                        <td style="text-align:center;vertical-align:middle;">
+                            <?php if ($itemPrincipal['_flagCor']): ?>
+                                <span class="rt-flag-dot <?= $itemPrincipal['_flagCor'] ?>" title="<?= $g['_dias'] ?> dia(s) útil(eis) em retrabalho"></span>
                             <?php else: ?>—<?php endif; ?>
                         </td>
+                        
+                        <td style="text-align:center;vertical-align:middle;">
+                            <?php if ($g['_qtdReprovas'] > 1): ?>
+                                <span class="rt-badge" style="background:#fef2f2;color:#dc2626;" title="Este N° de série já apareceu <?= (int) $g['_qtdReprovas'] ?> vezes no retrabalho"><?= (int) $g['_qtdReprovas'] ?></span>
+                            <?php else: ?>—<?php endif; ?>
+                        </td>
+
+                        <td style="text-align:right;vertical-align:middle;">
+                            <?php if ($itemPrincipal['data_chegada'] === null): ?>
+                                <a class="rt-btn-chegada" href="<?= htmlspecialchars($base) ?>/pages/retrabalho/confirmar-chegada.php?id=<?= (int) $itemPrincipal['id'] ?>" title="Confirmar chegada por QR Code">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                    Aguardando chegada
+                                </a>
+                            <?php else: ?>
+                                <a class="rt-edit-btn" href="<?= htmlspecialchars($base) ?>/pages/retrabalho/detalhe.php?id=<?= (int) $itemPrincipal['id'] ?>" title="Ver / editar">
+                                    Triagem
+                                </a>
+                            <?php endif; ?>
+                        </td>
                     </tr>
-                    <tr class="rt-detail-row" id="<?= htmlspecialchars($detId) ?>">
-                        <td colspan="10">
-                            <div class="rt-detail-wrap">
-                                <div style="overflow-x:auto;">
-                                <table class="rt-subtable">
+                    <tr class="rt-detail-row" id="rt-det-<?= (int)$itemPrincipal['id'] ?>" style="display:none;">
+                        <td colspan="13">
+                            <div class="rt-detail-wrap" style="padding:16px; background:#f9fafb; border-bottom:1px solid #eef1f5;">
+                                <table class="rt-subtable" style="width:100%; font-size:13px; border-collapse:collapse;">
                                     <thead>
-                                        <tr>
-                                            <th>N° Série</th><th>Contenção</th><th>Família</th><th>Local</th><th>Responsável</th>
-                                            <th>Status</th><th>Parado há</th><th>Data reprova</th><th>Flags</th><th>Reincidências</th><th></th><th></th>
+                                        <tr style="border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:11px; text-transform:uppercase;">
+                                            <th style="padding:8px;text-align:left;">Contenção</th>
+                                            <th style="padding:8px;text-align:left;">Família</th>
+                                            <th style="padding:8px;text-align:left;">Responsável</th>
+                                            <th style="padding:8px;text-align:center;">Data Reprova</th>
+                                            <th style="padding:8px;text-align:right;"></th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <?php foreach ($g['itens'] as $r):
-                                            $st = $statusMap[$r['status']] ?? $statusMap['agu_abertura'];
-                                            $lo = $localMap[$r['reprova_local']] ?? null;
-                                            $diasTxt = '—';
-                                            $diasClass = '';
-                                            if ($r['_dias'] !== null) {
-                                                if (in_array($r['status'], ['finalizado', 'aprovado'], true)) {
-                                                    $diasTxt = $r['_dias'] . 'd (concluído)';
-                                                } else {
-                                                    $diasTxt = $r['_dias'] . 'd';
-                                                    $diasClass = $r['_dias'] > $DIAS_FLAG ? 'prazo-atraso' : ($r['_dias'] >= 7 ? 'prazo-risco' : 'prazo-ok');
-                                                }
-                                            }
+                                        <?php foreach ($g['itens'] as $r): 
+                                            $respNome = $r['responsavel_nome'] ?? '—';
+                                            $respStyle = $respMap[$respNome] ?? ['bg' => '#f3f4f6', 'fg' => '#374151'];
                                         ?>
-                                            <tr>
-                                                <td><span class="rt-code"><?= htmlspecialchars($r['ns_transformador'] ?? '—') ?></span></td>
-                                                <td>
+                                            <tr style="border-bottom:1px solid #eef1f5;">
+                                                <td style="padding:8px;">
                                                     <span class="rt-code" style="font-weight:500;"><?= htmlspecialchars($r['reprova_codigo'] ?? '—') ?></span>
                                                     <?php if (!empty($r['reprova_descricao'])): ?>
                                                         <div style="font-size:11px;color:#6b7280;"><?= htmlspecialchars($r['reprova_descricao']) ?></div>
                                                     <?php endif; ?>
                                                 </td>
-                                                <td style="font-size:12px;"><?= htmlspecialchars($r['reprova_familia'] ?? '—') ?></td>
-                                                <td>
-                                                    <?php if ($lo): ?>
-                                                        <span class="rt-badge" style="background:<?= $lo['bg'] ?>;color:<?= $lo['fg'] ?>;" title="<?= htmlspecialchars($lo['title']) ?>"><?= $lo['label'] ?></span>
-                                                    <?php else: ?>—<?php endif; ?>
+                                                <td style="padding:8px;"><?= htmlspecialchars($r['reprova_familia'] ?? '—') ?></td>
+                                                <td style="padding:8px;text-align:left;">
+                                                    <span class="rt-badge" style="background:<?= $respStyle['bg'] ?>;color:<?= $respStyle['fg'] ?>;"><?= htmlspecialchars($respNome) ?></span>
                                                 </td>
-                                                <td><?= htmlspecialchars($r['responsavel_nome'] ?? '—') ?></td>
-                                                <td><span class="rt-badge" style="background:<?= $st['bg'] ?>;color:<?= $st['fg'] ?>;"><?= $st['label'] ?></span></td>
-                                                <td class="<?= $diasClass ?>" style="font-size:12px;"><?= htmlspecialchars($diasTxt) ?></td>
-                                                <td style="font-size:12px;"><?= htmlspecialchars(fmtDataBR($r['data_reprova'])) ?></td>
-                                                <td>
-                                                    <?php if ($r['_flagCor']): ?>
-                                                        <span class="rt-flag-dot <?= $r['_flagCor'] ?>" title="<?= $r['_dias'] ?> dia(s) útil(eis) em retrabalho"></span>
-                                                    <?php else: ?>—<?php endif; ?>
-                                                </td>
-                                                <td style="text-align:center;">
-                                                    <?php if ($r['_qtdReprovas'] > 1): ?>
-                                                        <span class="rt-badge" style="background:#fef2f2;color:#dc2626;" title="Este N° de série já apareceu <?= (int) $r['_qtdReprovas'] ?> vezes no retrabalho"><?= (int) $r['_qtdReprovas'] ?></span>
-                                                    <?php else: ?>—<?php endif; ?>
-                                                </td>
-                                                <td>
-                                                    <?php if ($r['data_chegada'] === null): ?>
-                                                        <a class="rt-btn-chegada" href="<?= htmlspecialchars($base) ?>/pages/retrabalho/confirmar-chegada.php?id=<?= (int) $r['id'] ?>" title="Confirmar chegada por QR Code">
-                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                                                            Confirmar Chegada
-                                                        </a>
-                                                    <?php else: ?>
-                                                        <a class="rt-edit-btn" href="<?= htmlspecialchars($base) ?>/pages/retrabalho/detalhe.php?id=<?= (int) $r['id'] ?>" title="Ver / editar">
-                                                            Triagem
-                                                        </a>
-                                                    <?php endif; ?>
-                                                </td>
-                                                <td>
-                                                    <button type="button" class="rt-del-btn js-del-reprova" data-id="<?= (int) $r['id'] ?>" title="Excluir esta reprova">
-                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                                                <td style="padding:8px;text-align:center;"><?= htmlspecialchars(fmtDataBR($r['data_reprova'])) ?></td>
+                                                <td style="padding:8px;text-align:right;">
+                                                    <button type="button" class="btn-icon btn-icon-danger btn-icon-sm js-del-reprova" data-id="<?= (int) $r['id'] ?>" title="Excluir esta reprova">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                                                     </button>
                                                 </td>
                                             </tr>
                                         <?php endforeach; ?>
                                     </tbody>
                                 </table>
-                                </div>
                             </div>
                         </td>
                     </tr>
@@ -727,4 +815,27 @@ layoutHeader($pageTitle);
 <?php $rtJsVer = @filemtime(__DIR__ . '/../../assets/js/retrabalho.js') ?: (defined('APP_VERSION') ? APP_VERSION : '1'); ?>
 <script src="<?= htmlspecialchars($base) ?>/assets/js/retrabalho.js?v=<?= htmlspecialchars((string) $rtJsVer) ?>"></script>
 
+<style>
+.rt-toggle-btn {
+    width: 24px; height: 24px; border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 4px; font-weight: bold; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; transition: all 0.2s;
+}
+.rt-toggle-btn:hover { background: #f3f4f6; }
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('click', function(e) {
+        const btn = e.target.closest('.js-toggle-rt');
+        if (!btn) return;
+        
+        const targetId = btn.getAttribute('data-target');
+        const targetRow = document.getElementById(targetId);
+        if (!targetRow) return;
+        
+        const isExpanded = btn.getAttribute('aria-expanded') === 'true';
+        btn.setAttribute('aria-expanded', !isExpanded);
+        btn.textContent = isExpanded ? '+' : '-';
+        targetRow.style.display = isExpanded ? 'none' : 'table-row';
+    });
+});
+</script>
 <?php layoutFooter(); ?>

@@ -29,11 +29,11 @@ O SGT é **gerencial** — a operação registra e a gestão acompanha. Cada mó
 
 1. **Formulário de lançamento** — o supervisor registra a ocorrência (setor, data, responsável, motivo/categoria, a métrica da área — quantidade, tempo ou valor — e observações).
 2. **Painel gerencial** — KPIs, gráficos e ranking (por setor, período, motivo) para leitura rápida da gestão.
-3. **Tabela de acompanhamento** — lista dos lançamentos com filtros e ciclo de status **definido por cada módulo**. Padrão de referência: aberto → em andamento → concluído. Ex. atual do **Retrabalho**: **Agu. Abertura → Agu. Causa Raiz → Finalizado**, derivado automaticamente dos dados (data de finalização e causa raiz), sem seleção manual. Um módulo pode ganhar telas de listagem complementares além da tabela do painel — ex.: **Relação de Retrabalhos** (`pages/retrabalho/relacao.php`), com abas por estação, filtros, colunas ordenáveis e paginação, mais duas colunas calculadas: **flag de urgência** (verde/amarelo/laranja/vermelho por dias úteis parado, `diasUteisEntre()` em `includes/helpers.php`) e **reincidência** (quantas vezes o mesmo N° de série já apareceu no retrabalho); e a **Lista de Registros** do **Produção** (`pages/producao/lista.php`), com o mesmo padrão de abas/filtros/ordenação/paginação e uma ação **Reprovar** que registra a reprovação diretamente em `retrabalhos` (ponte manual entre os dois módulos, sem tabela compartilhada — ver "Módulo Produção" abaixo).
+3. **Tabela de acompanhamento** — lista dos lançamentos com filtros e ciclo de status **definido por cada módulo**. Padrão de referência: aberto → em andamento → concluído. Ex. atual do **Retrabalho**: **Agu. Abertura → Agu. Causa da Reprova → Finalizado**, derivado automaticamente dos dados (data de finalização e causa da reprova), sem seleção manual. Um módulo pode ganhar telas de listagem complementares além da tabela do painel — ex.: **Relação de Retrabalhos** (`pages/retrabalho/relacao.php`), com abas por estação, agrupada por **N° de Série** (com múltiplas reprovas empilhadas), filtros, colunas ordenáveis e paginação, mais duas colunas calculadas: **flag de urgência** (verde/amarelo/laranja/vermelho por dias úteis parado, `diasUteisEntre()` em `includes/helpers.php`) e **reincidência** (quantas vezes o mesmo N° de série já apareceu no retrabalho), além de herança de **Prioridade e Sequência** (NS > Projeto > Pedido: Emergente, Urgente, Importante, Neutro); o **Dashboard de Reprovas** (`pages/retrabalho/dashboard.php`), painel gerencial em tempo real com gráfico interativo de Principais Motivos (clique-para-filtrar na planilha em tempo real com feedback visual e reset dinâmico), contagem de KPIs consolidada por peça física única e gráfico de Status Diário; o **Painel de Retrabalho** (`pages/retrabalho/index.php`), mapa interativo de fluxo fabril com filtros rápidos (🚨 Urgentes, 🔄 Em Retorno para LAB e IQF/MF, ⏳ Aguardando Triagem) e iluminação dinâmica; e a **Lista de Registros** do **Produção** (`pages/producao/lista.php`), com o mesmo padrão de abas/filtros/ordenação/paginação e uma ação **Reprovar** que registra a reprovação diretamente em `retrabalhos` (ponte manual entre os dois módulos, sem tabela compartilhada — ver "Módulo Produção" abaixo).
 
 **Sem modelo de dados único obrigatório:** cada módulo define o **seu próprio** conjunto de campos e sua tabela conforme a natureza da área — não há schema comum imposto entre módulos. O que se mantém padrão é a experiência (formulário + painel + tabela) e as convenções técnicas de banco (soft delete, status, auditoria).
 
-**Telas de apoio (cadastro):** um módulo pode depender de cadastros auxiliares fora do fluxo padrão (formulário + painel + tabela) — ex.: o **Retrabalho** depende do cadastro de **Pedidos e Projetos** (`pages/projetos/`), que alimenta os selects do formulário de lançamento. Essas telas de apoio têm acesso próprio na sidebar, mas não aparecem como card no hub.
+**Telas de apoio (cadastro):** um módulo pode depender de cadastros auxiliares fora do fluxo padrão (formulário + painel + tabela) — ex.: o **Retrabalho** depende do cadastro de **Pedidos e Projetos** (`pages/projetos/`), que alimenta os selects do formulário de lançamento, e do painel de **Prioridades** (`pages/pedidos/prioridade.php`), que possui abas independentes para Pedidos, Projetos e N° de Série para gerenciar a fila. Essas telas de apoio têm acesso próprio na sidebar, mas não aparecem como card no hub.
 
 ---
 
@@ -88,9 +88,10 @@ O SGT é **gerencial** — a operação registra e a gestão acompanha. Cada mó
 SGT/
 ├── _inicial/              ← referência (não subir para produção)
 │   ├── database.sql       ← estrutura do banco + dados iniciais
-│   └── migrar-*.sql       ← migrações incrementais (idempotentes, ver "Banco de dados")
+│   ├── migrar-*.sql       ← migrações incrementais (idempotentes, ver "Banco de dados")
+│   └── importar-*.php     ← scripts CLI de importação em lote de planilhas externas (simulação por padrão, --commit grava; ver "Funções centralizadas")
 ├── api/                   ← endpoints chamados via fetch/AJAX
-│   ├── retrabalho-acao.php
+│   ├── retrabalho-acao.php ← registrar/editar Triagem, causa raiz/correção por reprova, buscar_material (catálogo de materiais)
 │   ├── projetos-acao.php  ← cadastro de apoio (pedidos/projetos)
 │   └── producao-acao.php  ← ler/confirmar/status (Registro) + remover_etapa (usado pelo Reprovar da Lista)
 ├── config/
@@ -103,13 +104,13 @@ SGT/
 │   ├── helpers.php        ← funções utilitárias globais
 │   └── planilha-ns-of.php ← índice cd_of → N° de série/projeto/pedido (planilha externa, ver "Módulo Produção")
 ├── pages/
-│   ├── retrabalho/        ← 1º módulo de lançamentos: index.php (form + painel) + relacao.php (listagem)
+│   ├── retrabalho/        ← 1º módulo de lançamentos: dashboard.php (painel de reprovas), index.php (form + mapa), relacao.php (listagem)
 │   ├── projetos/          ← cadastro de apoio: pedidos e projetos (usado pelo Retrabalho)
 │   └── producao/          ← módulo Produção: index.php (Registro — card LAB + leitura QR) + lista.php (Lista — listagem + Reprovar)
 ├── assets/
 │   ├── css/main.css       ← design system
 │   └── js/                ← app.js (global) + retrabalho.js / projetos.js / producao.js / producao-lista.js (por tela)
-├── PLANILHA QUE ATUALIZA/ ← NS.OF.xlsx, planilha externa (atualizada por Power Query), lida por includes/planilha-ns-of.php
+├── PLANILHA QUE ATUALIZA/ ← NS.OF.xlsx (lida por includes/planilha-ns-of.php) + Item.csv (catálogo de materiais, importado por _inicial/importar-itens-catalogo.php para itens_catalogo) — planilhas externas atualizadas por Power Query
 ├── storage/
 │   └── cache/             ← cache do índice da planilha OF (gitignored)
 ├── uploads/               ← arquivos enviados
@@ -137,7 +138,7 @@ Estrutura em `_inicial/database.sql`. Conexão via singleton `getDB()` em `confi
 | Auditoria | `logs_atividade` |
 | Sessão | `php_sessions` |
 
-**Por módulo:** cada módulo adiciona sua(s) própria(s) tabela(s) de lançamentos. O módulo **Retrabalho** usa `retrabalhos` (lançamentos) + `pedidos` e `projetos` (cadastro próprio, tela `pages/projetos/`, vinculado 1 pedido → N projetos) + `reprovas` (tabela de referência das contenções: código, família, descrição, local IQF/LAB/GER). O módulo **Produção** (1ª atividade) usa `producao_transformadores` (registro N° de série → Projeto) + `producao_etapas` (uma linha por passagem numa estação IQF/LAB/GER; coluna gerada `ns_ativo` + índice único garantem, a nível de banco, que nunca haja 2 linhas `em_andamento` simultâneas para o mesmo N° de série) — ver `_inicial/migrar-producao.sql`. Novos módulos criam suas tabelas seguindo as convenções abaixo, sem alterar as de infraestrutura.
+**Por módulo:** cada módulo adiciona sua(s) própria(s) tabela(s) de lançamentos. O módulo **Retrabalho** usa `retrabalhos` (lançamentos, com `prioridade` e `sequencia`) + `pedidos` e `projetos` (cadastro próprio, tela `pages/projetos/`, com vinculação 1 pedido → N projetos, também armazenando `prioridade` e `sequencia` localmente) + `reprovas` (tabela de referência das contenções: código, família, descrição, local IQF/LAB/GER) + `retrabalho_material_uso` (materiais usados por lote na Triagem — snapshot de código/descrição/unidade escolhido no momento, não FK viva a um catálogo externo, ver "Materiais utilizados na Triagem" abaixo) + `itens_catalogo` (catálogo de materiais compartilhável entre módulos, populado a partir de `Item.csv`). O módulo **Produção** (1ª atividade) usa `producao_transformadores` (registro N° de série → Projeto) + `producao_etapas` (uma linha por passagem numa estação IQF/LAB/GER; coluna gerada `ns_ativo` + índice único garantem, a nível de banco, que nunca haja 2 linhas `em_andamento` simultâneas para o mesmo N° de série) — ver `_inicial/migrar-producao.sql`. Novos módulos criam suas tabelas seguindo as convenções abaixo, sem alterar as de infraestrutura.
 
 **Migrações incrementais:** mudanças de schema em banco já existente (local + Railway) são versionadas como scripts em `_inicial/migrar-<descrição>.sql`, idempotentes, aplicados manualmente (`mysql -u root trael_db < _inicial/migrar-....sql`). `database.sql` não é reeditado retroativamente — ele reflete o estado inicial; o estado atual é `database.sql` + migrações aplicadas em ordem.
 
@@ -170,8 +171,12 @@ Tokens via CSS variables em `assets/css/main.css`. Tailwind CSS (CDN) para utili
 
 ### Funções centralizadas
 - `includes/helpers.php` — funções utilitárias globais (formatação pt-BR, datas, `isoComOffset()`, `diasUteisEntre()`, etc.)
+- `includes/helpers.php::buscarMateriaisCatalogo()` — busca por código ou descrição em `itens_catalogo` (`%` funciona como coringa nativo do `LIKE`, sempre em modo "contém"); usada pela ação `buscar_material` (`api/retrabalho-acao.php`) que alimenta o autocomplete de "Materiais utilizados" na Triagem
 - `includes/planilha-ns-of.php` — índice `cd_of → N° de série/projeto/pedido`, lido de `PLANILHA QUE ATUALIZA/NS.OF.xlsx` (planilha externa, atualizada por Power Query) via `PharData` (sem Composer/ext-zip), cacheado em `storage/cache/`; usado hoje só pela leitura de etiqueta do Produção
 - `assets/js/app.js` — JavaScript global (toasts/alertas, utilidades de UI)
+
+### Materiais utilizados na Triagem (Retrabalho)
+A Triagem registra os materiais gastos no retrabalho buscando direto no catálogo real da fábrica (`itens_catalogo`, populado a partir de `PLANILHA QUE ATUALIZA/Item.csv` — ~23,7 mil itens, código/descrição/unidade — por `_inicial/importar-itens-catalogo.php`, rodado manualmente e reexecutado sempre que o Item.csv for atualizado, mesma convenção do `NS.OF.xlsx`) em vez de uma lista fixa de peças. A busca (`buscarMateriaisCatalogo()` em `includes/helpers.php`, ação `buscar_material` em `api/retrabalho-acao.php`) aceita código ou descrição e trata `%` como coringa nativo do `LIKE` (ex.: `isolador%25kva`), sempre em modo "contém" — sugestões aparecem num dropdown enquanto o operador digita (`assets/js/retrabalho-detalhe.js`, debounce de 250ms). Cada material escolhido vira 1 linha em `retrabalho_material_uso`, agrupada por `id_lote` (mesmo agrupamento de reprovas/causa da reprova da Triagem) — código/descrição/unidade são gravados como **snapshot** no momento da escolha, não como FK viva ao catálogo, porque o catálogo é reimportado periodicamente e pode mudar a descrição sob o mesmo código (mesma lógica de "resolver e guardar no servidor" já usada em Produção). Quando o material buscado não existe no catálogo, um fallback manual (código opcional + descrição + unidade livres) grava a linha do mesmo jeito. O preenchimento da Correção e de Materiais é obrigatório (para materiais, o operador deve adicionar itens ou assinalar que "Nenhum material foi utilizado"). Refletido também no modal "Ver detalhes" da Relação de Retrabalhos (`pages/retrabalho/historico.php`).
 
 ### Módulo Produção — 1ª atividade + Lista de Registros (implementadas)
 Especificação de UX completa (1ª atividade) em `PROJETO-SGT/producao-tela-spec.md`. Cobre hoje só a estação **LAB**: card no grid de estações (`pages/producao/index.php`, item de sidebar "Registro"), leitura de QR/imagem/manual via FAB, confirmação de entrada (`api/producao-acao.php`). IQF/GER seguem como cards "em breve" no mesmo grid, mesmo padrão de card quando forem especificados.
@@ -200,10 +205,11 @@ Especificação de UX completa (1ª atividade) em `PROJETO-SGT/producao-tela-spe
 | **Módulo** | Sistema/área do hub (Retrabalho, Perdas, Paradas, …) — cada um com seu formulário, painel e tabela |
 | **Setor / Área** | Local da fábrica onde o lançamento ocorreu (Corte, Usinagem, Solda, Montagem, Bobinagem, Pintura, Acabamento, Expedição) |
 | **Responsável** | Usuário associado ao lançamento |
-| **Status** | Situação do lançamento — o fluxo é definido por módulo (Retrabalho: Agu. Abertura → Agu. Causa Raiz → Finalizado, automático) |
+| **Status** | Situação do lançamento — o fluxo é definido por módulo (Retrabalho: Agu. Abertura → Agu. Causa da Reprova → Finalizado, automático) |
 | **Painel** | Visão gerencial do módulo (KPIs, gráficos, ranking por setor/período) |
 | **Pedido** | Agrupador comercial cadastrado em `pages/projetos/`: 1 pedido → N projetos |
 | **Projeto** | Código do transformador/modelo vinculado a 1 pedido; é o projeto que recebe os retrabalhos |
+| **Prioridade / Sequência** | A prioridade da fila funciona por **FIFO** (Primeiro a Entrar, Primeiro a Sair) e herança em 3 níveis: **N° de Série > Projeto > Pedido**. O nível mais específico prevalece sobre os mais genéricos. |
 | **Flag de urgência** | Indicador de cor (verde/amarelo/laranja/vermelho) calculado a partir dos dias úteis que um retrabalho está parado, usado na Relação de Retrabalhos |
 | **Reincidência** | Quantidade de vezes que o mesmo N° de série já apareceu no retrabalho |
 | **Estação** | Ponto do chão de fábrica no módulo Produção: **IQF** (Inspeção final), **LAB** (Laboratório), **GER** (Geral) |

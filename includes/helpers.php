@@ -175,20 +175,43 @@ function retrabalhoSetoresTriagem(): array
         'pintura'         => 'Pintura',
         'montagem_final'  => 'Montagem Final',
         'laboratorio'     => 'Laboratório',
+        'inspecao_final'  => 'Inspeção Final',
     ];
 }
 
 /**
- * Catálogo fixo de materiais/peças exibido na Triagem do retrabalho (checklist
- * de "o que foi gasto e quantidade", preenchido antes da Causa da Reprova).
- * Fonte: retrabalho_materiais_catalogo (ver _inicial/migrar-retrabalho-materiais.sql).
+ * Busca no catálogo real de materiais/peças (itens_catalogo, populado a partir
+ * de "PLANILHA QUE ATUALIZA/Item.csv" por _inicial/importar-itens-catalogo.php)
+ * usada pela busca de "Materiais utilizados" na Triagem do retrabalho.
+ *
+ * Busca por código OU descrição, sempre "contém" (envolve o termo em % dos dois
+ * lados) — se o usuário já digitou % no meio do termo (ex.: "isolador%25kva"),
+ * ele continua funcionando como curinga nativo do LIKE dentro do padrão maior,
+ * sem exigir que o termo bata exatamente no início/fim da descrição. `_` é
+ * escapado porque no LIKE ele é curinga de 1 caractere — só % foi pedido como
+ * curinga aqui.
  */
-function retrabalhoMateriaisCatalogo(PDO $pdo): array
+function buscarMateriaisCatalogo(PDO $pdo, string $termo, int $limite = 20): array
 {
-    return $pdo->query("
-        SELECT id, descricao, unidade FROM retrabalho_materiais_catalogo
-        WHERE ativo = 1 ORDER BY ordem, id
-    ")->fetchAll();
+    $termo = trim($termo);
+    if ($termo === '') return [];
+
+    $termoEscapado = str_replace('_', '\\_', $termo);
+    // Permite que tanto '%' quanto espaços funcionem como coringa entre palavras
+    $padrao = '%' . preg_replace('/\s+/', '%', $termoEscapado) . '%';
+
+    $stmt = $pdo->prepare("
+        SELECT codigo, descricao, unidade FROM itens_catalogo
+        WHERE codigo LIKE :padraoCodigo OR descricao LIKE :padraoDescricao
+        ORDER BY (codigo = :termoExato) DESC, descricao
+        LIMIT :limite
+    ");
+    $stmt->bindValue(':padraoCodigo', $padrao, PDO::PARAM_STR);
+    $stmt->bindValue(':padraoDescricao', $padrao, PDO::PARAM_STR);
+    $stmt->bindValue(':termoExato', $termo, PDO::PARAM_STR);
+    $stmt->bindValue(':limite', $limite, PDO::PARAM_INT);
+    $stmt->execute();
+    return $stmt->fetchAll();
 }
 
 /**

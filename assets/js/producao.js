@@ -3,6 +3,7 @@
 
     var API      = window.PRODUCAO_API || '';
     var ESTACAO  = window.PRODUCAO_ESTACAO || 'LAB';
+    var ESTACAO_NOME = ESTACAO === 'IQF' ? 'na Inspeção Final' : 'no Laboratório';
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
     function notify(msg, type) {
@@ -25,10 +26,9 @@
     }
 
     // ─── Elementos ────────────────────────────────────────────────────────────
-    var labCard   = document.getElementById('labCard');
-    var labStatus = document.getElementById('labStatus');
-    var labSub    = document.getElementById('labSub');
-    var labTimer  = document.getElementById('labTimer');
+    var labCard   = document.querySelector('.station-card');
+    var labStatus = document.querySelector('.station-card__status');
+    var labSub    = document.querySelector('.station-card__sub');
 
     var scanMeta        = document.getElementById('scanMeta');
     var scanReviewEmpty = document.getElementById('scanReviewEmpty');
@@ -58,6 +58,8 @@
     var overlayError      = document.getElementById('overlayError');
     var manualInput       = document.getElementById('manualNs');
     var manualBtn         = document.getElementById('manualBtn');
+    var showManualBtn     = document.getElementById('showManualBtn');
+    var manualInputRow    = document.getElementById('manualInputRow');
     var liveRegion        = document.getElementById('liveRegion');
     var confirmBtn        = document.getElementById('confirmScanBtn');
 
@@ -102,54 +104,29 @@
         return pad(d.getHours()) + ':' + pad(d.getMinutes());
     }
 
-    // ─── Cronômetro do card ──────────────────────────────────────────────────
-    function startStationTimer(startedAtIso) {
-        if (timerHandle) clearInterval(timerHandle);
-        var startedAt = new Date(startedAtIso).getTime();
-        if (isNaN(startedAt)) startedAt = Date.now();
-        labTimer.style.display = 'inline-flex';
-        function tick() {
-            var s = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-            var mm = pad(Math.floor(s / 60) % 60), ss = pad(s % 60);
-            var hh = Math.floor(s / 3600);
-            labTimer.textContent = (hh > 0 ? hh + ':' : '') + mm + ':' + ss;
-        }
-        tick();
-        timerHandle = setInterval(tick, 1000);
-    }
+    // ─── Cronômetro do card (Removido) ───────────────────────────────────────
 
     // ─── Renderiza o estado da estação (vazio / em andamento) ───────────────
     // Única fonte de verdade de renderização — usada no carregamento inicial,
     // após confirmar uma entrada e a cada rodada do polling de status.
     function renderStationState(item) {
-        var newId = item ? item.id : null;
-        if (newId === currentItemId) return; // nada mudou — evita "piscar"/reiniciar o cronômetro à toa
-        currentItemId = newId;
-
-        if (!item) {
-            labStatus.innerHTML =
-                '<div class="station-status-empty">' +
-                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
-                '<path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>' +
-                '<line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>' +
-                '<p>Aguardando o primeiro transformador do turno.</p>' +
-                '<span>Toque no botão de leitura para iniciar.</span>' +
-                '</div>';
-            labSub.textContent = 'Nenhum transformador em andamento';
-            labCard.classList.remove('is-active');
-            labTimer.style.display = 'none';
-            if (timerHandle) { clearInterval(timerHandle); timerHandle = null; }
-            return;
-        }
+        // O laboratório não precisa manter o item "em andamento" preso no card,
+        // pois a peça vai direto para a aba Lista para ser reprovada.
+        
+        // Evita re-renderizar o estado vazio se já estiver vazio
+        if (currentItemId === 'vazio' && labStatus.innerHTML !== '') return;
+        currentItemId = 'vazio';
 
         labStatus.innerHTML =
-            '<div class="station-status-active">' +
-            '<span class="station-status-active__ns">' + escapeHtml(item.ns_transformador) + '</span>' +
-            '<span class="station-status-active__meta">' + escapeHtml(item.projeto_codigo) + ' · Pedido ' + escapeHtml(item.pedido_numero) + '</span>' +
+            '<div class="station-status-empty">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>' +
+            '<line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>' +
+            '<p>Aguardando leitura de peças.</p>' +
+            '<span>Toque no botão para iniciar um novo registro.</span>' +
             '</div>';
-        labSub.textContent = 'Em andamento';
-        labCard.classList.add('is-active');
-        startStationTimer(item.data_inicio);
+        labSub.textContent = 'Pronto para leitura';
+        labCard.classList.remove('is-active');
     }
 
     renderStationState(window.PRODUCAO_ITEM_ATUAL || null);
@@ -166,8 +143,9 @@
         stageEmptyText.textContent = 'Solicitando acesso à câmera…';
         scanStage.classList.remove('has-video');
         locked = false;
+        if (showManualBtn) showManualBtn.style.display = 'flex';
+        if (manualInputRow) manualInputRow.style.display = 'none';
         startCamera();
-        setTimeout(function () { manualInput.focus(); }, 50);
     }
 
     function closeOverlay() {
@@ -191,6 +169,8 @@
         scanHint.textContent = 'Selecione uma imagem com o QR Code do transformador';
         stageEmptyText.textContent = 'Nenhuma câmera será usada — escolha um arquivo de imagem.';
         locked = false;
+        if (showManualBtn) showManualBtn.style.display = 'flex';
+        if (manualInputRow) manualInputRow.style.display = 'none';
     }
 
     function decodeImageFile(file) {
@@ -238,7 +218,8 @@
             return;
         }
         var myToken = overlayToken;
-        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        // Solicitando resolução HD para facilitar leitura de QR Codes densos
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } })
             .then(function (stream) {
                 if (myToken !== overlayToken) {
                     // overlay foi fechado (ou reaberto) antes da permissão resolver — não usar este stream
@@ -247,12 +228,32 @@
                 }
                 mediaStream = stream;
                 video.srcObject = stream;
+                if (myToken !== overlayToken) return;
                 scanStage.classList.add('has-video');
-                if (typeof window.jsQR === 'function') {
-                    detectTimer = setInterval(scanFrame, 350);
-                } else {
-                    scanHint.textContent = 'Câmera ativa, mas a biblioteca de leitura não carregou (verifique sua conexão) — use a leitura manual abaixo.';
+                if ('BarcodeDetector' in window) {
+            // A API nativa do Android/Chrome é acelerada por hardware e muito mais rápida
+            if (!window.globalBarcodeDetector) {
+                try {
+                    // Força a câmera a procurar apenas QR Codes, ignorando os códigos de barras lineares
+                    window.globalBarcodeDetector = new BarcodeDetector({ formats: ['qr_code'] });
+                } catch (e) {
+                    try {
+                        window.globalBarcodeDetector = new BarcodeDetector(); // fallback se o array formats falhar
+                    } catch (e2) {
+                        window.globalBarcodeDetector = null;
+                    }
                 }
+            }
+            if (window.globalBarcodeDetector) {
+                detectTimer = setInterval(scanFrameNative, 200); // 5x por segundo, pois é leve
+            } else if (typeof window.jsQR === 'function') {
+                detectTimer = setInterval(scanFrame, 500);
+            }
+        } else if (typeof window.jsQR === 'function') {
+            detectTimer = setInterval(scanFrame, 500);
+        } else {
+            scanHint.textContent = 'Câmera ativa, mas a biblioteca de leitura não carregou (verifique sua conexão) — use a leitura manual abaixo.';
+        }
             })
             .catch(function (err) {
                 if (myToken !== overlayToken) return; // overlay já fechado — não atualizar mensagem
@@ -267,6 +268,20 @@
         if (detectTimer) { clearInterval(detectTimer); detectTimer = null; }
         if (mediaStream) { mediaStream.getTracks().forEach(function (t) { t.stop(); }); mediaStream = null; }
         video.srcObject = null;
+    }
+
+    function scanFrameNative() {
+        if (locked || !mediaStream || !window.globalBarcodeDetector) return;
+        if (video.readyState !== video.HAVE_ENOUGH_DATA || !video.videoWidth) return;
+
+        window.globalBarcodeDetector.detect(video).then(function(barcodes) {
+            if (barcodes.length > 0) {
+                // Se a etiqueta tiver vários códigos (QR + Barras), pega o primeiro que a câmera focar bem
+                handleCodigo(barcodes[0].rawValue, 'camera');
+            }
+        }).catch(function(e) {
+            // Silencioso
+        });
     }
 
     function scanFrame() {
@@ -331,6 +346,7 @@
     // → projeto não existe no sistema, nada a fazer além de cancelar (sem opção de o
     // operador editar/escolher manualmente — ver resolverTransformador() no servidor).
     function applyResult(res, origem) {
+        res.origem = origem;
         pendingResult = res;
         var ORIGEM_LABEL = { qr: 'via QR', manual: 'manual', imagem: 'via imagem' };
         scanMeta.textContent = (origem === 'manual' ? 'Informado às ' : 'Lido às ') + fmtHora() +
@@ -376,7 +392,7 @@
                 '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>' +
                 '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>' +
                 '<span><strong>Já em andamento na estação ' + escapeHtml(res.estacao_atual) + '</strong> desde ' + escapeHtml(fmtHora(res.data_inicio)) +
-                '. Resolva o conflito antes de registrar a entrada no Laboratório.</span>';
+                '. Resolva o conflito antes de registrar a entrada ' + ESTACAO_NOME + '.</span>';
             scanActions.style.display = 'none';
             conflictActions.style.display = 'flex';
             announce('Conflito: transformador já em andamento em outra estação.');
@@ -407,13 +423,13 @@
         scanActions.style.display = 'none';
         conflictActions.style.display = 'none';
         pendingResult = null;
+        locked = false; // Libera o sistema para a próxima leitura global
     }
 
-    // ─── Confirmar entrada ───────────────────────────────────────────────────
     function confirmEntry() {
         if (!pendingResult || pendingResult.status !== 'ok') return;
 
-        var payload = { acao: 'confirmar', codigo: pendingResult.codigo, estacao: ESTACAO };
+        var payload = { acao: 'confirmar', codigo: pendingResult.codigo, estacao: ESTACAO, metodo_insercao: (pendingResult.origem === 'manual' ? 'manual' : 'scanner') };
 
         confirmBtn.disabled = true;
         confirmBtn.textContent = 'Registrando…';
@@ -431,8 +447,8 @@
             currentItemId = null; // força a re-renderização mesmo que o id coincida por acaso
             renderStationState(res.item);
             resetScanPanel();
-            notify('Entrada confirmada no Laboratório.', 'success');
-            announce('Entrada confirmada no Laboratório.');
+            notify('Entrada confirmada ' + ESTACAO_NOME + '.', 'success');
+            announce('Entrada confirmada ' + ESTACAO_NOME + '.');
         }).catch(function () {
             confirmBtn.disabled = false;
             confirmBtn.textContent = 'Registrar';
@@ -468,9 +484,51 @@
     document.getElementById('clearConflictBtn').addEventListener('click', resetScanPanel);
     document.getElementById('retryConflictBtn').addEventListener('click', function () { resetScanPanel(); openOverlay(); });
     confirmBtn.addEventListener('click', confirmEntry);
+    if (showManualBtn) {
+        showManualBtn.addEventListener('click', function() {
+            showManualBtn.style.display = 'none';
+            manualInputRow.style.display = 'flex';
+            manualInput.focus();
+        });
+    }
     manualBtn.addEventListener('click', function () { if (manualInput.value.trim()) handleCodigo(manualInput.value, 'manual'); });
     manualInput.addEventListener('keydown', function (e) { if (e.key === 'Enter' && manualInput.value.trim()) handleCodigo(manualInput.value, 'manual'); });
+    var barcodeBuffer = '';
+    var barcodeTimer = null;
+
     document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && window.getComputedStyle(overlay).display !== 'none') closeOverlay();
+        if (e.key === 'Escape' && window.getComputedStyle(overlay).display !== 'none') {
+            closeOverlay();
+            return;
+        }
+
+        // Ignora digitação se o usuário estiver digitando manualmente em algum input
+        if (e.target && (e.target.tagName.toLowerCase() === 'input' || e.target.tagName.toLowerCase() === 'textarea')) {
+            return;
+        }
+
+        // Se apertar Enter, verifica se há um código no buffer (scanner costuma enviar Enter no final)
+        if (e.key === 'Enter') {
+            if (barcodeBuffer.trim().length >= 3) {
+                e.preventDefault(); // Impede que o Enter "clique" no último botão que estava focado (ex: Cancelar)
+                if (document.activeElement) document.activeElement.blur();
+                
+                handleCodigo(barcodeBuffer.trim(), 'scanner');
+                if (window.getComputedStyle(overlay).display !== 'none') closeOverlay();
+            }
+            barcodeBuffer = '';
+            clearTimeout(barcodeTimer);
+            return;
+        }
+
+        // Adiciona ao buffer apenas se for caractere imprimível
+        if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+            barcodeBuffer += e.key;
+            clearTimeout(barcodeTimer);
+            // 100ms de tolerância: o scanner injeta teclas muito rápido. Se demorar mais que isso, descarta.
+            barcodeTimer = setTimeout(function () {
+                barcodeBuffer = '';
+            }, 100);
+        }
     });
 }());

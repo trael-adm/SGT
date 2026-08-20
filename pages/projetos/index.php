@@ -4,7 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../config/conexao.php';
 require_once __DIR__ . '/../../config/session.php';
 
-requireLogin();
+requireAcessoModulo('retrabalho');
 
 $pdo  = getDB();
 $base = defined('APP_URL') ? APP_URL : '';
@@ -108,10 +108,17 @@ layoutHeader($pageTitle);
                         <td style="text-align:center;"><span class="pj-badge"><?= (int) $p['qtd_projetos'] ?></span></td>
                         <td style="white-space:nowrap;"><?= htmlspecialchars(fmtDataBR($p['created_at'])) ?></td>
                         <td style="text-align:right;white-space:nowrap;">
-                            <button type="button" class="pj-row-act js-edit-pedido"
-                                data-id="<?= (int) $p['id'] ?>"
-                                data-numero="<?= htmlspecialchars($p['numero']) ?>">Editar</button>
-                            <button type="button" class="pj-row-act danger js-del-pedido" data-id="<?= (int) $p['id'] ?>">Excluir</button>
+                            <div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;">
+                                <button type="button" class="btn-icon btn-icon-edit js-edit-pedido"
+                                    data-id="<?= (int) $p['id'] ?>"
+                                    data-numero="<?= htmlspecialchars($p['numero']) ?>"
+                                    title="Editar pedido">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                </button>
+                                <button type="button" class="btn-icon btn-icon-danger js-del-pedido" data-id="<?= (int) $p['id'] ?>" title="Excluir pedido">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                </button>
+                            </div>
                         </td>
                     </tr>
                 <?php endforeach; endif; ?>
@@ -143,12 +150,19 @@ layoutHeader($pageTitle);
                         <td><span class="pj-code" style="font-weight:500;"><?= htmlspecialchars($pr['pedido_numero']) ?></span></td>
                         <td style="white-space:nowrap;"><?= htmlspecialchars(fmtDataBR($pr['created_at'])) ?></td>
                         <td style="text-align:right;white-space:nowrap;">
-                            <button type="button" class="pj-row-act js-edit-projeto"
-                                data-id="<?= (int) $pr['id'] ?>"
-                                data-codigo="<?= htmlspecialchars($pr['codigo']) ?>"
-                                data-descricao="<?= htmlspecialchars($pr['descricao'] ?? '') ?>"
-                                data-id_pedido="<?= (int) $pr['id_pedido'] ?>">Editar</button>
-                            <button type="button" class="pj-row-act danger js-del-projeto" data-id="<?= (int) $pr['id'] ?>">Excluir</button>
+                            <div style="display:flex;gap:6px;justify-content:flex-end;align-items:center;">
+                                <button type="button" class="btn-icon btn-icon-edit js-edit-projeto"
+                                    data-id="<?= (int) $pr['id'] ?>"
+                                    data-codigo="<?= htmlspecialchars($pr['codigo']) ?>"
+                                    data-descricao="<?= htmlspecialchars($pr['descricao'] ?? '') ?>"
+                                    data-id_pedido="<?= (int) $pr['id_pedido'] ?>"
+                                    title="Editar projeto">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                </button>
+                                <button type="button" class="btn-icon btn-icon-danger js-del-projeto" data-id="<?= (int) $pr['id'] ?>" title="Excluir projeto">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                </button>
+                            </div>
                         </td>
                     </tr>
                 <?php endforeach; endif; ?>

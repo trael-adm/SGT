@@ -56,18 +56,39 @@ require_once __DIR__ . '/versao.php';
 
     // Detectar APP_URL dinamicamente se não definido
     $appUrl = $config['APP_URL'];
-    if (empty($appUrl) || (strpos($appUrl, 'localhost') !== false && isset($_SERVER['HTTP_HOST']) && $_SERVER['HTTP_HOST'] !== 'localhost')) {
-        $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-
-        $scriptPath = $_SERVER['SCRIPT_NAME'] ?? '';
-        $baseDir = str_replace('\\', '/', dirname($scriptPath));
-
-        if (strpos($scriptPath, '/config/') !== false) {
-            $baseDir = str_replace('\\', '/', dirname(dirname($scriptPath)));
+    if (empty($appUrl)) {
+        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+        $protocol = $isHttps ? 'https' : 'http';
+        $rawHost = $_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? 'localhost';
+        // Sanitizar host para permitir apenas caracteres válidos de hostname/porta
+        $host = preg_replace('/[^a-zA-Z0-9.\-:]/', '', explode(',', $rawHost)[0]);
+        if (empty($host)) {
+            $host = 'localhost';
         }
 
-        $baseDir = rtrim($baseDir, '/');
+        $baseDir = '';
+        if (!empty($config['APP_URL'])) {
+            $parsedPath = parse_url($config['APP_URL'], PHP_URL_PATH);
+            if ($parsedPath) {
+                $baseDir = rtrim($parsedPath, '/');
+            }
+        }
+        
+        if ($baseDir === '') {
+            $appRoot = str_replace('\\', '/', dirname(__DIR__));
+            $docRoot = str_replace('\\', '/', rtrim($_SERVER['DOCUMENT_ROOT'] ?? '', '/\\'));
+            
+            if ($docRoot !== '' && strpos($appRoot, $docRoot) === 0) {
+                $baseDir = substr($appRoot, strlen($docRoot));
+            } else {
+                // Fallback
+                $scriptPath = $_SERVER['SCRIPT_NAME'] ?? '';
+                $baseDir = str_replace('\\', '/', dirname($scriptPath));
+                $baseDir = preg_replace('#/(api|config|pages|includes).*$#', '', $baseDir);
+            }
+            $baseDir = rtrim($baseDir, '/');
+        }
+
         $appUrl = $protocol . '://' . $host . $baseDir;
     }
 

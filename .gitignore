@@ -22,3 +22,6 @@ _inicial/sessao_*.md
 _inicial/RESUMO-*.md
 storage/cache/
 PLANILHA QUE ATUALIZA/~$*.xlsx
+log*.md*
+log_conversa.md
+troca de servidor.txt

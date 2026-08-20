@@ -1,0 +1,15 @@
+.env
+.env.*
+.git
+.gemini
+.vscode
+.idea
+*.log
+log*.md*
+log_conversa.md
+troca de servidor.txt
+scratch/
+_inicial/dump*.sql
+_inicial/backup*.sql
+_inicial/dados*.sql
+storage/cache/*

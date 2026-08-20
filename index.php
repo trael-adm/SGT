@@ -32,15 +32,51 @@ if ($perfilNome === '') {
     $perfilNome = $mapaPerfil[(int) ($user['id_perfil'] ?? 0)] ?? 'Colaborador';
 }
 
+// URL dinâmica para o card "Retrabalho" baseada nas permissões
+if (hasAcesso('ret.rel')) {
+    $urlRetrabalho = 'pages/retrabalho/relacao.php';
+} elseif (hasAcesso('ret.pan')) {
+    $urlRetrabalho = 'pages/retrabalho/index.php';
+} elseif (hasAcesso('ret.dash')) {
+    $urlRetrabalho = 'pages/retrabalho/dashboard.php';
+} elseif (hasAcesso('ret.pri')) {
+    $urlRetrabalho = 'pages/pedidos/prioridade.php';
+} elseif (hasAcesso('lab.reg')) {
+    $urlRetrabalho = 'pages/producao/index.php';
+} elseif (hasAcesso('lab.lis')) {
+    $urlRetrabalho = 'pages/producao/lista.php';
+} elseif (hasAcesso('lab.ret')) {
+    $urlRetrabalho = 'pages/producao/retornos.php';
+} elseif (hasAcesso('iqf.reg')) {
+    $urlRetrabalho = 'pages/inspecao_final/index.php';
+} elseif (hasAcesso('iqf.lis')) {
+    $urlRetrabalho = 'pages/inspecao_final/lista.php';
+} elseif (hasAcesso('iqf.ret')) {
+    $urlRetrabalho = 'pages/inspecao_final/retornos.php';
+} elseif (hasAcesso('pin.pai')) {
+    $urlRetrabalho = 'pages/pintura/paint-check.php';
+} elseif (hasAcesso('pin.ret')) {
+    $urlRetrabalho = 'pages/pintura/relacao.php';
+} elseif (hasAcesso('ana.aco')) {
+    $urlRetrabalho = 'pages/retrabalho/acompanhamento.php';
+} elseif (hasAcesso('ana.his')) {
+    $urlRetrabalho = 'pages/retrabalho/historico.php';
+} elseif (hasAcesso('qua.tip')) {
+    $urlRetrabalho = 'pages/qualidade/reprovas.php';
+} else {
+    $urlRetrabalho = 'pages/producao/index.php';
+}
+
 // ─── Módulos da fábrica (HUB) ─────────────────────────────────────────────────
-// Apenas "Retrabalho" está disponível; os demais abrem a página "em breve".
-$sistemas = [
+$sistemas = [];
+$todosSistemas = [
     [
         'nome' => 'SGE', 'cat' => 'Engenharia',
         'desc' => 'Gestão de demandas, projetos e etapas de produção.',
         'dot' => '#E89B1C', 'iconBg' => '#FBEBD2', 'iconColor' => '#C6800F',
         'icone' => '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>',
         'url' => 'em-breve.php?s=SGE',
+        'req' => 'hub:sge',
     ],
     [
         'nome' => 'SOMA', 'cat' => 'PCP',
@@ -48,20 +84,23 @@ $sistemas = [
         'dot' => '#2E6CB8', 'iconBg' => '#E3EDF9', 'iconColor' => '#2E6CB8',
         'icone' => '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/>',
         'url' => 'em-breve.php?s=SOMA',
+        'req' => 'hub:soma',
     ],
     [
-        'nome' => 'Produção', 'cat' => 'Operação',
-        'desc' => 'Acompanhamento das etapas no chão de fábrica.',
-        'dot' => '#2E7DA6', 'iconBg' => '#E1EEF4', 'iconColor' => '#2E7DA6',
-        'icone' => '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
-        'url' => 'pages/producao/index.php',
+        'nome' => 'Produção', 'cat' => 'Fábrica',
+        'desc' => 'Acompanhamento e registro de etapas no chão de fábrica.',
+        'dot' => '#0F766E', 'iconBg' => '#CCFBF1', 'iconColor' => '#0F766E',
+        'icone' => '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>',
+        'url' => 'em-breve.php?s=Produção',
+        'req' => 'hub:producao',
     ],
     [
-        'nome' => 'Retrabalho', 'cat' => 'Qualidade',
-        'desc' => 'Registro e acompanhamento de retrabalhos.',
+        'nome' => 'Retrabalho', 'cat' => 'Fábrica',
+        'desc' => 'Registro e acompanhamento de retrabalhos e produção.',
         'dot' => '#C0453B', 'iconBg' => '#F7E4E2', 'iconColor' => '#C0453B',
         'icone' => '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
-        'url' => 'pages/retrabalho/index.php',
+        'url' => $urlRetrabalho,
+        'req' => ['tab:laboratorio', 'tab:inspecao_final', 'tab:pintura', 'tab:retrabalho', 'tab:analise'], // Pode ver se tiver pelo menos uma
     ],
     [
         'nome' => '5S', 'cat' => 'Organização',
@@ -69,6 +108,7 @@ $sistemas = [
         'dot' => '#2E8B57', 'iconBg' => '#E0F0E7', 'iconColor' => '#2E8B57',
         'icone' => '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
         'url' => 'em-breve.php?s=5S',
+        'req' => 'hub:5s',
     ],
     [
         'nome' => 'Ausências', 'cat' => 'Pessoas',
@@ -76,6 +116,7 @@ $sistemas = [
         'dot' => '#7C5CBF', 'iconBg' => '#ECE6F7', 'iconColor' => '#7C5CBF',
         'icone' => '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="14.5" y1="14" x2="9.5" y2="19"/><line x1="9.5" y1="14" x2="14.5" y2="19"/>',
         'url' => 'em-breve.php?s=Ausências',
+        'req' => 'hub:ausencias',
     ],
     [
         'nome' => 'Incidentes', 'cat' => 'Segurança',
@@ -83,6 +124,7 @@ $sistemas = [
         'dot' => '#D0453B', 'iconBg' => '#F8E3E1', 'iconColor' => '#D0453B',
         'icone' => '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
         'url' => 'em-breve.php?s=Incidentes',
+        'req' => 'hub:incidentes',
     ],
     [
         'nome' => 'Perdas', 'cat' => 'Descartes',
@@ -90,6 +132,7 @@ $sistemas = [
         'dot' => '#B5852A', 'iconBg' => '#F5ECD8', 'iconColor' => '#B5852A',
         'icone' => '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>',
         'url' => 'em-breve.php?s=Perdas',
+        'req' => 'hub:perdas',
     ],
     [
         'nome' => 'Paradas', 'cat' => 'Operação',
@@ -97,8 +140,27 @@ $sistemas = [
         'dot' => '#C08A1E', 'iconBg' => '#F5ECD6', 'iconColor' => '#C08A1E',
         'icone' => '<circle cx="12" cy="12" r="9"/><line x1="10" y1="9" x2="10" y2="15"/><line x1="14" y1="9" x2="14" y2="15"/>',
         'url' => 'em-breve.php?s=Paradas',
+        'req' => 'hub:paradas',
     ],
 ];
+
+// Filtra módulos permitidos
+foreach ($todosSistemas as $s) {
+    if (is_array($s['req'])) {
+        $permitido = false;
+        foreach ($s['req'] as $r) {
+            if (hasAcesso($r)) {
+                $permitido = true;
+                break;
+            }
+        }
+        if ($permitido) $sistemas[] = $s;
+    } else {
+        if (hasAcesso($s['req'])) {
+            $sistemas[] = $s;
+        }
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -143,6 +205,17 @@ $sistemas = [
             </div>
             <span class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0"
                   style="background-color:#2f7a52;color:#fff;"><?= htmlspecialchars($iniciais) ?></span>
+                  
+            <?php if (hasAcesso('admin')): ?>
+            <a href="<?= htmlspecialchars($base) ?>/pages/admin/usuarios.php"
+               class="inline-flex items-center gap-2 text-sm px-3.5 py-2 rounded-xl border border-white/15 text-white/85 hover:bg-white/10 transition-colors">
+               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 11c1.66 0 3-1.34 3-3S13.66 5 12 5 9 6.34 9 8s1.34 3 3 3z"/><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><path d="M21.5 12l-2-2-2 2M19.5 10v4"/>
+               </svg>
+               Painel Admin
+            </a>
+            <?php endif; ?>
+
             <a href="<?= htmlspecialchars($base) ?>/logout.php"
                class="inline-flex items-center gap-2 text-sm px-3.5 py-2 rounded-xl border border-white/15 text-white/85 hover:bg-white/10 transition-colors">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -163,6 +236,7 @@ $sistemas = [
                 <p class="text-white/55 mt-2">Você tem acesso aos módulos abaixo.</p>
             </div>
 
+            <?php if (hasAcesso('hub:resumo_gerencial')): ?>
             <a href="<?= htmlspecialchars($base) ?>/em-breve.php?s=Resumo%20Gerencial"
                class="featured rounded-2xl p-5 w-full lg:w-auto lg:min-w-[340px]"
                style="background-image:linear-gradient(135deg,#E89B1C,#d98f16);">
@@ -181,6 +255,7 @@ $sistemas = [
                     </svg>
                 </div>
             </a>
+            <?php endif; ?>
         </div>
 
         <!-- Grid de módulos -->

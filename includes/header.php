@@ -14,8 +14,7 @@ $_hBaseUrl = defined('APP_URL') ? APP_URL : '';
 
     <div class="d-flex align-center gap-3">
         <button id="sidebar-toggle"
-                class="btn btn-ghost"
-                style="padding:6px;"
+                class="btn btn-ghost sidebar-toggle-btn"
                 aria-label="Alternar sidebar">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -24,7 +23,6 @@ $_hBaseUrl = defined('APP_URL') ? APP_URL : '';
                 <line x1="3" y1="18" x2="21" y2="18"/>
             </svg>
         </button>
-        <span class="header-page-title"><?= htmlspecialchars($pageTitle ?? 'SGT') ?></span>
     </div>
 
     <div class="header-right">

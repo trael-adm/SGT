@@ -22,6 +22,8 @@
     var overlayError    = document.getElementById('overlayError');
     var manualInput     = document.getElementById('manualNs');
     var manualBtn       = document.getElementById('manualBtn');
+    var showManualBtn   = document.getElementById('showManualBtn');
+    var manualInputRow  = document.getElementById('manualInputRow');
     var uploadBtn        = document.getElementById('uploadImageBtn');
     var imageInput       = document.getElementById('qrImageInput');
     var liveRegion       = document.getElementById('liveRegion');
@@ -29,7 +31,6 @@
     if (!scanStage || !video) return; // página não carregou os elementos esperados (ex.: chegada já confirmada)
 
     var mediaStream = null;
-    var detectTimer = null;
     var scanCanvas  = document.createElement('canvas');
     var scanCtx     = scanCanvas.getContext('2d', { willReadFrequently: true });
     var locked      = false;
@@ -52,88 +53,73 @@
     }
 
     function startCamera() {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            stageEmptyText.textContent = 'Este navegador não expõe câmera — use a leitura manual abaixo.';
-            return;
-        }
+        if (mediaStream) return;
+        stageEmptyText.textContent = 'Solicitando acesso à câmera…';
         navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
             .then(function (stream) {
                 mediaStream = stream;
                 video.srcObject = stream;
+                video.setAttribute('playsinline', true);
+                video.play();
                 scanStage.classList.add('has-video');
-                if (typeof window.jsQR === 'function') {
-                    detectTimer = setInterval(scanFrame, 350);
-                } else {
-                    scanHint.textContent = 'Câmera ativa, mas a biblioteca de leitura não carregou (verifique sua conexão) — use a leitura manual abaixo.';
-                }
+                requestAnimationFrame(tick);
             })
-            .catch(function (err) {
-                var msg = 'Não foi possível acessar a câmera.';
-                if (err && err.name === 'NotAllowedError') msg = 'Permissão de câmera negada — use a leitura manual abaixo.';
-                if (err && err.name === 'NotFoundError') msg = 'Nenhuma câmera disponível neste dispositivo — use a leitura manual abaixo.';
-                stageEmptyText.textContent = msg;
+            .catch(function () {
+                stageEmptyText.textContent = 'Não foi possível acessar a câmera.';
+                scanStage.classList.remove('has-video');
             });
     }
 
     function stopCamera() {
-        if (detectTimer) { clearInterval(detectTimer); detectTimer = null; }
-        if (mediaStream) { mediaStream.getTracks().forEach(function (t) { t.stop(); }); mediaStream = null; }
-        video.srcObject = null;
+        if (mediaStream) {
+            mediaStream.getTracks().forEach(function (t) { t.stop(); });
+            mediaStream = null;
+            video.srcObject = null;
+            scanStage.classList.remove('has-video');
+        }
+    }
+
+    function tick() {
+        if (!mediaStream) return;
+        if (video.readyState === video.HAVE_ENOUGH_DATA) scanFrame();
+        requestAnimationFrame(tick);
     }
 
     function scanFrame() {
         if (locked || !mediaStream || typeof window.jsQR !== 'function') return;
         if (video.readyState !== video.HAVE_ENOUGH_DATA || !video.videoWidth) return;
-
         scanCanvas.width = video.videoWidth;
         scanCanvas.height = video.videoHeight;
         scanCtx.drawImage(video, 0, 0, scanCanvas.width, scanCanvas.height);
-
         var imageData;
-        try {
-            imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
-        } catch (e) {
-            return;
-        }
-
+        try { imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height); } catch (e) { return; }
         var resultado = window.jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
         if (resultado && resultado.data) handleCodigo(resultado.data);
     }
 
     function decodeImageFile(file) {
-        if (typeof window.jsQR !== 'function') {
-            showOverlayError('A biblioteca de leitura não carregou — verifique sua conexão e tente novamente.');
-            return;
-        }
-        var url = URL.createObjectURL(file);
-        var img = new Image();
-        img.onload = function () {
-            URL.revokeObjectURL(url);
-            scanCanvas.width = img.naturalWidth;
-            scanCanvas.height = img.naturalHeight;
-            scanCtx.drawImage(img, 0, 0);
-
-            var imageData;
-            try {
-                imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
-            } catch (e) {
-                showOverlayError('Não foi possível processar essa imagem.');
-                return;
-            }
-
-            var resultado = window.jsQR(imageData.data, imageData.width, imageData.height);
-            if (!resultado || !resultado.data) {
-                showOverlayError('Nenhum QR Code encontrado nessa imagem. Tente outra foto, com mais luz e o código bem enquadrado.');
-                announce('Nenhum QR Code encontrado na imagem selecionada.');
-                return;
-            }
-            handleCodigo(resultado.data);
+        var reader = new FileReader();
+        reader.onload = function (e) {
+            var img = new Image();
+            img.onload = function () {
+                var c = document.createElement('canvas');
+                c.width = img.width;
+                c.height = img.height;
+                var ctx = c.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                var idata = ctx.getImageData(0, 0, c.width, c.height);
+                var resultado = typeof window.jsQR === 'function' ? window.jsQR(idata.data, idata.width, idata.height) : null;
+                if (resultado && resultado.data) {
+                    handleCodigo(resultado.data);
+                } else {
+                    showOverlayError('Nenhum QR Code encontrado na imagem.');
+                    announce('Nenhum QR Code encontrado na imagem.');
+                    setTimeout(clearOverlayError, 3000);
+                }
+            };
+            img.src = e.target.result;
         };
-        img.onerror = function () {
-            URL.revokeObjectURL(url);
-            showOverlayError('Não foi possível abrir essa imagem.');
-        };
-        img.src = url;
+        reader.readAsDataURL(file);
     }
 
     // ─── Confirmar chegada: o próprio scan já é a tentativa de confirmação ─────
@@ -144,7 +130,13 @@
         locked = true;
         clearOverlayError();
 
-        postAcao({ acao: 'confirmar_chegada', id: ID, codigo: codigo }).then(function (res) {
+        var body = new URLSearchParams({
+            acao: 'confirmar_chegada',
+            id: ID,
+            codigo: codigo
+        });
+
+        postAcao(body).then(function (res) {
             if (res && res.sucesso) {
                 flashViewfinder(true);
                 stopCamera();
@@ -172,8 +164,18 @@
 
     startCamera();
 
-    manualBtn.addEventListener('click', function () { if (manualInput.value.trim()) handleCodigo(manualInput.value); });
-    manualInput.addEventListener('keydown', function (e) { if (e.key === 'Enter' && manualInput.value.trim()) handleCodigo(manualInput.value); });
+    if (showManualBtn && manualInputRow) {
+        showManualBtn.addEventListener('click', function() {
+            showManualBtn.style.display = 'none';
+            manualInputRow.style.display = 'flex';
+            if (manualInput) manualInput.focus();
+        });
+    }
+
+    if (manualBtn && manualInput) {
+        manualBtn.addEventListener('click', function () { if (manualInput.value.trim()) handleCodigo(manualInput.value); });
+        manualInput.addEventListener('keydown', function (e) { if (e.key === 'Enter' && manualInput.value.trim()) handleCodigo(manualInput.value); });
+    }
 
     if (uploadBtn && imageInput) {
         uploadBtn.addEventListener('click', function () { imageInput.click(); });

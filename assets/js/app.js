@@ -22,7 +22,7 @@
     }
 
     // Restore saved state on desktop
-    if (window.innerWidth >= 768 && localStorage.getItem(STORAGE_KEY) === '1') {
+    if (window.innerWidth >= 1025 && localStorage.getItem(STORAGE_KEY) === '1') {
         setSidebarCollapsed(true);
     }
 
@@ -30,7 +30,7 @@
     var toggleBtn = document.getElementById('sidebar-toggle');
     if (toggleBtn) {
         toggleBtn.addEventListener('click', function () {
-            if (window.innerWidth < 768) {
+            if (window.innerWidth <= 1024) {
                 toggleMobileSidebar();
             } else {
                 setSidebarCollapsed(!sidebar.classList.contains('collapsed'));

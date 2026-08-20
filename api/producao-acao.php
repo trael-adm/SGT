@@ -8,10 +8,16 @@ require_once __DIR__ . '/../includes/planilha-ns-of.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
-// ─── Autenticação ─────────────────────────────────────────────────────────────
+// ─── Autenticação e Autorização ───────────────────────────────────────────────
 if (!isLoggedIn()) {
     http_response_code(401);
     echo json_encode(['sucesso' => false, 'erro' => 'Não autenticado']);
+    exit;
+}
+
+if (!hasAcesso('tab:laboratorio') && !hasAcesso('tab:inspecao_final') && !hasAcesso('admin')) {
+    http_response_code(403);
+    echo json_encode(['sucesso' => false, 'erro' => 'Sem permissão de acesso ao módulo de produção']);
     exit;
 }
 
@@ -40,6 +46,18 @@ function buscarEmAndamento(PDO $pdo, string $ns): ?array
     ");
     $stmt->execute([$ns]);
     return $stmt->fetch() ?: null;
+}
+
+/** Retorna true se o transformador já estiver no Retrabalho em aberto. */
+function buscarEmRetrabalho(PDO $pdo, string $ns): bool
+{
+    $stmt = $pdo->prepare("
+        SELECT id FROM retrabalhos
+        WHERE ns_transformador = ? AND deleted_at IS NULL AND status != 'finalizado'
+        LIMIT 1
+    ");
+    $stmt->execute([$ns]);
+    return $stmt->fetch() !== false;
 }
 
 /**
@@ -78,6 +96,18 @@ function resolverTransformador(PDO $pdo, string $codigoBruto): array
         $cdPedidoPlan     = $dadosOF['cd_pedido'] !== '' ? $dadosOF['cd_pedido'] : null;
         $descricao        = $dadosOF['descricao'] !== '' ? $dadosOF['descricao'] : null;
         $cliente          = $dadosOF['cliente'] !== '' ? $dadosOF['cliente'] : null;
+    } else {
+        // Busca na planilha pelo Número de Série direto
+        $dadosNS = buscarPlanilhaOFPorNs($ns);
+        if ($dadosNS) {
+            $cdReferenciaPlan = $dadosNS['cd_referencia'] !== '' ? $dadosNS['cd_referencia'] : null;
+            $cdPedidoPlan     = $dadosNS['cd_pedido'] !== '' ? $dadosNS['cd_pedido'] : null;
+            $descricao        = $dadosNS['descricao'] !== '' ? $dadosNS['descricao'] : null;
+            $cliente          = $dadosNS['cliente'] !== '' ? $dadosNS['cliente'] : null;
+            if (!empty($dadosNS['cd_of'])) {
+                $cdOf = $dadosNS['cd_of'];
+            }
+        }
     }
 
     $stmt = $pdo->prepare("
@@ -113,12 +143,11 @@ function resolverTransformador(PDO $pdo, string $codigoBruto): array
             $idProjeto     = (int) $achado['id_projeto'];
             $projetoCodigo = $achado['projeto_codigo'];
             $pedidoNumero  = $achado['pedido_numero'];
-        } elseif ($cdPedidoPlan !== null) {
-            // Nem Projeto nem Pedido existem ainda, mas a planilha tem os dois — o
-            // cadastro será criado em 'confirmar' a partir desses valores.
+        } else {
+            // Projeto identificado pela planilha NS.OF (com ou sem pedido)
             $precisaCriar  = true;
             $projetoCodigo = $cdReferenciaPlan;
-            $pedidoNumero  = $cdPedidoPlan;
+            $pedidoNumero  = ($cdPedidoPlan !== null && $cdPedidoPlan !== '') ? $cdPedidoPlan : 'S/P';
         }
     }
 
@@ -147,6 +176,7 @@ function resolverTransformador(PDO $pdo, string $codigoBruto): array
  */
 function criarPedidoProjetoDaPlanilha(PDO $pdo, string $codigoProjeto, string $numeroPedido, ?string $descricao): ?int
 {
+    $numeroPedido = trim($numeroPedido) !== '' ? trim($numeroPedido) : 'S/P';
     $pq = $pdo->prepare("SELECT id FROM pedidos WHERE numero = ? AND deleted_at IS NULL LIMIT 1");
     $pq->execute([$numeroPedido]);
     $pedido = $pq->fetch();
@@ -228,6 +258,12 @@ try {
                 exit;
             }
 
+            if (buscarEmRetrabalho($pdo, $res['ns'])) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'O número de série já se encontra em retrabalho.']);
+                exit;
+            }
+
             echo json_encode($base + ['status' => 'ok']);
             break;
         }
@@ -262,7 +298,8 @@ try {
             // Pedido/Projeto não existem ainda, mas a planilha trouxe os dois — cria
             // agora, no momento do registro (nunca durante a prévia 'ler').
             if ($idProjeto === null && $res['precisa_criar']) {
-                $idProjeto = criarPedidoProjetoDaPlanilha($pdo, $res['cd_referencia_plan'], $res['cd_pedido_plan'], $res['descricao']);
+                $pedNum = ($res['cd_pedido_plan'] !== null && $res['cd_pedido_plan'] !== '') ? $res['cd_pedido_plan'] : 'S/P';
+                $idProjeto = criarPedidoProjetoDaPlanilha($pdo, $res['cd_referencia_plan'], $pedNum, $res['descricao']);
             }
 
             if ($idProjeto === null) {
@@ -298,13 +335,22 @@ try {
                 exit;
             }
 
+            if (buscarEmRetrabalho($pdo, $ns)) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'O número de série já se encontra em retrabalho.']);
+                exit;
+            }
+
+            $metodoInsercao = trim((string) ($_POST['metodo_insercao'] ?? 'scanner'));
+            if (!in_array($metodoInsercao, ['scanner', 'manual'], true)) $metodoInsercao = 'scanner';
+
             try {
                 $stmt = $pdo->prepare("
                     INSERT INTO producao_etapas
-                        (ns_transformador, id_projeto, estacao, `status`, data_inicio, id_responsavel, id_criador)
-                    VALUES (?, ?, ?, 'em_andamento', NOW(), ?, ?)
+                        (ns_transformador, id_projeto, estacao, metodo_insercao, `status`, data_inicio, id_responsavel, id_criador)
+                    VALUES (?, ?, ?, ?, 'em_andamento', NOW(), ?, ?)
                 ");
-                $stmt->execute([$ns, $idProjeto, $estacao, $userId, $userId]);
+                $stmt->execute([$ns, $idProjeto, $estacao, $metodoInsercao, $userId, $userId]);
             } catch (\PDOException $e) {
                 if ($e->getCode() === '23000') { // chave duplicada — outro tablet confirmou primeiro
                     http_response_code(400);
@@ -373,7 +419,7 @@ try {
             }
             $stmt = $pdo->prepare("
                 UPDATE producao_etapas SET deleted_at = NOW()
-                WHERE ns_transformador = ? AND status = 'em_andamento' AND deleted_at IS NULL
+                WHERE ns_transformador = ? AND status IN ('em_andamento', 'aguardando_retorno') AND deleted_at IS NULL
             ");
             $stmt->execute([$ns]);
             echo json_encode(['sucesso' => true, 'removidos' => $stmt->rowCount()]);

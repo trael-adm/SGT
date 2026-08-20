@@ -47,16 +47,25 @@ function buscarPlanilhaOF(string $cdOf): ?array
 }
 
 /**
+ * Busca um N° de série no índice da planilha. Devolve null se não constar.
+ */
+function buscarPlanilhaOFPorNs(string $ns): ?array
+{
+    $ns = trim($ns);
+    if ($ns === '') return null;
+    $indice = carregarIndicePlanilhaOFPorNs();
+    return $indice[$ns] ?? null;
+}
+
+/**
  * Data PCP (DataEntraProducao) de um N° de série, para exibição na Relação de
  * Retrabalhos (coluna "Data PCP"). Devolve null se o NS não constar na última
  * versão carregada da planilha ou não tiver essa data preenchida.
  */
 function buscarDataPcpPorNs(string $ns): ?string
 {
-    $ns = trim($ns);
-    if ($ns === '') return null;
-    $indice = carregarIndicePlanilhaOFPorNs();
-    return $indice[$ns]['data_pcp'] ?? null;
+    $dados = buscarPlanilhaOFPorNs($ns);
+    return $dados['data_pcp'] ?? null;
 }
 
 /** Índice cd_of -> dados (etiqueta de OF), ver construirIndicePlanilhaOF(). */
@@ -65,7 +74,7 @@ function carregarIndicePlanilhaOF(): array
     return carregarIndiceCompletoPlanilhaOF()['porCdOf'];
 }
 
-/** Índice N° de série -> dados (ex.: Data PCP), ver construirIndicePlanilhaOF(). */
+/** Índice N° de série -> dados completos da planilha, ver construirIndicePlanilhaOF(). */
 function carregarIndicePlanilhaOFPorNs(): array
 {
     return carregarIndiceCompletoPlanilhaOF()['porNs'];
@@ -88,7 +97,7 @@ function carregarIndiceCompletoPlanilhaOF(): array
     // Prefixo de versão do formato do índice em cache — muda sempre que o conjunto de
     // colunas extraídas mudar (ex.: adição de descricao/cliente/DataEntraProducao),
     // forçando reconstrução mesmo que o arquivo fonte não tenha sido tocado.
-    $assinatura = 'v3:' . filemtime(PLANILHA_NS_OF_ARQUIVO) . ':' . filesize(PLANILHA_NS_OF_ARQUIVO);
+    $assinatura = 'v5:' . filemtime(PLANILHA_NS_OF_ARQUIVO) . ':' . filesize(PLANILHA_NS_OF_ARQUIVO);
 
     if (is_file(PLANILHA_NS_OF_CACHE)) {
         $raw    = @file_get_contents(PLANILHA_NS_OF_CACHE);
@@ -135,7 +144,7 @@ function construirIndicePlanilhaOF(string $caminhoXlsx): array
     }
 
     $colunas = [
-        'NumSerie' => 0, 'cd_Referencia' => 4, 'ds_Prod' => 5, 'cdPedido' => 6,
+        'NumSerie' => 0, 'NumSerieCliente' => 1, 'Observacao' => 2, 'cd_Referencia' => 4, 'ds_Prod' => 5, 'cdPedido' => 6,
         'DataEntraProducao' => 13, 'cd_of' => 14, 'NomeCli' => 19,
     ];
     if (isset($phar['xl/tables/table1.xml'])) {
@@ -173,23 +182,31 @@ function construirIndicePlanilhaOF(string $caminhoXlsx): array
 
         $ns      = trim((string) ($cells[$colunas['NumSerie']] ?? ''));
         $dataPcp = converterSerialExcelParaData((string) ($cells[$colunas['DataEntraProducao']] ?? ''));
+        $cdOf    = trim((string) ($cells[$colunas['cd_of']] ?? ''));
 
-        // Primeira ocorrência do NS que tiver Data PCP preenchida — o mesmo NS pode
-        // repetir linha na planilha (reprocessamentos da consulta externa).
-        if ($ns !== '' && $dataPcp !== null && !isset($porNs[$ns])) {
-            $porNs[$ns] = ['data_pcp' => $dataPcp];
+        $dadosLinha = [
+            'num_serie'          => $ns,
+            'num_serie_cliente'  => trim((string) ($cells[$colunas['NumSerieCliente']] ?? '')),
+            'observacao'         => trim((string) ($cells[$colunas['Observacao']] ?? '')),
+            'cd_referencia'      => trim((string) ($cells[$colunas['cd_Referencia']] ?? '')),
+            'descricao'          => trim((string) ($cells[$colunas['ds_Prod']] ?? '')),
+            'cd_pedido'          => trim((string) ($cells[$colunas['cdPedido']] ?? '')),
+            'cliente'            => trim((string) ($cells[$colunas['NomeCli']] ?? '')),
+            'cd_of'              => $cdOf,
+            'data_pcp'           => $dataPcp,
+        ];
+
+        if ($ns !== '') {
+            if (!isset($porNs[$ns])) {
+                $porNs[$ns] = $dadosLinha;
+            } elseif ($dataPcp !== null && empty($porNs[$ns]['data_pcp'])) {
+                $porNs[$ns]['data_pcp'] = $dataPcp;
+            }
         }
 
-        $cdOf = trim((string) ($cells[$colunas['cd_of']] ?? ''));
-        if ($cdOf === '' || !is_numeric($cdOf)) continue;
-
-        $porCdOf[(string) (int) $cdOf] = [
-            'num_serie'     => $ns,
-            'cd_referencia' => trim((string) ($cells[$colunas['cd_Referencia']] ?? '')),
-            'descricao'     => trim((string) ($cells[$colunas['ds_Prod']] ?? '')),
-            'cd_pedido'     => trim((string) ($cells[$colunas['cdPedido']] ?? '')),
-            'cliente'       => trim((string) ($cells[$colunas['NomeCli']] ?? '')),
-        ];
+        if ($cdOf !== '' && is_numeric($cdOf)) {
+            $porCdOf[(string) (int) $cdOf] = $dadosLinha;
+        }
     }
     $reader->close();
 

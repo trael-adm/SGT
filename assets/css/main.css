@@ -83,6 +83,15 @@
    ============================================================ */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+html, body {
+  /* .app-content é o único scroll da aplicação (ver LAYOUT abaixo) — sem isso,
+     conteúdo mais alto que a tela (ex.: formulários longos) faz o próprio body
+     rolar também, criando 2 barras de rolagem que não ficam em sincronia (uma
+     termina e a outra continua). */
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   font-family: var(--font-sans);
   font-size: var(--font-size-base);
@@ -100,13 +109,21 @@ a:hover { color: var(--color-accent-hover); text-decoration: underline; }
    ============================================================ */
 .app-wrapper {
   display: flex;
+  /* 100vh em tablets Android/Samsung conta a área atrás da barra de navegação
+     por gestos/botões como "visível", então o fundo do app-content ficava
+     escondido atrás dela mesmo rolando até o fim. 100dvh (dynamic viewport
+     height) acompanha a barra aparecendo/sumindo — 100vh fica só como
+     fallback pra navegador sem suporte a dvh (a declaração inválida é
+     ignorada, então a de cima permanece). */
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 
 .app-main {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -228,6 +245,7 @@ body.sidebar-collapsed .app-header { left: var(--sidebar-width-collapsed); }
    ============================================================ */
 .app-content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   margin-top: var(--header-height);
   padding: 24px;
@@ -311,11 +329,203 @@ body.sidebar-collapsed .app-header { left: var(--sidebar-width-collapsed); }
 .btn-secondary:hover { background: var(--color-surface-2); text-decoration: none; }
 .btn-danger    { background: var(--color-danger);  color: #fff; border-color: var(--color-danger); }
 .btn-danger:hover   { background: #b91c1c; color: #fff; text-decoration: none; }
+.btn-success   { background: var(--color-success); color: #fff; border-color: var(--color-success); }
+.btn-success:hover  { background: #15803d; border-color: #15803d; color: #fff; text-decoration: none; }
 .btn-ghost     { background: transparent; color: var(--color-text-secondary); border-color: transparent; }
 .btn-ghost:hover    { background: var(--color-surface-2); color: var(--color-text-primary); text-decoration: none; }
 .btn-sm { padding: 4px 10px; font-size: var(--font-size-sm); }
 .btn-lg { padding: 10px 20px; font-size: var(--font-size-md); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-block { width: 100%; justify-content: center; }
+
+/* Action icon buttons for data tables and toolbars */
+.btn-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; padding: 0;
+  border-radius: var(--radius-md); border: 1px solid var(--color-border);
+  background: var(--color-surface); color: var(--color-text-secondary);
+  cursor: pointer; transition: all var(--transition); text-decoration: none;
+  flex-shrink: 0;
+}
+.btn-icon:hover {
+  background: var(--color-surface-2); border-color: var(--color-border-strong);
+  color: var(--color-text-primary); text-decoration: none;
+}
+.btn-icon svg { width: 15px; height: 15px; }
+
+.btn-icon-danger {
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+}
+.btn-icon-danger:hover {
+  background: var(--color-danger-bg);
+  border-color: #fca5a5;
+  color: var(--color-danger);
+  text-decoration: none;
+}
+
+.btn-icon-edit {
+  color: var(--color-text-secondary);
+}
+.btn-icon-edit:hover {
+  background: var(--color-accent-light);
+  border-color: var(--color-accent);
+  color: var(--color-accent-text);
+  text-decoration: none;
+}
+
+.btn-icon-primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+.btn-icon-primary:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  color: #fff;
+  text-decoration: none;
+}
+
+.btn-icon-sm {
+  width: 26px; height: 26px;
+}
+.btn-icon-sm svg { width: 13px; height: 13px; }
+
+/* ============================================================
+   FILTER BAR (UNIFIED)
+   ============================================================ */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 14px 0;
+}
+.filter-group-left, .filter-group-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.filter-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 280px;
+  flex: 1;
+}
+.filter-search-icon {
+  position: absolute;
+  left: 11px;
+  width: 15px;
+  height: 15px;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+.filter-search-input {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px 0 34px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-family: var(--font-sans);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.filter-search-input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(232,160,32,0.15);
+}
+.filter-select {
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-family: var(--font-sans);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.filter-select:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(232,160,32,0.15);
+}
+.filter-btn {
+  height: 38px;
+  padding: 0 14px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: all var(--transition);
+}
+.filter-btn svg { width: 14px; height: 14px; }
+.filter-btn-secondary {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+.filter-btn-secondary:hover {
+  background: var(--color-surface-2);
+  border-color: var(--color-text-muted);
+  text-decoration: none;
+}
+.filter-btn-primary {
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  color: #fff;
+}
+.filter-btn-primary:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  color: #fff;
+  text-decoration: none;
+}
+.filter-btn-clear {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+.filter-btn-clear:hover {
+  background: var(--color-danger-bg);
+  border-color: #fca5a5;
+  color: var(--color-danger);
+  text-decoration: none;
+}
+
+/* ============================================================
+   FAB (Floating Action Button)
+   ============================================================ */
+.fab {
+  position: fixed; bottom: 24px; right: 24px; z-index: 90;
+  width: 56px; height: 56px; border-radius: 50%;
+  background: var(--color-accent); color: #fff; border: none;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow-lg); cursor: pointer; transition: all var(--transition);
+}
+.fab:hover { background: var(--color-accent-hover); transform: translateY(-2px); box-shadow: 0 12px 28px rgba(26,39,68,0.15); }
+.fab svg { width: 24px; height: 24px; }
+
+.fab--secondary {
+  bottom: 96px; width: 48px; height: 48px;
+  background: var(--color-surface); color: var(--color-text-primary);
+  border: 1px solid var(--color-border); box-shadow: var(--shadow-md);
+}
+.fab--secondary:hover { background: var(--color-surface-2); color: var(--color-text-primary); }
+.fab--secondary svg { width: 20px; height: 20px; }
 
 /* ============================================================
    BADGES
@@ -447,7 +657,11 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 .modal {
   background: var(--color-surface); border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg); width: 100%; max-width: 520px;
-  max-height: 90vh; overflow-y: auto;
+  /* mesmo motivo do .app-wrapper acima — evita o rodapé do modal (botões)
+     ficar atrás da barra de navegação do tablet. */
+  max-height: 90vh;
+  max-height: 90dvh;
+  overflow-y: auto;
 }
 .modal-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -519,7 +733,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 .text-success    { color: var(--color-success); }
 .text-sm         { font-size: var(--font-size-sm); }
 .text-xs         { font-size: var(--font-size-xs); }
-.font-mono       { font-family: var(--font-mono); }
+.font-mono, .rt-code, .lst-code, .ret-code { font-family: var(--font-mono) !important; }
 .font-500        { font-weight: 500; }
 .font-600        { font-weight: 600; }
 
@@ -556,7 +770,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 /* ============================================================
    RESPONSIVE — mobile sidebar drawer
    ============================================================ */
-@media (max-width: 767px) {
+@media (max-width: 1024px) {
   .sidebar {
     position: fixed;
     left: calc(-1 * var(--sidebar-width));
@@ -567,19 +781,110 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   .sidebar.mobile-open { left: 0; }
 
   .app-header { left: 0 !important; }
-  .app-content { padding: 16px; }
+  .app-content { padding: 12px; }
 }
 
 /* ============================================================
-   RESPONSIVE — tablet: <select> nativo
+   RESPONSIVE — tablet touch targets
    ============================================================ */
-/* Abaixo de 16px, o menu nativo do <select> renderiza pequeno/apertado em
-   tablets (Android/Chromium usa o font-size do próprio elemento para o
-   popup de opções) — sobe pra 16px só nessa faixa, sem mudar a densidade
-   do layout desktop. 16px também evita o zoom automático do Safari/iOS ao
-   focar o campo. */
 @media (max-width: 1024px) {
-  select.form-control { font-size: 16px; }
+  /* Escala massiva de fonte para as telas do chão de fábrica */
+  :root {
+    --font-size-xs:   13px;
+    --font-size-sm:   15px;
+    --font-size-base: 17px;
+    --font-size-md:   19px;
+    --font-size-lg:   22px;
+    --font-size-xl:   26px;
+    --font-size-2xl:  32px;
+
+    /* Aumenta a largura da barra lateral para não cortar os textos grandes */
+    --sidebar-width:  320px;
+    
+    /* Cabeçalho mais alto para abrigar botões maiores */
+    --header-height:  72px;
+  }
+  
+  /* Botão Hambúrguer Gigante (Menu) */
+  .sidebar-toggle-btn {
+      padding: 16px;
+  }
+  .sidebar-toggle-btn svg {
+      width: 32px;
+      height: 32px;
+  }
+  
+  /* Título no cabeçalho */
+  .header-page-title {
+      font-size: var(--font-size-lg);
+  }
+  
+  /* Avatar / Menu de usuário do cabeçalho */
+  .avatar-placeholder {
+      width: 48px;
+      height: 48px;
+      font-size: var(--font-size-md);
+  }
+  .user-btn-name {
+      font-size: var(--font-size-base);
+  }
+
+  /* Botões Flutuantes (Câmera / Ler Manual) MUITO maiores */
+  .fab {
+    width: 72px; height: 72px;
+    bottom: 32px; right: 32px;
+  }
+  .fab svg { width: 32px; height: 32px; }
+  
+  .fab--secondary {
+    width: 60px; height: 60px;
+    bottom: 120px; right: 30px;
+  }
+  .fab--secondary svg { width: 28px; height: 28px; }
+
+  /* <select> nativo e Inputs com fonte maior e mais espaçamento */
+  .form-control, select.form-control { 
+      font-size: 18px; 
+      padding: 12px 14px;
+  }
+  
+  /* Botões muito mais fáceis de apertar (Gigantes no tablet) */
+  .btn {
+      padding: 16px 24px;
+      font-size: var(--font-size-md);
+      min-height: 56px;
+  }
+  .btn-sm {
+      padding: 14px 20px;
+      font-size: var(--font-size-base);
+      min-height: 48px;
+  }
+  
+  /* Menu Lateral com opções mais espaçadas e ícones maiores */
+  .nav-item {
+      padding: 18px 20px;
+      font-size: var(--font-size-md);
+  }
+  .nav-item svg {
+      width: 24px;
+      height: 24px;
+  }
+  
+  /* Botão de usuário no cabeçalho */
+  .user-btn {
+      padding: 10px 14px;
+  }
+  
+  /* Tabelas mais espaçadas verticalmente */
+  .table-std th, .table-std td {
+      padding: 16px 18px;
+  }
+  
+  /* Dropdowns mais altos */
+  .dropdown-item {
+      padding: 14px 18px;
+      font-size: var(--font-size-base);
+  }
 }
 
 /* ============================================================
@@ -617,28 +922,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
     background: var(--color-surface-2);
 }
 
-/* ============================================================
-   FAB (Floating Action Button)
-   ============================================================ */
-.fab {
-  position: fixed; right: 24px; bottom: 24px;
-  width: 56px; height: 56px; border-radius: var(--radius-full);
-  background: var(--color-accent); color: #fff; border: none; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  box-shadow: var(--shadow-lg); z-index: 400;
-  transition: transform var(--transition), background var(--transition);
-}
-.fab svg { width: 24px; height: 24px; }
-.fab:hover { background: var(--color-accent-hover); transform: translateY(-2px); }
-.fab:active { transform: scale(0.96); }
 
-.fab--secondary {
-  right: 92px; width: 48px; height: 48px;
-  background: var(--color-surface); color: var(--color-text-secondary);
-  border: 1px solid var(--color-border-strong);
-}
-.fab--secondary svg { width: 20px; height: 20px; }
-.fab--secondary:hover { background: var(--color-surface-2); color: var(--color-text-primary); }
 
 /* ============================================================
    ESTAÇÕES DE PRODUÇÃO — cards de estação + área de leitura
@@ -741,9 +1025,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 .viewfinder .scan-line { position: absolute; left: 4%; right: 4%; top: 2%; height: 2px; background: var(--color-accent); box-shadow: 0 0 8px var(--color-accent); }
 .viewfinder.is-success .corner { border-color: var(--color-success); }
 .viewfinder.is-error .corner { border-color: var(--color-danger); }
-@media (prefers-reduced-motion: no-preference) {
-  .scan-stage.has-video .scan-line { animation: scanSweep 2.1s ease-in-out infinite; }
-}
+.scan-stage.has-video .scan-line { animation: scanSweep 2.1s ease-in-out infinite; }
 @keyframes scanSweep { 0%, 100% { top: 2%; } 50% { top: 96%; } }
 
 .scan-hint { text-align: center; font-size: var(--font-size-base); color: rgba(255,255,255,.72); padding: 12px 20px 0; }

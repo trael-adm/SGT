@@ -3,7 +3,7 @@
 -- Banco de Dados: Estrutura inicial (autenticação + Retrabalho)
 -- Versão: 1.0.0
 -- Fuso horário: America/Cuiaba (UTC-4 fixo)
--- =============================================================================
+-- ===============================================trael_dbtrael_dbtrael_db_dev==============================
 -- USO: execute em um servidor MySQL/MariaDB para criar o banco trael_db,
 -- toda a estrutura e os dados iniciais (usuário admin + exemplos de retrabalho).
 --   mysql -u root < _inicial/database.sql
@@ -61,10 +61,10 @@ CREATE TABLE IF NOT EXISTS usuarios (
     KEY idx_usuarios_deleted (deleted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Usuário administrador padrão — e-mail: admin@trael.com.br  |  senha: Admin@1234
+-- Usuário administrador padrão — e-mail: admin@trael.com.br  |  senha: Trael@Sgt2026#Admin
 INSERT IGNORE INTO usuarios (nome, email, senha, id_perfil, id_alocacao, ativo) VALUES
     ('Administrador', 'admin@trael.com.br',
-     '$2y$12$vEFc3EIQZVPhEMipP7sjSuVEz7XM.jMxcmqWS5/E8l4ByPe3tyI52', 1, 1, TRUE);
+     '$2y$12$DKMTc29VTYIXpJp1cGWys.iWobmsbVnvI9T9Q0BWWoEBdrUT0Pfka', 1, 1, TRUE);
 
 CREATE TABLE IF NOT EXISTS password_resets (
     id         INT          AUTO_INCREMENT PRIMARY KEY,
@@ -207,3 +207,4 @@ CREATE TABLE IF NOT EXISTS retrabalhos (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
+`trael_db_devtrael_db_devsgt-dev`perfis

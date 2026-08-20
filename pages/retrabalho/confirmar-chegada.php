@@ -5,7 +5,7 @@ require_once __DIR__ . '/../../config/conexao.php';
 require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../includes/helpers.php';
 
-requireLogin();
+requireAcessoModulo('retrabalho');
 
 $pdo  = getDB();
 $base = defined('APP_URL') ? APP_URL : '';
@@ -69,8 +69,11 @@ if (!$registro || $registro['data_chegada'] !== null) {
     <div class="scan-overlay__error" id="overlayError"></div>
 
     <div class="scan-overlay__manual">
-        <label for="manualNs">Ou digite o número de série manualmente</label>
-        <div class="manual-row">
+        <button class="btn btn-secondary btn-block" id="showManualBtn" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect><line x1="6" y1="8" x2="6" y2="8"></line><line x1="10" y1="8" x2="10" y2="8"></line><line x1="14" y1="8" x2="14" y2="8"></line><line x1="18" y1="8" x2="18" y2="8"></line><line x1="6" y1="12" x2="6" y2="12"></line><line x1="10" y1="12" x2="10" y2="12"></line><line x1="14" y1="12" x2="14" y2="12"></line><line x1="18" y1="12" x2="18" y2="12"></line><line x1="7" y1="16" x2="17" y2="16"></line></svg>
+            Digitar manualmente
+        </button>
+        <div class="manual-row" id="manualInputRow" style="display:none; margin-top:12px;">
             <input id="manualNs" type="text" placeholder="Ex.: 900201" autocomplete="off">
             <button class="btn btn-secondary" id="manualBtn" type="button">Buscar</button>
         </div>

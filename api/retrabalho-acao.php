@@ -8,10 +8,16 @@ require_once __DIR__ . '/../includes/planilha-ns-of.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
-// ─── Autenticação ─────────────────────────────────────────────────────────────
+// ─── Autenticação e Autorização ───────────────────────────────────────────────
 if (!isLoggedIn()) {
     http_response_code(401);
     echo json_encode(['sucesso' => false, 'erro' => 'Não autenticado']);
+    exit;
+}
+
+if (!hasAcesso('tab:retrabalho') && !hasAcesso('tab:laboratorio') && !hasAcesso('tab:inspecao_final') && !hasAcesso('tab:pintura') && !hasAcesso('tab:analise') && !hasAcesso('admin')) {
+    http_response_code(403);
+    echo json_encode(['sucesso' => false, 'erro' => 'Sem permissão de acesso ao módulo de retrabalho']);
     exit;
 }
 
@@ -24,257 +30,322 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $acao   = trim((string) ($_POST['acao'] ?? ''));
 $userId = (int) (currentUser()['id'] ?? 0);
 
-/** Converte uma string 'YYYY-MM-DD' em data válida ou null. */
-function lerData(string $d): ?string
-{
-    $d = trim($d);
-    return ($d !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)) ? $d : null;
-}
-
-/**
- * Lê e normaliza os campos comuns do formulário de retrabalho — tudo exceto a
- * identificação da reprova (id_reprova/data_reprova), que em "registrar" pode
- * vir em lote (várias reprovas numa só triagem) e em "editar" é um valor único.
- */
-function lerCamposRetrabalho(): array
-{
-    $obs          = trim((string) ($_POST['observacoes'] ?? ''));
-    $causaRaiz    = trim((string) ($_POST['causa_raiz'] ?? ''));
-    $causaReprova = trim((string) ($_POST['causa_reprova'] ?? ''));
-    $ns           = trim((string) ($_POST['ns_transformador'] ?? ''));
-    $idProjeto    = (int) ($_POST['id_projeto'] ?? 0);
-
-    // Obs.: responsável = usuário logado (definido na ação). Status = derivado (derivarStatus()).
-    return [
-        'observacoes'      => $obs !== '' ? $obs : null,
-        'causa_raiz'       => $causaRaiz !== '' ? $causaRaiz : null,
-        'causa_reprova'    => $causaReprova !== '' ? $causaReprova : null,
-        'ns_transformador' => $ns !== '' ? $ns : null,
-        'id_projeto'       => $idProjeto > 0 ? $idProjeto : null,
-        'data_chegada'     => lerData((string) ($_POST['data_chegada'] ?? '')),
-        'data_inicio'      => lerData((string) ($_POST['data_inicio'] ?? '')),
-        'data_finalizacao' => lerData((string) ($_POST['data_finalizacao'] ?? '')),
-        'setores_destino'  => lerSetoresDestino(),
-    ];
-}
-
-/** Lê `id_reprova[]` + `data_reprova[]` do POST (lote da triagem). Ignora entradas sem código. */
-function lerReprovasEmLote(): array
-{
-    $ids   = (array) ($_POST['id_reprova'] ?? []);
-    $datas = (array) ($_POST['data_reprova'] ?? []);
-    $itens = [];
-    foreach ($ids as $i => $idReprova) {
-        $idReprova = (int) $idReprova;
-        if ($idReprova <= 0) continue;
-        $itens[] = ['id_reprova' => $idReprova, 'data_reprova' => lerData((string) ($datas[$i] ?? ''))];
-    }
-    return $itens;
-}
-
-/** Lê `setores_destino[]` do POST e valida contra a lista permitida. Retorna string "a,b,c" ou null. */
-function lerSetoresDestino(): ?string
-{
-    $permitidos = array_keys(retrabalhoSetoresTriagem());
-    $enviados   = array_intersect((array) ($_POST['setores_destino'] ?? []), $permitidos);
-    return $enviados ? implode(',', array_values($enviados)) : null;
-}
-
-/**
- * Lê o checklist de materiais utilizados (`material_usado[]` + `material_qtd[id]`,
- * mais o item livre `material_outro_*`). Cada item marcado vira uma linha em
- * retrabalho_material_uso — ver gravarMateriaisUsados(). IDs fora do catálogo
- * ativo são ignorados (o catálogo é a fonte de verdade, igual setores_destino).
- */
-function lerMateriaisUsados(PDO $pdo): array
-{
-    $catalogoIds = array_column($pdo->query("SELECT id FROM retrabalho_materiais_catalogo WHERE ativo = 1")->fetchAll(), 'id');
-    $marcados    = array_map('intval', (array) ($_POST['material_usado'] ?? []));
-    $qtds        = (array) ($_POST['material_qtd'] ?? []);
-
-    $itens = [];
-    foreach (array_unique($marcados) as $idMaterial) {
-        if (!in_array($idMaterial, $catalogoIds, true)) continue;
-        $qtd = (float) str_replace(',', '.', (string) ($qtds[$idMaterial] ?? 0));
-        $itens[] = ['id_material' => $idMaterial, 'material_outro' => null, 'quantidade' => max(0, $qtd)];
-    }
-
-    if (($_POST['material_outro_check'] ?? '') === '1') {
-        $desc = trim((string) ($_POST['material_outro_desc'] ?? ''));
-        if ($desc !== '') {
-            $qtd = (float) str_replace(',', '.', (string) ($_POST['material_outro_qtd'] ?? 0));
-            $itens[] = ['id_material' => null, 'material_outro' => $desc, 'quantidade' => max(0, $qtd)];
-        }
-    }
-
-    return $itens;
-}
-
-/**
- * Grava o checklist de materiais utilizados na Triagem: como o formulário envia
- * sempre o conjunto completo (igual causa/observações/setores), substitui tudo
- * que já estava gravado para este lote em vez de acumular reenvios.
- */
-function gravarMateriaisUsados(PDO $pdo, int $idLote, array $itens, int $userId): void
-{
-    $pdo->prepare("DELETE FROM retrabalho_material_uso WHERE id_lote = ?")->execute([$idLote]);
-    if (!$itens) return;
-
-    $stmt = $pdo->prepare("
-        INSERT INTO retrabalho_material_uso (id_lote, id_material, material_outro, quantidade, id_criador)
-        VALUES (?, ?, ?, ?, ?)
-    ");
-    foreach ($itens as $it) {
-        $stmt->execute([$idLote, $it['id_material'], $it['material_outro'], $it['quantidade'], $userId]);
+if (!function_exists('lerData')) {
+    /** Converte uma string 'YYYY-MM-DD' em data válida ou null. */
+    function lerData(string $d): ?string
+    {
+        $d = trim($d);
+        return ($d !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)) ? $d : null;
     }
 }
 
-/**
- * Move os anexos enviados em `anexos[]` (multipart) para o diretório final, uma
- * única vez. Valida extensão + MIME real do arquivo. Retorna a lista de arquivos
- * movidos (para depois vincular a 1+ retrabalhos com vincularAnexos()) ou uma
- * string de erro. Lista vazia (sem erro) se nenhum arquivo foi enviado.
- */
-function processarAnexosUpload(): array|string
-{
-    if (empty($_FILES['anexos']) || empty($_FILES['anexos']['name'][0])) {
-        return [];
+if (!function_exists('lerCamposRetrabalho')) {
+    /**
+     * Lê e normaliza os campos comuns do formulário de retrabalho — tudo exceto a
+     * identificação da reprova (id_reprova/data_reprova), que em "registrar" pode
+     * vir em lote (várias reprovas numa só triagem) e em "editar" é um valor único.
+     */
+    function lerCamposRetrabalho(): array
+    {
+        $obs          = trim((string) ($_POST['observacoes'] ?? ''));
+        $causaRaiz    = trim((string) ($_POST['causa_raiz'] ?? ''));
+        $causaReprova = trim((string) ($_POST['causa_reprova'] ?? ''));
+        $ns           = trim((string) ($_POST['ns_transformador'] ?? ''));
+        $idProjeto    = (int) ($_POST['id_projeto'] ?? 0);
+
+        // Obs.: responsável = usuário logado (definido na ação). Status = derivado (derivarStatus()).
+        return [
+            'observacoes'      => $obs !== '' ? $obs : null,
+            'causa_raiz'       => $causaRaiz !== '' ? $causaRaiz : null,
+            'causa_reprova'    => $causaReprova !== '' ? $causaReprova : null,
+            'ns_transformador' => $ns !== '' ? $ns : null,
+            'id_projeto'       => $idProjeto > 0 ? $idProjeto : null,
+            'data_chegada'     => lerData((string) ($_POST['data_chegada'] ?? '')),
+            'data_inicio'      => lerData((string) ($_POST['data_inicio'] ?? '')),
+            'data_finalizacao' => lerData((string) ($_POST['data_finalizacao'] ?? '')),
+            'setores_destino'  => lerSetoresDestino(),
+        ];
     }
-
-    $ALLOWED = [
-        'jpg'  => 'image/jpeg', 'jpeg' => 'image/jpeg',
-        'png'  => 'image/png',  'gif'  => 'image/gif',
-        'webp' => 'image/webp', 'pdf'  => 'application/pdf',
-    ];
-    $MAX_BYTES = 8 * 1024 * 1024;
-    $MAX_ARQUIVOS = 10;
-
-    $nomes    = $_FILES['anexos']['name'];
-    $tmpNames = $_FILES['anexos']['tmp_name'];
-    $errors   = $_FILES['anexos']['error'];
-    $sizes    = $_FILES['anexos']['size'];
-
-    if (count($nomes) > $MAX_ARQUIVOS) {
-        return "Envie no máximo {$MAX_ARQUIVOS} anexos por vez.";
-    }
-
-    $destDir = __DIR__ . '/../uploads/retrabalho';
-    if (!is_dir($destDir) && !mkdir($destDir, 0755, true) && !is_dir($destDir)) {
-        return 'Não foi possível preparar o diretório de anexos.';
-    }
-
-    $finfo    = finfo_open(FILEINFO_MIME_TYPE);
-    $movidos  = [];
-
-    foreach ($nomes as $i => $nomeOriginal) {
-        if ($nomeOriginal === '' || ($errors[$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
-            continue;
-        }
-        if ($errors[$i] !== UPLOAD_ERR_OK) {
-            return "Falha ao enviar o arquivo \"{$nomeOriginal}\".";
-        }
-        if ($sizes[$i] > $MAX_BYTES) {
-            return "O arquivo \"{$nomeOriginal}\" excede o limite de 8MB.";
-        }
-
-        $ext = strtolower(pathinfo($nomeOriginal, PATHINFO_EXTENSION));
-        if (!isset($ALLOWED[$ext])) {
-            return "Tipo de arquivo não permitido: \"{$nomeOriginal}\" (use imagem ou PDF).";
-        }
-        $mimeReal = finfo_file($finfo, $tmpNames[$i]);
-        if ($mimeReal !== $ALLOWED[$ext]) {
-            return "O conteúdo do arquivo \"{$nomeOriginal}\" não corresponde à extensão informada.";
-        }
-
-        $nomeArquivo = bin2hex(random_bytes(16)) . '.' . $ext;
-        if (!move_uploaded_file($tmpNames[$i], $destDir . '/' . $nomeArquivo)) {
-            return "Não foi possível salvar o arquivo \"{$nomeOriginal}\".";
-        }
-
-        $movidos[] = ['nome_arquivo' => $nomeArquivo, 'nome_original' => $nomeOriginal, 'tamanho_bytes' => (int) $sizes[$i]];
-    }
-    finfo_close($finfo);
-
-    return $movidos;
 }
 
-/** Vincula os arquivos já movidos (processarAnexosUpload()) a 1+ retrabalhos. */
-function vincularAnexos(PDO $pdo, array $arquivos, array $idsRetrabalho, int $userId): void
-{
-    if (!$arquivos || !$idsRetrabalho) return;
-    $stmt = $pdo->prepare("
-        INSERT INTO retrabalho_anexos (id_retrabalho, nome_arquivo, nome_original, tamanho_bytes, id_criador)
-        VALUES (?, ?, ?, ?, ?)
-    ");
-    foreach ($idsRetrabalho as $idRetrabalho) {
-        foreach ($arquivos as $a) {
-            $stmt->execute([$idRetrabalho, $a['nome_arquivo'], $a['nome_original'], $a['tamanho_bytes'], $userId]);
+if (!function_exists('lerReprovasEmLote')) {
+    /** Lê `id_reprova[]` + `data_reprova[]` do POST (lote da triagem). Ignora entradas sem código. */
+    function lerReprovasEmLote(): array
+    {
+        $ids   = (array) ($_POST['id_reprova'] ?? []);
+        $datas = (array) ($_POST['data_reprova'] ?? []);
+        $defaultData = (string) ($datas[0] ?? date('Y-m-d'));
+        $itens = [];
+        foreach ($ids as $i => $idReprova) {
+            $idReprova = (int) $idReprova;
+            if ($idReprova <= 0) continue;
+            $dataStr = (string) ($datas[$i] ?? $defaultData);
+            $itens[] = ['id_reprova' => $idReprova, 'data_reprova' => lerData($dataStr) ?: date('Y-m-d')];
+        }
+        return $itens;
+    }
+}
+
+if (!function_exists('lerSetoresDestino')) {
+    /** Lê `setores_destino[]` do POST e valida contra a lista permitida. Retorna string "a,b,c" ou null. */
+    function lerSetoresDestino(): ?string
+    {
+        $permitidos = array_keys(retrabalhoSetoresTriagem());
+        $enviados   = array_intersect((array) ($_POST['setores_destino'] ?? []), $permitidos);
+        return $enviados ? implode(',', array_values($enviados)) : null;
+    }
+}
+
+if (!function_exists('lerMateriaisUsados')) {
+    /**
+     * Lê as linhas de materiais utilizados montadas na tela (arrays paralelos
+     * `material_codigo[]` / `material_descricao[]` / `material_unidade[]` /
+     * `material_qtd[]` — mesmo padrão de `id_reprova[]`/`data_reprova[]` dos blocos
+     * de reprova). Cada linha com descrição vira 1 linha em retrabalho_material_uso
+     * — ver gravarMateriaisUsados(). `codigo`/`unidade` vazios viram NULL (linha
+     * "adicionado manualmente", fora do catálogo).
+     */
+    function lerMateriaisUsados(): array
+    {
+        $codigos    = (array) ($_POST['material_codigo'] ?? []);
+        $descricoes = (array) ($_POST['material_descricao'] ?? []);
+        $unidades   = (array) ($_POST['material_unidade'] ?? []);
+        $qtds       = (array) ($_POST['material_qtd'] ?? []);
+
+        $itens = [];
+        foreach ($descricoes as $i => $descricao) {
+            $descricao = trim((string) $descricao);
+            if ($descricao === '') continue;
+            $codigo  = trim((string) ($codigos[$i] ?? ''));
+            $unidade = trim((string) ($unidades[$i] ?? ''));
+            $qtd     = (float) str_replace(',', '.', (string) ($qtds[$i] ?? 0));
+            $itens[] = [
+                'codigo'    => $codigo !== '' ? $codigo : null,
+                'descricao' => $descricao,
+                'unidade'   => $unidade !== '' ? $unidade : null,
+                'quantidade' => max(0, $qtd),
+            ];
+        }
+
+        return $itens;
+    }
+}
+
+if (!function_exists('gravarMateriaisUsados')) {
+    /**
+     * Grava as linhas de materiais utilizados na Triagem: como o formulário envia
+     * sempre o conjunto completo (igual causa/observações/setores), substitui tudo
+     * que já estava gravado para este lote em vez de acumular reenvios.
+     */
+    function gravarMateriaisUsados(PDO $pdo, int $idLote, array $itens, int $userId): void
+    {
+        $pdo->prepare("DELETE FROM retrabalho_material_uso WHERE id_lote = ?")->execute([$idLote]);
+        if (!$itens) return;
+
+        $stmt = $pdo->prepare("
+            INSERT INTO retrabalho_material_uso (id_lote, codigo, descricao, unidade, quantidade, id_criador)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ");
+        foreach ($itens as $it) {
+            $stmt->execute([$idLote, $it['codigo'], $it['descricao'], $it['unidade'], $it['quantidade'], $userId]);
         }
     }
 }
 
-/**
- * Deriva o status a partir dos dados (fluxo por etapas, automático ao salvar):
- *   causa raiz preenchida        -> finalizado
- *   data de finalização presente -> agu_causa_raiz
- *   já está "aprovado" (retorno ao Laboratório aprovado) -> mantém, a menos que
- *   os campos acima empurrem o fluxo adiante
- *   senão                        -> agu_abertura
- */
-function derivarStatus(array $c, ?string $statusAtual = null): string
-{
-    if ($c['causa_raiz'] !== null)       return 'finalizado';
-    if ($c['data_finalizacao'] !== null) return 'agu_causa_raiz';
-    if ($statusAtual === 'aprovado')     return 'aprovado';
-    return 'agu_abertura';
-}
+if (!function_exists('sincronizarRetornosProducaoEtapas')) {
+    /**
+     * Cria a pendência em producao_etapas com status 'aguardando_retorno' para as
+     * estações de produção suportadas ('LAB' para 'laboratorio' e 'IQF' para 'inspecao_final')
+     * quando o transformador é direcionado a elas na Triagem ou Edição do Retrabalho.
+     */
+    function sincronizarRetornosProducaoEtapas(PDO $pdo, string $ns, int $idProjeto, ?string $setoresDestinoStr, int $userId): void
+    {
+        $setoresDestino = $setoresDestinoStr !== null ? explode(',', $setoresDestinoStr) : [];
+        
+        $mapaEstacoes = [
+            'laboratorio'    => 'LAB',
+            'inspecao_final' => 'IQF',
+        ];
 
-/** Valida projeto/NS/datas — comum a toda gravação, com ou sem código de reprova novo. */
-function validarCamposComuns(PDO $pdo, array $c, int $idAtual = 0): ?string
-{
-    if ($c['id_projeto'] === null)           return 'Selecione o projeto.';
-    if ($c['ns_transformador'] === null)     return 'Informe o N° de série do transformador.';
-
-    // Projeto precisa existir
-    $q = $pdo->prepare("SELECT id FROM projetos WHERE id = ? AND deleted_at IS NULL");
-    $q->execute([$c['id_projeto']]);
-    if (!$q->fetch()) return 'Projeto inválido.';
-
-    // Unicidade do N° de série: o mesmo NS não pode estar em outro projeto
-    $q = $pdo->prepare("
-        SELECT pr.codigo
-        FROM retrabalhos r
-        JOIN projetos pr ON pr.id = r.id_projeto
-        WHERE r.ns_transformador = ? AND r.id_projeto <> ? AND r.deleted_at IS NULL AND r.id <> ?
-        LIMIT 1
-    ");
-    $q->execute([$c['ns_transformador'], $c['id_projeto'], $idAtual]);
-    if ($confl = $q->fetch()) {
-        return 'Este N° de série já está registrado em outro projeto (' . $confl['codigo'] . ').';
+        foreach ($mapaEstacoes as $setorSlug => $estacaoSigla) {
+            if (in_array($setorSlug, $setoresDestino, true)) {
+                $jaAguardando = $pdo->prepare("
+                    SELECT id FROM producao_etapas
+                    WHERE ns_transformador = ? AND estacao = ? AND status = 'aguardando_retorno' AND deleted_at IS NULL
+                ");
+                $jaAguardando->execute([$ns, $estacaoSigla]);
+                if (!$jaAguardando->fetch()) {
+                    $pdo->prepare("
+                        INSERT INTO producao_etapas
+                            (ns_transformador, id_projeto, estacao, status, data_inicio, id_responsavel, id_criador)
+                        VALUES (?, ?, ?, 'aguardando_retorno', NOW(), ?, ?)
+                    ")->execute([$ns, $idProjeto, $estacaoSigla, $userId, $userId]);
+                }
+            }
+        }
     }
+}
 
-    // Coerência de datas
-    if ($c['data_inicio'] && $c['data_finalizacao'] && $c['data_finalizacao'] < $c['data_inicio']) {
-        return 'A data de finalização não pode ser anterior à data de início.';
+if (!function_exists('processarAnexosUpload')) {
+    /**
+     * Move os anexos enviados em `anexos[]` (multipart) para o diretório final, uma
+     * única vez. Valida extensão + MIME real do arquivo. Retorna a lista de arquivos
+     * movidos (para depois vincular a 1+ retrabalhos com vincularAnexos()) ou uma
+     * string de erro. Lista vazia (sem erro) se nenhum arquivo foi enviado.
+     */
+    function processarAnexosUpload(): array|string
+    {
+        if (empty($_FILES['anexos']) || empty($_FILES['anexos']['name'][0])) {
+            return [];
+        }
+
+        $ALLOWED = [
+            'jpg'  => 'image/jpeg', 'jpeg' => 'image/jpeg',
+            'png'  => 'image/png',  'gif'  => 'image/gif',
+            'webp' => 'image/webp', 'pdf'  => 'application/pdf',
+        ];
+        $MAX_BYTES = 8 * 1024 * 1024;
+        $MAX_ARQUIVOS = 10;
+
+        $nomes    = $_FILES['anexos']['name'];
+        $tmpNames = $_FILES['anexos']['tmp_name'];
+        $errors   = $_FILES['anexos']['error'];
+        $sizes    = $_FILES['anexos']['size'];
+
+        if (count($nomes) > $MAX_ARQUIVOS) {
+            return "Envie no máximo {$MAX_ARQUIVOS} anexos por vez.";
+        }
+
+        $destDir = __DIR__ . '/../uploads/retrabalho';
+        if (!is_dir($destDir) && !mkdir($destDir, 0755, true) && !is_dir($destDir)) {
+            return 'Não foi possível preparar o diretório de anexos.';
+        }
+
+        $finfo    = finfo_open(FILEINFO_MIME_TYPE);
+        $movidos  = [];
+
+        foreach ($nomes as $i => $nomeOriginal) {
+            if ($nomeOriginal === '' || ($errors[$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                continue;
+            }
+            if ($errors[$i] !== UPLOAD_ERR_OK) {
+                return "Falha ao enviar o arquivo \"{$nomeOriginal}\".";
+            }
+            if ($sizes[$i] > $MAX_BYTES) {
+                return "O arquivo \"{$nomeOriginal}\" excede o limite de 8MB.";
+            }
+
+            $ext = strtolower(pathinfo($nomeOriginal, PATHINFO_EXTENSION));
+            if (!isset($ALLOWED[$ext])) {
+                return "Tipo de arquivo não permitido: \"{$nomeOriginal}\" (use imagem ou PDF).";
+            }
+            $mimeReal = finfo_file($finfo, $tmpNames[$i]);
+            if ($mimeReal !== $ALLOWED[$ext]) {
+                return "O conteúdo do arquivo \"{$nomeOriginal}\" não corresponde à extensão informada.";
+            }
+
+            $nomeArquivo = bin2hex(random_bytes(16)) . '.' . $ext;
+            if (!move_uploaded_file($tmpNames[$i], $destDir . '/' . $nomeArquivo)) {
+                return "Não foi possível salvar o arquivo \"{$nomeOriginal}\".";
+            }
+
+            $movidos[] = ['nome_arquivo' => $nomeArquivo, 'nome_original' => $nomeOriginal, 'tamanho_bytes' => (int) $sizes[$i]];
+        }
+        finfo_close($finfo);
+
+        return $movidos;
     }
-
-    return null;
 }
 
-/** Valida só o código de reprova (existe e ativo). */
-function validarReprovaCodigo(PDO $pdo, int $idReprova): ?string
-{
-    if ($idReprova <= 0) return 'Selecione o código de reprova.';
-    $q = $pdo->prepare("SELECT id FROM reprovas WHERE id = ? AND ativo = 1");
-    $q->execute([$idReprova]);
-    if (!$q->fetch()) return 'Código de reprova inválido.';
-    return null;
+if (!function_exists('vincularAnexos')) {
+    /** Vincula os arquivos já movidos (processarAnexosUpload()) a 1+ retrabalhos. */
+    function vincularAnexos(PDO $pdo, array $arquivos, array $idsRetrabalho, int $userId): void
+    {
+        if (!$arquivos || !$idsRetrabalho) return;
+        $stmt = $pdo->prepare("
+            INSERT INTO retrabalho_anexos (id_retrabalho, nome_arquivo, nome_original, tamanho_bytes, id_criador)
+            VALUES (?, ?, ?, ?, ?)
+        ");
+        foreach ($idsRetrabalho as $idRetrabalho) {
+            foreach ($arquivos as $a) {
+                $stmt->execute([$idRetrabalho, $a['nome_arquivo'], $a['nome_original'], $a['tamanho_bytes'], $userId]);
+            }
+        }
+    }
 }
 
-/** Valida os campos + o código de reprova. Retorna string de erro ou null se OK. $idAtual exclui o próprio registro na edição. */
-function validarRetrabalho(PDO $pdo, array $c, int $idReprova, int $idAtual = 0): ?string
-{
-    return validarCamposComuns($pdo, $c, $idAtual) ?? validarReprovaCodigo($pdo, $idReprova);
+if (!function_exists('derivarStatus')) {
+    /**
+     * Deriva o status a partir dos dados (fluxo por etapas, automático ao salvar):
+     *   causa raiz preenchida        -> finalizado
+     *   data de finalização presente -> agu_causa_raiz
+     *   já está "finalizado" (retorno ao Laboratório aprovado sem causa raiz) -> mantém, a menos que
+     *   os campos acima empurrem o fluxo adiante
+     *   senão                        -> agu_abertura
+     */
+    function derivarStatus(array $c, ?string $statusAtual = null): string
+    {
+        if ($c['causa_raiz'] !== null) return 'finalizado';
+        if ($statusAtual === 'finalizado' && $c['causa_raiz'] === null && $c['data_finalizacao'] !== null) return 'finalizado';
+        if ($c['data_chegada'] !== null || $c['data_inicio'] !== null || $c['data_finalizacao'] !== null) {
+            return 'agu_causa_raiz';
+        }
+        return 'agu_abertura';
+    }
+}
+
+if (!function_exists('validarCamposComuns')) {
+    /** Valida projeto/NS/datas — comum a toda gravação, com ou sem código de reprova novo. */
+    function validarCamposComuns(PDO $pdo, array $c, int $idAtual = 0): ?string
+    {
+        if ($c['id_projeto'] === null)           return 'Selecione o projeto.';
+        if ($c['ns_transformador'] === null)     return 'Informe o N° de série do transformador.';
+
+        // Projeto precisa existir
+        $q = $pdo->prepare("SELECT id FROM projetos WHERE id = ? AND deleted_at IS NULL");
+        $q->execute([$c['id_projeto']]);
+        if (!$q->fetch()) return 'Projeto inválido.';
+
+        // Unicidade do N° de série: o mesmo NS não pode estar em outro projeto
+        $q = $pdo->prepare("
+            SELECT pr.codigo
+            FROM retrabalhos r
+            JOIN projetos pr ON pr.id = r.id_projeto
+            WHERE r.ns_transformador = ? AND r.id_projeto <> ? AND r.deleted_at IS NULL AND r.id <> ?
+            LIMIT 1
+        ");
+        $q->execute([$c['ns_transformador'], $c['id_projeto'], $idAtual]);
+        if ($confl = $q->fetch()) {
+            return 'Este N° de série já está registrado em outro projeto (' . $confl['codigo'] . ').';
+        }
+
+        // Coerência de datas
+        if ($c['data_inicio'] && $c['data_finalizacao'] && $c['data_finalizacao'] < $c['data_inicio']) {
+            return 'A data de finalização não pode ser anterior à data de início.';
+        }
+
+        return null;
+    }
+}
+
+if (!function_exists('validarReprovaCodigo')) {
+    /** Valida só o código de reprova (existe e ativo). */
+    function validarReprovaCodigo(PDO $pdo, int $idReprova): ?string
+    {
+        if ($idReprova <= 0) return 'Selecione o código de reprova.';
+        $q = $pdo->prepare("SELECT id FROM reprovas WHERE id = ? AND ativo = 1");
+        $q->execute([$idReprova]);
+        if (!$q->fetch()) return 'Código de reprova inválido.';
+        return null;
+    }
+}
+
+if (!function_exists('validarRetrabalho')) {
+    /** Valida os campos + o código de reprova. Retorna string de erro ou null se OK. $idAtual exclui o próprio registro na edição. */
+    function validarRetrabalho(PDO $pdo, array $c, int $idReprova, int $idAtual = 0): ?string
+    {
+        return validarCamposComuns($pdo, $c, $idAtual) ?? validarReprovaCodigo($pdo, $idReprova);
+    }
 }
 
 try {
@@ -302,7 +373,7 @@ try {
 
             $stmtExist = $pdo->prepare("
                 SELECT id, id_lote, data_chegada, data_inicio FROM retrabalhos
-                WHERE id_projeto = ? AND ns_transformador = ? AND deleted_at IS NULL AND status NOT IN ('finalizado', 'aprovado')
+                WHERE id_projeto = ? AND ns_transformador = ? AND deleted_at IS NULL AND status != 'finalizado'
             ");
             $stmtExist->execute([$c['id_projeto'], $c['ns_transformador']]);
             $existentes    = $stmtExist->fetchAll();
@@ -318,6 +389,13 @@ try {
             foreach ($existentes as $ex) {
                 if ($dataChegadaExistente === null && $ex['data_chegada']) $dataChegadaExistente = $ex['data_chegada'];
                 if ($dataInicioExistente === null && $ex['data_inicio'])   $dataInicioExistente  = $ex['data_inicio'];
+            }
+
+            $isTriagemSubmit = isset($_POST['setores_destino']);
+            if (!$isTriagemSubmit && $dataChegadaExistente !== null) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'O número de série já se encontra em retrabalho.']);
+                exit;
             }
 
             if (!$reprovas && !$idsExistentes) {
@@ -356,23 +434,72 @@ try {
                 if ($ex['id_lote']) { $idLote = (int) $ex['id_lote']; break; }
             }
 
+            $estacaoOrigem = trim((string) ($_POST['estacao'] ?? ''));
+            if ($estacaoOrigem === '') $estacaoOrigem = 'LAB';
+
+            // ─── Verificação de vai_retrabalho ──────────────────────────────────────────
+            // Se a requisição veio da Produção/Lista (não é envio da tela de Triagem) e TODAS
+            // as reprovas selecionadas têm vai_retrabalho = 0, a peça NÃO vai para o retrabalho:
+            // é enviada diretamente para a aba Retornos da própria estação (LAB ou IQF).
+            $vaiAoRetrabalho = true;
+            if (!$isTriagemSubmit && !empty($reprovas)) {
+                $idsRep = array_map(fn ($r) => (int) $r['id_reprova'], $reprovas);
+                $phVai = implode(',', array_fill(0, count($idsRep), '?'));
+                $stmtVai = $pdo->prepare("SELECT vai_retrabalho FROM reprovas WHERE id IN ($phVai)");
+                $stmtVai->execute($idsRep);
+                $flagsVai = $stmtVai->fetchAll(PDO::FETCH_COLUMN);
+
+                $temAlgumSim = false;
+                foreach ($flagsVai as $f) {
+                    if ((int)$f === 1) {
+                        $temAlgumSim = true;
+                        break;
+                    }
+                }
+                if (!$temAlgumSim) {
+                    $vaiAoRetrabalho = false;
+                }
+            }
+
+            if (!$vaiAoRetrabalho) {
+                $status = 'finalizado';
+                $concluidoEm = date('Y-m-d H:i:s');
+                $setorLocal = ($estacaoOrigem === 'IQF' ? 'inspecao_final' : 'laboratorio');
+                $c['setores_destino'] = $setorLocal;
+                if ($c['causa_raiz'] === null) {
+                    $c['causa_raiz'] = 'Correção interna no setor';
+                }
+            }
+
+            $pdo->beginTransaction();
+
             // Responsável = usuário logado (fixo). Status derivado dos dados.
             $stmt = $pdo->prepare("
                 INSERT INTO retrabalhos
-                    (id_responsavel, id_projeto, ns_transformador, id_reprova,
+                    (id_responsavel, id_projeto, ns_transformador, id_reprova, estacao,
                      data_reprova, data_chegada, data_inicio, data_finalizacao, status,
                      observacoes, causa_raiz, causa_reprova, setores_destino,
                      id_criador, concluido_em, id_lote)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $dataChegadaNova = $c['data_chegada'] ?? $dataChegadaExistente;
             $dataInicioNova  = $c['data_inicio'] ?? $dataInicioExistente;
             $novosIds = [];
             foreach ($reprovas as $rep) {
+                $setorItem = $c['setores_destino'];
+                if ($setorItem === null) {
+                    $repInfo = $pdo->prepare("SELECT familia FROM reprovas WHERE id = ?");
+                    $repInfo->execute([$rep['id_reprova']]);
+                    $fam = strtoupper(trim((string)$repInfo->fetchColumn()));
+                    if (in_array($fam, ['PINTURA', 'SERIGRAFIA', 'CAMADA'], true)) {
+                        $setorItem = 'pintura';
+                    }
+                }
+
                 $stmt->execute([
-                    $userId, $c['id_projeto'], $c['ns_transformador'], $rep['id_reprova'],
+                    $userId, $c['id_projeto'], $c['ns_transformador'], $rep['id_reprova'], $estacaoOrigem,
                     $rep['data_reprova'], $dataChegadaNova, $dataInicioNova, $c['data_finalizacao'], $status,
-                    $c['observacoes'], $c['causa_raiz'], $c['causa_reprova'], $c['setores_destino'],
+                    $c['observacoes'], $c['causa_raiz'], $c['causa_reprova'], $setorItem,
                     $userId, $concluidoEm, $idLote,
                 ]);
                 $novosIds[] = (int) $pdo->lastInsertId();
@@ -404,40 +531,67 @@ try {
                 // Não afeta reprovas sem causa raiz nem as já encerradas.
                 $pdo->prepare("
                     UPDATE retrabalhos SET status = 'finalizado', concluido_em = COALESCE(concluido_em, NOW())
-                    WHERE id IN ($ph) AND causa_raiz IS NOT NULL AND status NOT IN ('finalizado', 'aprovado')
+                    WHERE id IN ($ph) AND causa_raiz IS NOT NULL AND status != 'finalizado'
                 ")->execute($todosIds);
             }
 
-            gravarMateriaisUsados($pdo, (int) $idLote, lerMateriaisUsados($pdo), $userId);
+            gravarMateriaisUsados($pdo, (int) $idLote, lerMateriaisUsados(), $userId);
 
-            // "Laboratório" em Próximos setores manda o transformador de volta pra lá —
-            // cai na aba Retornos do Produção (ver pages/producao/retornos.php) até o
-            // operador dar entrada de novo por lá (o que resolve essa linha sozinho,
-            // ver api/producao-acao.php::case 'confirmar'). Os demais setores ainda não
-            // têm tela própria no Produção, então não geram nada aqui por enquanto.
-            $setoresDestino = $c['setores_destino'] !== null ? explode(',', $c['setores_destino']) : [];
-            if (in_array('laboratorio', $setoresDestino, true)) {
-                // A Triagem pode ser reenviada mais de uma vez (nova reprova é opcional
-                // agora) — sem essa checagem, cada reenvio com "Laboratório" marcado
-                // duplicaria a linha na aba Retornos do Produção.
+            if (!$vaiAoRetrabalho) {
+                // Remove a etapa ativa em_andamento e insere/garante o status aguardando_retorno na estação atual
+                $pdo->prepare("
+                    UPDATE producao_etapas SET deleted_at = NOW()
+                    WHERE ns_transformador = ? AND status = 'em_andamento' AND deleted_at IS NULL
+                ")->execute([$c['ns_transformador']]);
+
                 $jaAguardando = $pdo->prepare("
                     SELECT id FROM producao_etapas
-                    WHERE ns_transformador = ? AND estacao = 'LAB' AND status = 'aguardando_retorno' AND deleted_at IS NULL
+                    WHERE ns_transformador = ? AND estacao = ? AND status = 'aguardando_retorno' AND deleted_at IS NULL
                 ");
-                $jaAguardando->execute([$c['ns_transformador']]);
+                $jaAguardando->execute([$c['ns_transformador'], $estacaoOrigem]);
                 if (!$jaAguardando->fetch()) {
                     $pdo->prepare("
                         INSERT INTO producao_etapas
                             (ns_transformador, id_projeto, estacao, status, data_inicio, id_responsavel, id_criador)
-                        VALUES (?, ?, 'LAB', 'aguardando_retorno', NOW(), ?, ?)
-                    ")->execute([$c['ns_transformador'], $c['id_projeto'], $userId, $userId]);
+                        VALUES (?, ?, ?, 'aguardando_retorno', NOW(), ?, ?)
+                    ")->execute([$c['ns_transformador'], $c['id_projeto'], $estacaoOrigem, $userId, $userId]);
                 }
+            } else {
+                // Se veio da lista de produção e vai ao retrabalho, remove a etapa em_andamento
+                if (!$isTriagemSubmit) {
+                    $pdo->prepare("
+                        UPDATE producao_etapas SET deleted_at = NOW()
+                        WHERE ns_transformador = ? AND status = 'em_andamento' AND deleted_at IS NULL
+                    ")->execute([$c['ns_transformador']]);
+                }
+
+                // Sincroniza retornos para Laboratório e Inspeção Final se marcados em Próximos setores
+                sincronizarRetornosProducaoEtapas($pdo, $c['ns_transformador'], (int) $c['id_projeto'], $c['setores_destino'], $userId);
             }
 
             vincularAnexos($pdo, $arquivos, $todosIds, $userId);
 
-            $msg = count($novosIds) > 1 ? count($novosIds) . ' reprovas registradas.' : 'Triagem registrada.';
-            echo json_encode(['sucesso' => true, 'mensagem' => $msg, 'ids' => $novosIds]);
+            $pdo->commit();
+
+            if (!$vaiAoRetrabalho) {
+                $nomeSetor = ($estacaoOrigem === 'IQF' ? 'da Inspeção Final' : 'do Laboratório');
+                echo json_encode([
+                    'sucesso'        => true,
+                    'vai_retrabalho' => false,
+                    'destino'        => 'retornos',
+                    'mensagem'       => 'Reprovação registrada. O transformador foi encaminhado para a tela de Retornos ' . $nomeSetor . ' para correção interna.',
+                    'ids'            => $novosIds
+                ]);
+            } else {
+                $msg = count($novosIds) > 1 ? count($novosIds) . ' reprovas registradas e enviadas para o Retrabalho.' : 'Reprovação registrada e enviada para o Retrabalho.';
+                echo json_encode([
+                    'sucesso'        => true,
+                    'vai_retrabalho' => true,
+                    'destino'        => 'retrabalho',
+                    'mensagem'       => $msg,
+                    'ids'            => $novosIds
+                ]);
+            }
             break;
         }
 
@@ -450,8 +604,10 @@ try {
         // raiz preenchida. Dá pra rascunhar a causa raiz e continuar mexendo na
         // Triagem antes de confirmar o envio.
         case 'definir_causa_raiz': {
-            $id        = (int) ($_POST['id'] ?? 0);
-            $causaRaiz = trim((string) ($_POST['causa_raiz'] ?? ''));
+            $id              = (int) ($_POST['id'] ?? 0);
+            $causaRaiz       = trim((string) ($_POST['causa_raiz'] ?? ''));
+            $finalizarDireto = !empty($_POST['finalizar_direto']);
+            $observacoes     = trim((string) ($_POST['observacoes'] ?? ''));
 
             if ($id <= 0) {
                 http_response_code(400);
@@ -468,9 +624,54 @@ try {
             }
 
             $causaRaizVal = $causaRaiz !== '' ? $causaRaiz : null;
-            $pdo->prepare("UPDATE retrabalhos SET causa_raiz = ? WHERE id = ?")->execute([$causaRaizVal, $id]);
+            if ($finalizarDireto) {
+                $pdo->prepare("
+                    UPDATE retrabalhos SET
+                        causa_raiz = COALESCE(?, causa_raiz),
+                        observacoes = CASE WHEN ? != '' THEN CONCAT(COALESCE(observacoes, ''), '\n', ?) ELSE observacoes END,
+                        status = 'finalizado',
+                        concluido_em = NOW()
+                    WHERE id = ?
+                ")->execute([$causaRaizVal, $observacoes, $observacoes, $id]);
+                echo json_encode(['sucesso' => true, 'mensagem' => 'Retrabalho finalizado com sucesso.']);
+            } else {
+                $pdo->prepare("
+                    UPDATE retrabalhos SET
+                        causa_raiz = ?,
+                        observacoes = CASE WHEN ? != '' THEN ? ELSE observacoes END
+                    WHERE id = ?
+                ")->execute([$causaRaizVal, $observacoes, $observacoes, $id]);
+                echo json_encode(['sucesso' => true, 'mensagem' => 'Parecer salvo com sucesso.']);
+            }
+            break;
+        }
 
-            echo json_encode(['sucesso' => true, 'mensagem' => 'Causa raiz salva.']);
+        // ─── Correção de UMA reprova específica ────────────────────────────────
+        // Mesmo padrão da causa raiz (popup em pages/retrabalho/detalhe.php): não é
+        // compartilhada entre as reprovas do mesmo N° de série, e só grava o texto —
+        // não finaliza a reprova (isso continua dependendo só da causa raiz).
+        case 'definir_correcao': {
+            $id       = (int) ($_POST['id'] ?? 0);
+            $correcao = trim((string) ($_POST['correcao'] ?? ''));
+
+            if ($id <= 0) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Reprova inválida.']);
+                exit;
+            }
+
+            $stmt = $pdo->prepare("SELECT id FROM retrabalhos WHERE id = ? AND deleted_at IS NULL");
+            $stmt->execute([$id]);
+            if (!$stmt->fetch()) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Reprova não encontrada.']);
+                exit;
+            }
+
+            $correcaoVal = $correcao !== '' ? $correcao : null;
+            $pdo->prepare("UPDATE retrabalhos SET correcao = ? WHERE id = ?")->execute([$correcaoVal, $id]);
+
+            echo json_encode(['sucesso' => true, 'mensagem' => 'Correção salva.']);
             break;
         }
 
@@ -492,7 +693,7 @@ try {
             }
 
             // Carregar carimbo atual para preservar a data de finalização já registrada
-            // e o status "aprovado" (não deve reverter sozinho por causa desta edição)
+            // e o status (não deve reverter sozinho por causa desta edição)
             $stmtCur = $pdo->prepare("SELECT concluido_em, status FROM retrabalhos WHERE id = ? AND deleted_at IS NULL");
             $stmtCur->execute([$id]);
             $atual = $stmtCur->fetch();
@@ -502,7 +703,7 @@ try {
             }
 
             $status      = derivarStatus($c, $atual['status']);
-            $concluidoEm = in_array($status, ['finalizado', 'aprovado'], true)
+            $concluidoEm = ($status === 'finalizado')
                 ? ($atual['concluido_em'] ?: date('Y-m-d H:i:s'))
                 : null;
 
@@ -527,6 +728,8 @@ try {
                 break;
             }
             vincularAnexos($pdo, $arquivos, [$id], $userId);
+
+            sincronizarRetornosProducaoEtapas($pdo, $c['ns_transformador'], (int) $c['id_projeto'], $c['setores_destino'], $userId);
 
             echo json_encode(['sucesso' => true, 'mensagem' => 'Retrabalho atualizado.']);
             break;
@@ -591,7 +794,7 @@ try {
                 exit;
             }
 
-            $pdo->prepare("UPDATE retrabalhos SET data_chegada = CURDATE() WHERE id = ?")->execute([$id]);
+            $pdo->prepare("UPDATE retrabalhos SET data_chegada = CURDATE(), status = 'agu_causa_raiz' WHERE id = ?")->execute([$id]);
             echo json_encode(['sucesso' => true, 'mensagem' => 'Chegada confirmada.']);
             break;
         }
@@ -652,7 +855,7 @@ try {
             $agora = date('Y-m-d H:i:s');
             $pdo->prepare("
                 UPDATE retrabalhos SET data_inicio = ?
-                WHERE id_projeto = ? AND ns_transformador = ? AND deleted_at IS NULL AND status NOT IN ('finalizado', 'aprovado')
+                WHERE id_projeto = ? AND ns_transformador = ? AND deleted_at IS NULL AND status != 'finalizado'
             ")->execute([$agora, $idProjeto, $ns]);
 
             echo json_encode(['sucesso' => true, 'mensagem' => 'Início do retrabalho registrado.', 'data_inicio' => $agora]);
@@ -663,7 +866,7 @@ try {
         // Tela "Retornos ao Laboratório": o transformador foi reinspecionado e
         // passou. Resolve a pendência de retorno (mesmo soft-delete que a leitura
         // de QR faz em api/producao-acao.php::case 'confirmar') e marca todas as
-        // reprovas ainda abertas deste NS/projeto como "aprovado" — status distinto
+        // reprovas ainda abertas deste NS/projeto como "finalizado" — status distinto
         // de "finalizado" (que representa causa raiz já documentada). Aparece na
         // Relação do Histórico.
         case 'aprovar_retorno': {
@@ -677,12 +880,14 @@ try {
             }
 
             $stmtRet = $pdo->prepare("
-                SELECT id FROM producao_etapas
-                WHERE ns_transformador = ? AND id_projeto = ? AND estacao = 'LAB'
+                SELECT id, estacao FROM producao_etapas
+                WHERE ns_transformador = ? AND id_projeto = ? AND estacao IN ('LAB', 'IQF')
                   AND status = 'aguardando_retorno' AND deleted_at IS NULL
+                LIMIT 1
             ");
             $stmtRet->execute([$ns, $idProjeto]);
-            if (!$stmtRet->fetch()) {
+            $etapaRet = $stmtRet->fetch();
+            if (!$etapaRet) {
                 http_response_code(400);
                 echo json_encode(['sucesso' => false, 'erro' => 'Este transformador não está aguardando retorno.']);
                 exit;
@@ -692,44 +897,42 @@ try {
             $hoje  = date('Y-m-d');
             $pdo->prepare("
                 UPDATE producao_etapas SET deleted_at = NOW()
-                WHERE ns_transformador = ? AND id_projeto = ? AND estacao = 'LAB'
-                  AND status = 'aguardando_retorno' AND deleted_at IS NULL
-            ")->execute([$ns, $idProjeto]);
+                WHERE ns_transformador = ? AND status = 'aguardando_retorno' AND deleted_at IS NULL
+            ")->execute([$ns]);
 
             // data_finalizacao = data em que o retorno foi confirmado aprovado (esta ação)
             // — mesmo campo preenchido manualmente no fluxo de causa raiz, mas aqui é
-            // automático, já que a aprovação no Laboratório é o que encerra o retrabalho.
+            // automático, já que a aprovação no Laboratório/IQF é o que encerra o retrabalho.
             $pdo->prepare("
-                UPDATE retrabalhos SET status = 'aprovado', concluido_em = ?, data_finalizacao = ?
-                WHERE ns_transformador = ? AND id_projeto = ? AND deleted_at IS NULL AND status NOT IN ('finalizado', 'aprovado')
+                UPDATE retrabalhos SET status = 'finalizado', concluido_em = ?, data_finalizacao = ?
+                WHERE ns_transformador = ? AND id_projeto = ? AND deleted_at IS NULL AND status != 'finalizado'
             ")->execute([$agora, $hoje, $ns, $idProjeto]);
 
-            echo json_encode(['sucesso' => true, 'mensagem' => 'Retorno aprovado.']);
+            echo json_encode(['sucesso' => true, 'mensagem' => 'Retorno aprovado e finalizado.']);
             break;
         }
 
-        // ─── Reprovar retorno ao Laboratório ────────────────────────────────────
-        // O transformador voltou a falhar na reinspeção: resolve a pendência de
-        // retorno (some da lista de "Aguardando retorno"), mas não mexe nas
-        // reprovas já registradas — elas continuam abertas na Relação de
-        // Retrabalhos, mantendo o histórico do mesmo problema já cadastrado.
-        case 'reprovar_retorno': {
+        // ─── Excluir retorno ao Laboratório / Inspeção Final ───────────────────
+        // Remove a pendência de retorno em producao_etapas (soft delete)
+        case 'excluir_retorno': {
             $idProjeto = (int) ($_POST['id_projeto'] ?? 0);
             $ns        = trim((string) ($_POST['ns_transformador'] ?? ''));
 
-            if ($idProjeto <= 0 || $ns === '') {
+            if ($ns === '') {
                 http_response_code(400);
-                echo json_encode(['sucesso' => false, 'erro' => 'Registro inválido.']);
+                echo json_encode(['sucesso' => false, 'erro' => 'N° de série inválido.']);
                 exit;
             }
 
             $stmtRet = $pdo->prepare("
-                SELECT id FROM producao_etapas
-                WHERE ns_transformador = ? AND id_projeto = ? AND estacao = 'LAB'
+                SELECT id, estacao FROM producao_etapas
+                WHERE ns_transformador = ? AND estacao IN ('LAB', 'IQF')
                   AND status = 'aguardando_retorno' AND deleted_at IS NULL
+                LIMIT 1
             ");
-            $stmtRet->execute([$ns, $idProjeto]);
-            if (!$stmtRet->fetch()) {
+            $stmtRet->execute([$ns]);
+            $etapaRet = $stmtRet->fetch();
+            if (!$etapaRet) {
                 http_response_code(400);
                 echo json_encode(['sucesso' => false, 'erro' => 'Este transformador não está aguardando retorno.']);
                 exit;
@@ -737,11 +940,287 @@ try {
 
             $pdo->prepare("
                 UPDATE producao_etapas SET deleted_at = NOW()
-                WHERE ns_transformador = ? AND id_projeto = ? AND estacao = 'LAB'
-                  AND status = 'aguardando_retorno' AND deleted_at IS NULL
-            ")->execute([$ns, $idProjeto]);
+                WHERE ns_transformador = ? AND estacao IN ('LAB', 'IQF') AND status = 'aguardando_retorno' AND deleted_at IS NULL
+            ")->execute([$ns]);
 
-            echo json_encode(['sucesso' => true, 'mensagem' => 'Retorno reprovado — mantido na Relação de Retrabalhos.']);
+            echo json_encode(['sucesso' => true, 'mensagem' => 'Retorno excluído com sucesso.']);
+            break;
+        }
+
+        // ─── Reprovar retorno ao Laboratório / Inspeção Final ───────────────────
+        case 'reprovar_retorno': {
+            $tipo       = $_POST['tipo_reprova'] ?? 'reincidencia';
+            $idProjeto  = (int) ($_POST['id_projeto'] ?? 0);
+            $ns         = trim((string) ($_POST['ns_transformador'] ?? ''));
+            $idsReprova = (array) ($_POST['id_reprova'] ?? []);
+
+            if ($idProjeto <= 0 || $ns === '') {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Registro inválido.']);
+                exit;
+            }
+            if ($tipo === 'nova' && empty($idsReprova)) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Selecione ao menos uma reprova.']);
+                exit;
+            }
+
+            $stmtRet = $pdo->prepare("
+                SELECT id, estacao FROM producao_etapas
+                WHERE ns_transformador = ? AND estacao IN ('LAB', 'IQF')
+                  AND status = 'aguardando_retorno' AND deleted_at IS NULL
+                LIMIT 1
+            ");
+            $stmtRet->execute([$ns]);
+            $etapaRet = $stmtRet->fetch();
+            if (!$etapaRet) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Este transformador não está aguardando retorno.']);
+                exit;
+            }
+
+            // ─── Verificação de vai_retrabalho no retorno ───────────────────────────
+            $vaiAoRetrabalho = true;
+            if ($tipo === 'nova' && !empty($idsReprova)) {
+                $idsRepInt = array_values(array_filter(array_map('intval', $idsReprova), fn ($x) => $x > 0));
+                if ($idsRepInt) {
+                    $phVai = implode(',', array_fill(0, count($idsRepInt), '?'));
+                    $stmtVai = $pdo->prepare("SELECT vai_retrabalho FROM reprovas WHERE id IN ($phVai)");
+                    $stmtVai->execute($idsRepInt);
+                    $flagsVai = $stmtVai->fetchAll(PDO::FETCH_COLUMN);
+
+                    $temAlgumSim = false;
+                    foreach ($flagsVai as $f) {
+                        if ((int)$f === 1) {
+                            $temAlgumSim = true;
+                            break;
+                        }
+                    }
+                    if (!$temAlgumSim) {
+                        $vaiAoRetrabalho = false;
+                    }
+                }
+            }
+
+            $pdo->beginTransaction();
+
+            $estacaoOrigem = $etapaRet['estacao'] ?? 'LAB';
+            $setorDestinoLocal = ($estacaoOrigem === 'IQF' ? 'inspecao_final' : 'laboratorio');
+
+            if (!$vaiAoRetrabalho) {
+                // Permanece na tela de Retornos da mesma estação
+                $dataReprova = date('Y-m-d');
+                $stmtIns = $pdo->prepare("
+                    INSERT INTO retrabalhos
+                        (id_responsavel, id_projeto, ns_transformador, id_reprova, estacao, data_reprova, status,
+                         causa_raiz, setores_destino, id_criador, concluido_em)
+                    VALUES (?, ?, ?, ?, ?, ?, 'finalizado', 'Correção interna no setor', ?, ?, NOW())
+                ");
+                foreach ($idsReprova as $idRep) {
+                    $idRep = (int) $idRep;
+                    if ($idRep > 0) {
+                        $stmtIns->execute([$userId, $idProjeto, $ns, $idRep, $estacaoOrigem, $dataReprova, $setorDestinoLocal, $userId]);
+                    }
+                }
+
+                // Garante que etapa aguardando_retorno continue ativa
+                $jaAguardando = $pdo->prepare("
+                    SELECT id FROM producao_etapas
+                    WHERE ns_transformador = ? AND estacao = ? AND status = 'aguardando_retorno' AND deleted_at IS NULL
+                ");
+                $jaAguardando->execute([$ns, $estacaoOrigem]);
+                if (!$jaAguardando->fetch()) {
+                    $pdo->prepare("
+                        INSERT INTO producao_etapas
+                            (ns_transformador, id_projeto, estacao, status, data_inicio, id_responsavel, id_criador)
+                        VALUES (?, ?, ?, 'aguardando_retorno', NOW(), ?, ?)
+                    ")->execute([$ns, $idProjeto, $estacaoOrigem, $userId, $userId]);
+                }
+
+                $pdo->commit();
+
+                $nomeSetor = ($estacaoOrigem === 'IQF' ? 'da Inspeção Final' : 'do Laboratório');
+                echo json_encode([
+                    'sucesso'        => true,
+                    'vai_retrabalho' => false,
+                    'destino'        => 'retornos',
+                    'mensagem'       => 'Nova reprova registrada. Peça mantida na tela de Retornos ' . $nomeSetor . ' para correção interna.'
+                ]);
+                break;
+            }
+
+            // Se vai ao retrabalho: remove a etapa aguardando_retorno e reabre/insere em retrabalhos
+            $pdo->prepare("
+                UPDATE producao_etapas SET deleted_at = NOW()
+                WHERE ns_transformador = ? AND status = 'aguardando_retorno' AND deleted_at IS NULL
+            ")->execute([$ns]);
+
+            // Acha o lote mais recente
+            $stmtLote = $pdo->prepare("
+                SELECT id, id_lote FROM retrabalhos
+                WHERE ns_transformador = ? AND id_projeto = ? AND deleted_at IS NULL
+                ORDER BY CASE WHEN status IN ('finalizado', 'agu_causa_raiz') THEN 0 ELSE 1 END, concluido_em DESC, updated_at DESC, id DESC
+                LIMIT 1
+            ");
+            $stmtLote->execute([$ns, $idProjeto]);
+            $ultimo = $stmtLote->fetch();
+
+            $idLoteAtual = $ultimo ? ($ultimo['id_lote'] ?: $ultimo['id']) : null;
+
+            if ($idLoteAtual) {
+                // Busca as reprovas que faziam parte desse lote
+                $stmtLoteRep = $pdo->prepare("
+                    SELECT id, id_reprova FROM retrabalhos
+                    WHERE deleted_at IS NULL AND (id_lote = ? OR id = ?)
+                ");
+                $stmtLoteRep->execute([$idLoteAtual, $idLoteAtual]);
+                $reprovasDoLote = $stmtLoteRep->fetchAll(PDO::FETCH_KEY_PAIR); // map [id => id_reprova]
+
+                $idsParaReabrir = [];
+                $novosIdsReprova = [];
+                $bancoUsados = [];
+
+                foreach ($idsReprova as $idTela) {
+                    $idTela = (int)$idTela;
+                    $encontrou = false;
+                    foreach ($reprovasDoLote as $idLinhaBanco => $idReprovaBanco) {
+                        if ($idReprovaBanco == $idTela && !in_array($idLinhaBanco, $bancoUsados)) {
+                            $idsParaReabrir[] = $idLinhaBanco;
+                            $bancoUsados[] = $idLinhaBanco;
+                            $encontrou = true;
+                            break;
+                        }
+                    }
+                    if (!$encontrou) {
+                        $novosIdsReprova[] = $idTela;
+                    }
+                }
+
+                // Reabre as que foram mantidas (as excluídas continuam como finalizado)
+                if ($idsParaReabrir) {
+                    $ph = implode(',', array_fill(0, count($idsParaReabrir), '?'));
+                    $pdo->prepare("
+                        UPDATE retrabalhos SET
+                            status = 'agu_abertura', causa_raiz = NULL,
+                            data_chegada = NULL, data_inicio = NULL, data_finalizacao = NULL, concluido_em = NULL,
+                            setores_destino = NULL
+                        WHERE id IN ($ph)
+                    ")->execute($idsParaReabrir);
+                }
+
+                // Insere as novas no mesmo lote
+                if ($novosIdsReprova) {
+                    $dataReprova = date('Y-m-d');
+                    $stmtIns = $pdo->prepare("
+                        INSERT INTO retrabalhos
+                            (id_responsavel, id_projeto, ns_transformador, id_reprova, estacao, data_reprova, status, id_criador, id_lote)
+                        VALUES (?, ?, ?, ?, ?, ?, 'agu_abertura', ?, ?)
+                    ");
+                    foreach ($novosIdsReprova as $idRep) {
+                        if ($idRep > 0) {
+                            $stmtIns->execute([$userId, $idProjeto, $ns, $idRep, $estacaoOrigem, $dataReprova, $userId, $idLoteAtual]);
+                        }
+                    }
+                }
+            } else {
+                // Fallback: se não achar lote anterior, insere todas como novas
+                $dataReprova = date('Y-m-d');
+                $stmtIns = $pdo->prepare("
+                    INSERT INTO retrabalhos
+                        (id_responsavel, id_projeto, ns_transformador, id_reprova, estacao, data_reprova, status, id_criador)
+                    VALUES (?, ?, ?, ?, ?, ?, 'agu_abertura', ?)
+                ");
+                foreach ($idsReprova as $idRep) {
+                    if ((int)$idRep > 0) {
+                        $stmtIns->execute([$userId, $idProjeto, $ns, (int)$idRep, $estacaoOrigem, $dataReprova, $userId]);
+                    }
+                }
+            }
+
+            $pdo->commit();
+
+            echo json_encode([
+                'sucesso'        => true,
+                'vai_retrabalho' => true,
+                'destino'        => 'retrabalho',
+                'mensagem'       => 'Retorno reprovado — reaberto na Relação de Retrabalhos.'
+            ]);
+            break;
+        }
+
+        // ─── Busca de materiais no catálogo (itens_catalogo) para o autocomplete
+        // de "Materiais utilizados" na Triagem — ver buscarMateriaisCatalogo() em
+        // includes/helpers.php.
+        case 'buscar_material': {
+            $termo = trim((string) ($_POST['termo'] ?? ''));
+            $itensEncontrados = $termo !== '' ? buscarMateriaisCatalogo($pdo, $termo) : [];
+            echo json_encode(['sucesso' => true, 'itens' => $itensEncontrados]);
+            break;
+        }
+
+        // ─── Adicionar nova reprova diretamente no Retrabalho (estacao = RET) ──
+        case 'adicionar_reprova_ret': {
+            $idProjeto   = (int) ($_POST['id_projeto'] ?? 0);
+            $ns          = trim((string) ($_POST['ns_transformador'] ?? ''));
+            $idsReprovas = (array) ($_POST['id_reprova'] ?? []);
+            $datas       = (array) ($_POST['data_reprova'] ?? []);
+
+            if ($idProjeto <= 0 || $ns === '') {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Projeto e N° de série são obrigatórios.']);
+                exit;
+            }
+
+            // Herda dados do lote / registros existentes para este NS/projeto
+            $stmtExist = $pdo->prepare("
+                SELECT id_lote, data_chegada, data_inicio, status, observacoes, causa_reprova, setores_destino
+                FROM retrabalhos
+                WHERE id_projeto = ? AND ns_transformador = ? AND deleted_at IS NULL
+                ORDER BY id DESC LIMIT 1
+            ");
+            $stmtExist->execute([$idProjeto, $ns]);
+            $rowExist = $stmtExist->fetch();
+
+            $idLote       = $rowExist ? $rowExist['id_lote'] : null;
+            $dataChegada  = $rowExist ? $rowExist['data_chegada'] : null;
+            $dataInicio   = $rowExist ? $rowExist['data_inicio'] : null;
+            $statusExist  = $rowExist && in_array($rowExist['status'], ['agu_abertura', 'agu_causa_raiz'], true) ? $rowExist['status'] : 'agu_abertura';
+            $observacoes  = $rowExist ? $rowExist['observacoes'] : null;
+            $causaReprova = $rowExist ? $rowExist['causa_reprova'] : null;
+            $setoresDest  = $rowExist ? $rowExist['setores_destino'] : null;
+
+            $stmtIns = $pdo->prepare("
+                INSERT INTO retrabalhos
+                    (id_responsavel, id_projeto, ns_transformador, id_reprova, estacao,
+                     data_reprova, data_chegada, data_inicio, status, observacoes, causa_reprova, setores_destino,
+                     id_criador, id_lote)
+                VALUES (?, ?, ?, ?, 'RET', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+
+            $novosIds = [];
+            foreach ($idsReprovas as $i => $idRep) {
+                $idRep = (int) $idRep;
+                if ($idRep <= 0) continue;
+                $dataRep = lerData((string)($datas[$i] ?? '')) ?: date('Y-m-d');
+                $stmtIns->execute([
+                    $userId, $idProjeto, $ns, $idRep,
+                    $dataRep, $dataChegada, $dataInicio, $statusExist, $observacoes, $causaReprova, $setoresDest,
+                    $userId, $idLote
+                ]);
+                $novosIds[] = (int) $pdo->lastInsertId();
+            }
+
+            if (empty($novosIds)) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Selecione ao menos um código de reprova válido.']);
+                exit;
+            }
+
+            echo json_encode([
+                'sucesso'    => true,
+                'mensagem'   => count($novosIds) . ' reprova(s) adicionada(s) com sucesso!',
+                'id_reprova' => $novosIds[0]
+            ]);
             break;
         }
 
@@ -749,9 +1228,73 @@ try {
         case 'excluir': {
             $id = (int) ($_POST['id'] ?? 0);
             if ($id <= 0) { http_response_code(400); echo json_encode(['sucesso' => false, 'erro' => 'Registro inválido.']); exit; }
+
+            $stmtCheck = $pdo->prepare("SELECT estacao, id_criador FROM retrabalhos WHERE id = ? AND deleted_at IS NULL");
+            $stmtCheck->execute([$id]);
+            $retRow = $stmtCheck->fetch();
+            if (!$retRow) {
+                http_response_code(404);
+                echo json_encode(['sucesso' => false, 'erro' => 'Reprova não encontrada.']);
+                exit;
+            }
+
+            if ($retRow['estacao'] !== 'RET' && !hasAcesso('admin')) {
+                http_response_code(403);
+                echo json_encode(['sucesso' => false, 'erro' => 'Não é permitido excluir reprovas originadas em outros setores (' . ($retRow['estacao'] ?: 'Original') . '). Apenas reprovas adicionadas no Retrabalho podem ser excluídas.']);
+                exit;
+            }
+
             $stmt = $pdo->prepare("UPDATE retrabalhos SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL");
             $stmt->execute([$id]);
             echo json_encode(['sucesso' => true, 'mensagem' => 'Retrabalho excluído.']);
+            break;
+        }
+
+        // ─── Excluir em lote (soft delete) — usado no Histórico pra excluir de uma
+        // vez todas as reprovas de um N° de série (mesma regra de permissão do
+        // 'excluir' acima, aplicada linha a linha: reprovas originadas em outros
+        // setores são puladas em vez de bloquear o lote inteiro) ────────────────
+        case 'excluir_lote': {
+            $ids = array_values(array_unique(array_filter(array_map('intval', (array) ($_POST['ids'] ?? [])), fn ($v) => $v > 0)));
+            if (!$ids) { http_response_code(400); echo json_encode(['sucesso' => false, 'erro' => 'Nenhum registro informado.']); exit; }
+
+            $ph = implode(',', array_fill(0, count($ids), '?'));
+            $stmtCheck = $pdo->prepare("SELECT id, estacao FROM retrabalhos WHERE id IN ($ph) AND deleted_at IS NULL");
+            $stmtCheck->execute($ids);
+            $linhas = $stmtCheck->fetchAll();
+
+            if (!$linhas) {
+                http_response_code(404);
+                echo json_encode(['sucesso' => false, 'erro' => 'Nenhuma reprova encontrada.']);
+                exit;
+            }
+
+            $podeExcluirTudo = hasAcesso('admin');
+            $idsExcluir = [];
+            $bloqueadas = 0;
+            foreach ($linhas as $l) {
+                if ($podeExcluirTudo || $l['estacao'] === 'RET') {
+                    $idsExcluir[] = (int) $l['id'];
+                } else {
+                    $bloqueadas++;
+                }
+            }
+
+            if (!$idsExcluir) {
+                http_response_code(403);
+                echo json_encode(['sucesso' => false, 'erro' => 'Não é permitido excluir reprovas originadas em outros setores. Apenas reprovas adicionadas no Retrabalho podem ser excluídas.']);
+                exit;
+            }
+
+            $phDel = implode(',', array_fill(0, count($idsExcluir), '?'));
+            $pdo->prepare("UPDATE retrabalhos SET deleted_at = NOW() WHERE id IN ($phDel) AND deleted_at IS NULL")->execute($idsExcluir);
+
+            $msg = count($idsExcluir) . ' reprova(s) excluída(s).';
+            if ($bloqueadas > 0) {
+                $msg .= ' ' . $bloqueadas . ' não puderam ser excluídas por terem origem em outro setor.';
+            }
+
+            echo json_encode(['sucesso' => true, 'mensagem' => $msg, 'excluidas' => count($idsExcluir), 'bloqueadas' => $bloqueadas]);
             break;
         }
 
@@ -761,6 +1304,9 @@ try {
     }
 
 } catch (Throwable $e) {
+    if (isset($pdo) && $pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
     http_response_code(500);
     echo json_encode(['sucesso' => false, 'erro' => 'Erro ao processar a solicitação.']);
 }

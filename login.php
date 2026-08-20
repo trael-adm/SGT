@@ -66,9 +66,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $pdo = getDB();
 
-        // Brute-force protection desativada neste ambiente (SGT-dev) a pedido, só para
-        // destravar os testes manuais da Tela de Produção — o projeto original em
-        // c:\laragon\www\SGT mantém a proteção normalmente.
+        // Brute-force protection: 5 tentativas em 10 minutos bloqueiam por 15 minutos
+        $stmtBf = $pdo->prepare("
+            SELECT created_at
+            FROM logs_atividade
+            WHERE ip = ? AND tipo = 'login_erro'
+              AND created_at >= DATE_SUB(NOW(), INTERVAL 25 MINUTE)
+            ORDER BY created_at DESC
+            LIMIT 5
+        ");
+        $stmtBf->execute([$ip]);
+        $tentativas = $stmtBf->fetchAll(PDO::FETCH_COLUMN);
+
+        if (count($tentativas) >= 5) {
+            $maisRecente = strtotime($tentativas[0]);
+            $maisAntiga  = strtotime($tentativas[4]);
+            if (($maisRecente - $maisAntiga) <= 600 && (time() - $maisRecente) < 900) {
+                $erro = 'Muitas tentativas sem sucesso. Tente novamente em alguns minutos.';
+            }
+        }
 
         if (!$erro) {
             if ($email === '' || $senha === '') {
@@ -82,7 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$email]);
                 $usuario = $stmt->fetch();
 
-                if ($usuario && $usuario['ativo'] && password_verify($senha, $usuario['senha'])) {
+                if ($usuario && $usuario['status'] === 'ativo' && password_verify($senha, $usuario['senha'])) {
                     session_regenerate_id(true);
                     $_SESSION['usuario'] = [
                         'id'          => $usuario['id'],
@@ -103,8 +119,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     header('Location: ' . APP_URL . '/index.php');
                     exit;
                 } else {
-                    $idUsuario = ($usuario && $usuario['ativo'] === false) ? $usuario['id'] : null;
-                    if ($usuario && isset($usuario['id']) && $usuario['ativo']) {
+                    $idUsuario = ($usuario && $usuario['status'] !== 'ativo') ? $usuario['id'] : null;
+                    if ($usuario && isset($usuario['id']) && $usuario['status'] === 'ativo') {
                         $idUsuario = null; // senha errada, não revela o ID
                     }
 

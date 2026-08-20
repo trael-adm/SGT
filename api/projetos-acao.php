@@ -6,10 +6,16 @@ require_once __DIR__ . '/../config/session.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
-// ─── Autenticação ─────────────────────────────────────────────────────────────
+// ─── Autenticação e Autorização ───────────────────────────────────────────────
 if (!isLoggedIn()) {
     http_response_code(401);
     echo json_encode(['sucesso' => false, 'erro' => 'Não autenticado']);
+    exit;
+}
+
+if (!hasAcesso('tab:retrabalho') && !hasAcesso('tab:laboratorio') && !hasAcesso('admin')) {
+    http_response_code(403);
+    echo json_encode(['sucesso' => false, 'erro' => 'Sem permissão de acesso aos cadastros de projetos']);
     exit;
 }
 
@@ -61,6 +67,7 @@ try {
         case 'pedido_prioridade': {
             $id         = (int) ($_POST['id'] ?? 0);
             $prioridade = trim((string) ($_POST['prioridade'] ?? ''));
+            $sequencia  = (int) ($_POST['sequencia'] ?? 0);
             $validas    = ['emergente', 'urgente', 'importante', 'neutro'];
 
             if ($id <= 0 || !in_array($prioridade, $validas, true)) {
@@ -69,9 +76,48 @@ try {
                 exit;
             }
 
-            $stmt = $pdo->prepare("UPDATE pedidos SET prioridade = ? WHERE id = ? AND deleted_at IS NULL");
-            $stmt->execute([$prioridade, $id]);
-            echo json_encode(['sucesso' => true, 'mensagem' => 'Prioridade atualizada.']);
+            $stmt = $pdo->prepare("UPDATE pedidos SET prioridade = ?, sequencia = ? WHERE id = ? AND deleted_at IS NULL");
+            $stmt->execute([$prioridade, $sequencia, $id]);
+            echo json_encode(['sucesso' => true, 'mensagem' => 'Prioridade do pedido atualizada.']);
+            break;
+        }
+
+        // ─── Projeto: definir prioridade ──────────────────────────────────────
+        case 'projeto_prioridade': {
+            $id         = (int) ($_POST['id'] ?? 0);
+            $prioridade = trim((string) ($_POST['prioridade'] ?? ''));
+            $sequencia  = (int) ($_POST['sequencia'] ?? 0);
+            $validas    = ['emergente', 'urgente', 'importante', 'neutro'];
+
+            if ($id <= 0 || !in_array($prioridade, $validas, true)) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Projeto ou prioridade inválidos.']);
+                exit;
+            }
+
+            $stmt = $pdo->prepare("UPDATE projetos SET prioridade = ?, sequencia = ? WHERE id = ? AND deleted_at IS NULL");
+            $stmt->execute([$prioridade, $sequencia, $id]);
+            echo json_encode(['sucesso' => true, 'mensagem' => 'Prioridade do projeto atualizada.']);
+            break;
+        }
+
+        // ─── NS: definir prioridade ───────────────────────────────────────────
+        case 'ns_prioridade': {
+            $ns         = trim((string) ($_POST['ns_transformador'] ?? ''));
+            $prioridade = trim((string) ($_POST['prioridade'] ?? ''));
+            $sequencia  = (int) ($_POST['sequencia'] ?? 0);
+            $validas    = ['emergente', 'urgente', 'importante', 'neutro'];
+
+            if ($ns === '' || !in_array($prioridade, $validas, true)) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'N° de série ou prioridade inválidos.']);
+                exit;
+            }
+
+            // Atualiza todos os registros abertos deste NS
+            $stmt = $pdo->prepare("UPDATE retrabalhos SET prioridade = ?, sequencia = ? WHERE ns_transformador = ? AND deleted_at IS NULL");
+            $stmt->execute([$prioridade, $sequencia, $ns]);
+            echo json_encode(['sucesso' => true, 'mensagem' => 'Prioridade do N° de série atualizada.']);
             break;
         }
 

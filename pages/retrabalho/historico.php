@@ -5,27 +5,27 @@ require_once __DIR__ . '/../../config/conexao.php';
 require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../includes/helpers.php';
 
-requireLogin();
+requireAcessoModulo('analise');
 
 $pdo  = getDB();
 $base = defined('APP_URL') ? APP_URL : '';
 
-// Relação do Histórico: retrabalhos encerrados — "aprovado" (retorno ao
-// Laboratório aprovado na reinspeção, ver pages/producao/retornos.php) e
-// "finalizado" (causa raiz documentada via Relação de Retrabalhos). Nunca
-// mostra os em aberto (agu_abertura/agu_causa_raiz) — esses ficam só na
-// Relação de Retrabalhos.
-$STATUS_HISTORICO = ['aprovado', 'finalizado'];
+// Relação do Histórico: relação completa de todos os retrabalhos registrados
+// (em andamento e finalizados), a partir do momento em que foram reprovados.
+$STATUS_HISTORICO = ['agu_abertura', 'agu_causa_raiz', 'finalizado'];
+$LOCAIS_VALIDOS   = ['IQF', 'LAB', 'RET'];
 
 // ─── Filtros (GET) ──────────────────────────────────────────────────────────
 $fBusca  = trim((string) ($_GET['busca'] ?? ''));
+$fLocal  = trim((string) ($_GET['local'] ?? ''));
 $fStatus = trim((string) ($_GET['status'] ?? ''));
 $fMes    = trim((string) ($_GET['mes'] ?? ''));
 
+if (!in_array($fLocal, $LOCAIS_VALIDOS, true))    $fLocal = '';
 if (!in_array($fStatus, $STATUS_HISTORICO, true)) $fStatus = '';
 if (!preg_match('/^\d{4}-\d{2}$/', $fMes))        $fMes = '';
 
-$SORT_COLS_VALIDAS = ['pedido', 'projeto', 'descricao', 'potencia', 'classe', 'registros'];
+$SORT_COLS_VALIDAS = ['ns', 'pedido', 'projeto', 'descricao', 'origem', 'potencia', 'classe', 'data_reprova', 'status', 'reincidencias'];
 $sortCol = (string) ($_GET['sort'] ?? '');
 if ($sortCol !== '' && !in_array($sortCol, $SORT_COLS_VALIDAS, true)) $sortCol = '';
 $sortDir = ($_GET['dir'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
@@ -35,11 +35,12 @@ $porPagina = (int) ($_GET['porPagina'] ?? 10);
 if (!in_array($porPagina, $PORPAGINA_OPCOES, true)) $porPagina = 10;
 $pagina = max(1, (int) ($_GET['pagina'] ?? 1));
 
-$dataExpr = 'DATE(COALESCE(r.concluido_em, r.data_reprova, r.created_at))';
+$dataExpr = 'DATE(COALESCE(r.data_reprova, r.concluido_em, r.created_at))';
 
-$where  = ['r.deleted_at IS NULL', "r.status IN ('" . implode("','", $STATUS_HISTORICO) . "')"];
+$where  = ['r.deleted_at IS NULL'];
 $params = [];
 
+if ($fLocal !== '')  { $where[] = 'COALESCE(r.estacao, rep.local) = ?'; $params[] = $fLocal; }
 if ($fStatus !== '') { $where[] = 'r.status = ?'; $params[] = $fStatus; }
 if ($fMes !== '')    { $where[] = "DATE_FORMAT($dataExpr, '%Y-%m') = ?"; $params[] = $fMes; }
 
@@ -79,12 +80,10 @@ $materiaisPorLote = [];
 if ($idLotes) {
     $ph = implode(',', array_fill(0, count($idLotes), '?'));
     $stmtMat = $pdo->prepare("
-        SELECT mu.id_lote, mu.quantidade, mu.material_outro,
-               mc.descricao AS material_descricao, mc.unidade AS material_unidade
-        FROM retrabalho_material_uso mu
-        LEFT JOIN retrabalho_materiais_catalogo mc ON mc.id = mu.id_material
-        WHERE mu.id_lote IN ($ph)
-        ORDER BY mc.ordem, mu.id
+        SELECT id_lote, codigo, descricao, unidade, quantidade
+        FROM retrabalho_material_uso
+        WHERE id_lote IN ($ph)
+        ORDER BY id
     ");
     $stmtMat->execute($idLotes);
     foreach ($stmtMat->fetchAll() as $m) {
@@ -97,19 +96,33 @@ foreach ($registros as &$r) {
 }
 unset($r);
 
-// ─── Agrupamento por projeto — mesmo padrão da Relação de Retrabalhos ──────────
+// ─── Reincidências: quantas vezes o transformador foi reprovado no LAB ou IQF ─
+$qtdReincidenciasPorNs = $pdo->query("
+    SELECT ns_transformador, COUNT(DISTINCT COALESCE(id_lote, id)) AS qtd
+    FROM retrabalhos
+    WHERE deleted_at IS NULL AND estacao IN ('LAB', 'IQF')
+    GROUP BY ns_transformador
+")->fetchAll(PDO::FETCH_KEY_PAIR);
+
+// ─── Agrupamento por transformador/projeto ───────────────────────────────────
 $grupos = [];
 foreach ($registros as $r) {
-    $gid = (int) ($r['id_projeto'] ?? 0);
+    $gid = (string) $r['ns_transformador'];
+    if ($gid === '') $gid = 's_ns_' . $r['id'];
+
     if (!isset($grupos[$gid])) {
         [$potencia, $classe] = parsePotenciaClasse($r['projeto_descricao'] ?? null);
         $grupos[$gid] = [
-            'id_projeto'        => $gid,
+            'ns_transformador'  => $r['ns_transformador'],
+            'id_projeto'        => $r['id_projeto'] ?? 0,
             'projeto_codigo'    => $r['projeto_codigo'],
             'projeto_descricao' => $r['projeto_descricao'],
             'pedido_numero'     => $r['pedido_numero'],
             'potencia'          => $potencia,
             'classe'            => $classe,
+            'data_reprova'      => $r['data_reprova'],
+            'status'            => $r['status'],
+            'reincidencias'     => max(1, (int) ($qtdReincidenciasPorNs[$r['ns_transformador']] ?? 1)),
             'itens'             => [],
             '_maxId'            => 0,
         ];
@@ -117,6 +130,9 @@ foreach ($registros as $r) {
     $g = &$grupos[$gid];
     $g['itens'][] = $r;
     $g['_maxId']  = max($g['_maxId'], (int) $r['id']);
+    if ($r['data_reprova'] && (!$g['data_reprova'] || $r['data_reprova'] > $g['data_reprova'])) {
+        $g['data_reprova'] = $r['data_reprova'];
+    }
     unset($g);
 }
 foreach ($grupos as &$g) {
@@ -125,6 +141,29 @@ foreach ($grupos as &$g) {
         return $cmp !== 0 ? $cmp : ($b['id'] <=> $a['id']);
     });
     $g['qtdRegistros'] = count($g['itens']);
+
+    $locais = [];
+    $temAbertura = false;
+    $temCausaRaiz = false;
+    foreach ($g['itens'] as $item) {
+        $loc = strtoupper(trim((string) ($item['estacao'] ?: $item['reprova_local'] ?: '')));
+        if ($loc === 'GER') $loc = 'LAB';
+        if ($loc !== '' && !in_array($loc, $locais, true)) {
+            $locais[] = $loc;
+        }
+        if ($item['status'] === 'agu_abertura') $temAbertura = true;
+        if ($item['status'] === 'agu_causa_raiz') $temCausaRaiz = true;
+    }
+    $g['origens_str'] = $locais ? implode(' / ', $locais) : '—';
+    $g['locais']      = $locais;
+
+    if ($temAbertura) {
+        $g['status'] = 'agu_abertura';
+    } elseif ($temCausaRaiz) {
+        $g['status'] = 'agu_causa_raiz';
+    } else {
+        $g['status'] = 'finalizado';
+    }
 }
 unset($g);
 $grupos = array_values($grupos);
@@ -132,13 +171,18 @@ $grupos = array_values($grupos);
 function histGroupSortValue(array $g, string $col): string|int
 {
     return match ($col) {
-        'pedido'    => (string) ($g['pedido_numero'] ?? ''),
-        'projeto'   => (string) ($g['projeto_codigo'] ?? ''),
-        'descricao' => (string) ($g['projeto_descricao'] ?? ''),
-        'potencia'  => $g['potencia'] !== null ? (int) round((float) $g['potencia']) : -1,
-        'classe'    => $g['classe']   !== null ? (int) round((float) $g['classe'])   : -1,
-        'registros' => $g['qtdRegistros'],
-        default     => $g['_maxId'],
+        'ns'           => (string) ($g['ns_transformador'] ?? ''),
+        'pedido'       => (string) ($g['pedido_numero'] ?? ''),
+        'projeto'      => (string) ($g['projeto_codigo'] ?? ''),
+        'descricao'    => (string) ($g['projeto_descricao'] ?? ''),
+        'origem'       => (string) ($g['origens_str'] ?? ''),
+        'potencia'     => $g['potencia'] !== null ? (int) round((float) $g['potencia']) : -1,
+        'classe'       => $g['classe']   !== null ? (int) round((float) $g['classe'])   : -1,
+        'data_reprova' => (string) ($g['data_reprova'] ?? ''),
+        'status'       => (string) ($g['status'] ?? ''),
+        'reincidencias'=> (int) ($g['reincidencias'] ?? 1),
+        'registros'    => $g['qtdRegistros'],
+        default        => $g['_maxId'],
     };
 }
 
@@ -158,9 +202,9 @@ $offset       = ($pagina - 1) * $porPagina;
 $gruposPagina = array_slice($grupos, $offset, $porPagina);
 
 $mesesDisponiveis = $pdo->query("
-    SELECT DISTINCT DATE_FORMAT(COALESCE(concluido_em, data_reprova, created_at), '%Y-%m') AS ym
+    SELECT DISTINCT DATE_FORMAT(COALESCE(data_reprova, concluido_em, created_at), '%Y-%m') AS ym
     FROM retrabalhos
-    WHERE deleted_at IS NULL AND status IN ('aprovado','finalizado')
+    WHERE deleted_at IS NULL
     ORDER BY ym DESC
 ")->fetchAll(PDO::FETCH_COLUMN);
 
@@ -168,16 +212,16 @@ $MESES_PT = [1 => 'Janeiro', 2 => 'Fevereiro', 3 => 'Março', 4 => 'Abril', 5 =>
              7 => 'Julho', 8 => 'Agosto', 9 => 'Setembro', 10 => 'Outubro', 11 => 'Novembro', 12 => 'Dezembro'];
 
 $statusMap = [
-    'aprovado'   => ['label' => 'Aprovado',   'bg' => '#eff6ff', 'fg' => '#2563eb'],
-    'finalizado' => ['label' => 'Finalizado', 'bg' => '#ecfdf5', 'fg' => '#16a34a'],
+    'agu_abertura'   => ['label' => 'Agu. Abertura',   'bg' => '#fef2f2', 'fg' => '#dc2626'],
+    'agu_causa_raiz' => ['label' => 'Agu. Causa Raiz', 'bg' => '#fffbeb', 'fg' => '#b45309'],
+    'finalizado'     => ['label' => 'Finalizado',      'bg' => '#ecfdf5', 'fg' => '#16a34a'],
 ];
 $localMap = [
-    'IQF' => ['label' => 'IQF', 'title' => 'Inspeção final', 'bg' => '#eff6ff', 'fg' => '#2563eb'],
-    'LAB' => ['label' => 'LAB', 'title' => 'Laboratório',    'bg' => '#f5f3ff', 'fg' => '#7c3aed'],
-    'GER' => ['label' => 'GER', 'title' => 'Geral',          'bg' => '#f0fdf4', 'fg' => '#16a34a'],
+    'IQF' => ['label' => 'IQF', 'title' => 'Inspeção final', 'bg' => '#eff6ff', 'fg' => '#2563eb', 'border' => '#bfdbfe'],
+    'LAB' => ['label' => 'LAB', 'title' => 'Laboratório',    'bg' => '#f5f3ff', 'fg' => '#7c3aed', 'border' => '#ddd6fe'],
+    'RET' => ['label' => 'RET', 'title' => 'Retrabalho',     'bg' => '#fff7ed', 'fg' => '#c2410c', 'border' => '#ffedd5'],
 ];
 $setoresLabel = retrabalhoSetoresTriagem();
-$unidadeLabel = ['KG' => 'kg', 'L' => 'L', 'UND' => 'und'];
 
 function histFmtData(?string $iso): string
 {
@@ -194,18 +238,19 @@ function histFmtDataHora(?string $iso): string
 }
 
 /** Monta o payload (JSON) com tudo que foi registrado na Triagem desta reprova, pro popup "Ver detalhes". */
-function histMontarDetalhe(array $r, array $localMap, array $setoresLabel, array $unidadeLabel): array
+function histMontarDetalhe(array $r, array $localMap, array $setoresLabel): array
 {
-    $lo = $localMap[$r['reprova_local']] ?? null;
+    $origemItem = strtoupper(trim((string) ($r['estacao'] ?: $r['reprova_local'] ?: '')));
+    if ($origemItem === 'GER') $origemItem = 'LAB';
+    $lo = $localMap[$origemItem] ?? null;
     $setores = $r['setores_destino'] !== null ? explode(',', $r['setores_destino']) : [];
 
-    $materiais = array_map(function (array $m) use ($unidadeLabel) {
-        $desc = $m['material_descricao'] ?? $m['material_outro'] ?? 'Outros';
-        $unid = $m['material_descricao'] !== null ? ($unidadeLabel[$m['material_unidade']] ?? '') : '';
+    $materiais = array_map(function (array $m) {
         return [
-            'descricao'  => $desc,
+            'codigo'     => $m['codigo'] ?? '',
+            'descricao'  => $m['descricao'],
             'quantidade' => rtrim(rtrim(number_format((float) $m['quantidade'], 2, ',', '.'), '0'), ','),
-            'unidade'    => $unid,
+            'unidade'    => $m['unidade'] ?? '',
         ];
     }, $r['_materiais']);
 
@@ -214,7 +259,7 @@ function histMontarDetalhe(array $r, array $localMap, array $setoresLabel, array
         'reprova_codigo'  => $r['reprova_codigo'] ?? '—',
         'reprova_familia' => $r['reprova_familia'] ?? '—',
         'reprova_desc'    => $r['reprova_descricao'] ?? '—',
-        'reprova_local'   => $lo ? $lo['label'] . ' — ' . $lo['title'] : '—',
+        'reprova_local'   => $lo ? $lo['label'] . ' — ' . $lo['title'] : ($origemItem ?: '—'),
         'status'          => $r['status'],
         'responsavel'     => $r['responsavel_nome'] ?? '—',
         'data_reprova'    => histFmtData($r['data_reprova']),
@@ -253,7 +298,7 @@ function histSortTh(string $label, string $key): void
        . htmlspecialchars($label) . $seta . '</a></th>';
 }
 
-$temFiltroAtivo = $fBusca !== '' || $fStatus !== '' || $fMes !== '';
+$temFiltroAtivo = $fBusca !== '' || $fLocal !== '' || $fStatus !== '' || $fMes !== '';
 
 $pageTitle = 'Relação do Histórico';
 require_once __DIR__ . '/../../includes/layout.php';
@@ -323,18 +368,17 @@ layoutHeader($pageTitle);
 
 <!-- Cabeçalho -->
 <div style="margin-bottom:18px;">
-    <a href="<?= htmlspecialchars($base) ?>/pages/retrabalho/relacao.php" style="font-size:12px;color:var(--color-text-muted,#9aa3b8);text-decoration:none;">&larr; Relação de Retrabalhos</a>
     <h1 style="font-size:var(--font-size-xl,20px);font-weight:700;margin-top:2px;">Relação do Histórico</h1>
     <p class="text-secondary" style="font-size:13px;color:var(--color-text-secondary,#6b7280);margin-top:2px;">
-        Retrabalhos encerrados — aprovados na reinspeção do Laboratório ou finalizados com causa raiz documentada
+        Listagem completa de todos os retrabalhos registrados — em andamento e finalizados
     </p>
 </div>
 
-<!-- Abas por status -->
+<!-- Abas por local -->
 <div class="hist-tabs">
-    <a class="hist-tab<?= $fStatus === '' ? ' active' : '' ?>" href="<?= histUrl(['status' => null, 'pagina' => 1]) ?>">Todos</a>
-    <?php foreach ($statusMap as $k => $info): ?>
-        <a class="hist-tab<?= $fStatus === $k ? ' active' : '' ?>" href="<?= histUrl(['status' => $k, 'pagina' => 1]) ?>"><?= htmlspecialchars($info['label']) ?></a>
+    <a class="hist-tab<?= $fLocal === '' ? ' active' : '' ?>" href="<?= histUrl(['local' => null, 'pagina' => 1]) ?>">Todos</a>
+    <?php foreach ($localMap as $k => $info): ?>
+        <a class="hist-tab<?= $fLocal === $k ? ' active' : '' ?>" href="<?= histUrl(['local' => $k, 'pagina' => 1]) ?>"><?= htmlspecialchars($info['label']) ?> — <?= htmlspecialchars($info['title']) ?></a>
     <?php endforeach; ?>
 </div>
 
@@ -347,21 +391,38 @@ layoutHeader($pageTitle);
     </div>
 
     <!-- Filtros -->
-    <form method="GET" class="hist-filtros" id="hist-filtros">
-        <input type="hidden" name="status" value="<?= htmlspecialchars($fStatus) ?>">
-        <input type="search" name="busca" value="<?= htmlspecialchars($fBusca) ?>" placeholder="Buscar projeto, pedido, NS, reprova…" style="min-width:260px;">
-        <select name="mes" onchange="this.form.submit()">
-            <option value="">Mês…</option>
-            <?php foreach ($mesesDisponiveis as $ym): if (!$ym) continue;
-                $lbl = ($MESES_PT[(int) substr($ym, 5, 2)] ?? $ym) . '/' . substr($ym, 0, 4);
-            ?>
-                <option value="<?= htmlspecialchars($ym) ?>" <?= $fMes === $ym ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option>
-            <?php endforeach; ?>
-        </select>
-        <button type="submit" class="hist-btn-secondary">Filtrar</button>
-        <?php if ($temFiltroAtivo): ?>
-            <a href="<?= htmlspecialchars($base) ?>/pages/retrabalho/historico.php" class="hist-btn-secondary">Limpar</a>
-        <?php endif; ?>
+    <form method="GET" class="filter-bar" id="hist-filtros">
+        <input type="hidden" name="local" value="<?= htmlspecialchars($fLocal) ?>">
+        <div class="filter-group-left">
+            <div class="filter-search-wrap">
+                <svg class="filter-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input type="search" name="busca" class="filter-search-input" value="<?= htmlspecialchars($fBusca) ?>" placeholder="Buscar projeto, pedido, NS, reprova…">
+            </div>
+            <select name="status" class="filter-select" onchange="this.form.submit()">
+                <option value="">Status…</option>
+                <option value="agu_abertura" <?= $fStatus === 'agu_abertura' ? 'selected' : '' ?>>Agu. Abertura</option>
+                <option value="agu_causa_raiz" <?= $fStatus === 'agu_causa_raiz' ? 'selected' : '' ?>>Agu. Causa Raiz</option>
+                <option value="finalizado" <?= $fStatus === 'finalizado' ? 'selected' : '' ?>>Finalizado</option>
+            </select>
+            <select name="mes" class="filter-select" onchange="this.form.submit()">
+                <option value="">Mês…</option>
+                <?php foreach ($mesesDisponiveis as $ym): if (!$ym) continue;
+                    $lbl = ($MESES_PT[(int) substr($ym, 5, 2)] ?? $ym) . '/' . substr($ym, 0, 4);
+                ?>
+                    <option value="<?= htmlspecialchars($ym) ?>" <?= $fMes === $ym ? 'selected' : '' ?>><?= htmlspecialchars($lbl) ?></option>
+                <?php endforeach; ?>
+            </select>
+            <button type="submit" class="filter-btn filter-btn-secondary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                Filtrar
+            </button>
+            <?php if ($temFiltroAtivo): ?>
+                <a href="<?= htmlspecialchars($base) ?>/pages/retrabalho/historico.php" class="filter-btn filter-btn-clear" title="Limpar filtros">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    Limpar
+                </a>
+            <?php endif; ?>
+        </div>
     </form>
 
     <div style="overflow-x:auto;">
@@ -370,51 +431,107 @@ layoutHeader($pageTitle);
                 <tr>
                     <th style="width:32px;"></th>
                     <?php
+                    histSortTh('N° Série', 'ns');
                     histSortTh('Pedido', 'pedido');
                     histSortTh('Projeto', 'projeto');
                     histSortTh('Descrição', 'descricao');
+                    histSortTh('Origem', 'origem');
                     histSortTh('Potência', 'potencia');
                     histSortTh('Classe', 'classe');
-                    histSortTh('Reprovas', 'registros');
+                    histSortTh('Data Reprova', 'data_reprova');
+                    histSortTh('Status', 'status');
+                    histSortTh('Reincidências', 'reincidencias');
                     ?>
+                    <th style="width:40px;"></th>
                 </tr>
             </thead>
             <tbody>
                 <?php if (!$gruposPagina): ?>
-                    <tr><td colspan="8"><div class="hist-empty">Nenhum retrabalho encerrado encontrado para os filtros selecionados.</div></td></tr>
+                    <tr><td colspan="12"><div class="hist-empty">Nenhum retrabalho encontrado para os filtros selecionados.</div></td></tr>
                 <?php else: foreach ($gruposPagina as $g):
-                    $detId = 'hist-det-' . $g['id_projeto'] . '-' . $g['_maxId'];
+                    $detId = 'hist-det-' . (!empty($g['ns_transformador']) ? $g['ns_transformador'] : $g['_maxId']);
                 ?>
                     <tr>
                         <td>
-                            <button type="button" class="hist-toggle-btn js-toggle-hist" data-target="<?= htmlspecialchars($detId) ?>" aria-expanded="false" title="Mostrar números de série">+</button>
+                            <button type="button" class="hist-toggle-btn js-toggle-hist" data-target="<?= htmlspecialchars($detId) ?>" aria-expanded="false" title="Mostrar reprovas">+</button>
                         </td>
+                        <td><span class="hist-code" style="font-weight:700;color:#111827;"><?= htmlspecialchars($g['ns_transformador'] ?? '—') ?></span></td>
                         <td><?= htmlspecialchars($g['pedido_numero'] ?? '—') ?></td>
                         <td><span class="hist-code"><?= htmlspecialchars($g['projeto_codigo'] ?? '—') ?></span></td>
                         <td><?= htmlspecialchars($g['projeto_descricao'] ?? '—') ?></td>
+                        <td>
+                            <?php
+                            $locais = $g['locais'] ?? [];
+                            if (!$locais): ?>
+                                <span style="color:#9ca3af;">—</span>
+                            <?php else: ?>
+                                <div style="display:inline-flex;gap:4px;align-items:center;flex-wrap:nowrap;">
+                                    <?php foreach ($locais as $idx => $loc):
+                                        $lo  = $localMap[$loc] ?? null;
+                                        $lbl = $lo ? $lo['label'] : $loc;
+                                        $bg  = $lo['bg'] ?? '#f3f4f6';
+                                        $fg  = $lo['fg'] ?? '#374151';
+                                        $brd = $lo['border'] ?? '#e5e7eb';
+                                        if ($idx > 0): ?>
+                                            <span style="color:#94a3b8;font-weight:700;font-size:11px;">/</span>
+                                        <?php endif; ?>
+                                        <span class="hist-badge" style="background:<?= $bg ?>;color:<?= $fg ?>;border:1px solid <?= $brd ?>;font-size:11px;font-weight:700;padding:2px 7px;" title="<?= htmlspecialchars($lo['title'] ?? $lbl) ?>">
+                                            <?= htmlspecialchars($lbl) ?>
+                                        </span>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php endif; ?>
+                        </td>
                         <td><?= $g['potencia'] !== null ? htmlspecialchars($g['potencia']) . ' kVA' : '—' ?></td>
                         <td><?= $g['classe'] !== null ? htmlspecialchars($g['classe']) . ' kV' : '—' ?></td>
+                        <td><span class="hist-code" style="font-size:12px;"><?= htmlspecialchars(histFmtData($g['data_reprova'])) ?></span></td>
+                        <td>
+                            <?php 
+                                $st = $statusMap[$g['status']] ?? ['label' => ucfirst($g['status']), 'bg' => '#f3f4f6', 'fg' => '#374151'];
+                            ?>
+                            <span class="hist-badge" style="background:<?= $st['bg'] ?>;color:<?= $st['fg'] ?>;font-size:11px;font-weight:600;">
+                                <?= htmlspecialchars($st['label']) ?>
+                            </span>
+                        </td>
                         <td style="text-align:center;">
-                            <span class="hist-badge" style="background:#eef2ff;color:#4338ca;"><?= (int) $g['qtdRegistros'] ?></span>
+                            <span class="hist-badge" style="background:#eef2ff;color:#4338ca;"><?= (int) $g['reincidencias'] ?></span>
+                        </td>
+                        <td style="text-align:center;">
+                            <button type="button" class="btn-icon btn-icon-danger btn-icon-sm js-hist-del-grupo"
+                                    data-ids="<?= htmlspecialchars(implode(',', array_map(fn ($it) => (int) $it['id'], $g['itens']))) ?>"
+                                    data-ns="<?= htmlspecialchars((string) ($g['ns_transformador'] ?? '')) ?>"
+                                    title="Excluir todas as reprovas deste N° de série">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                            </button>
                         </td>
                     </tr>
                     <tr class="hist-detail-row" id="<?= htmlspecialchars($detId) ?>">
-                        <td colspan="8">
+                        <td colspan="12">
                             <div class="hist-detail-wrap">
                                 <div style="overflow-x:auto;">
                                 <table class="hist-subtable">
                                     <thead>
                                         <tr>
-                                            <th>N° Série</th><th>Contenção</th><th>Família</th><th>Causa da Reprova</th>
-                                            <th>Causa Raiz</th><th>Status</th><th>Concluído em</th><th></th>
+                                            <th>Contenção</th>
+                                            <th>Família</th>
+                                            <th>Origem</th>
+                                            <th>Causa da Reprova</th>
+                                            <th>Concluído em</th>
+                                            <th style="text-align:right;">Ações</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         <?php foreach ($g['itens'] as $r):
-                                            $st = $statusMap[$r['status']] ?? $statusMap['finalizado'];
+                                            $origemItem   = strtoupper(trim((string) ($r['estacao'] ?: $r['reprova_local'] ?: '')));
+                                            if ($origemItem === 'GER') $origemItem = 'LAB';
+                                            $lo           = $localMap[$origemItem] ?? null;
+                                            $origemLabel  = $lo ? $lo['label'] : ($origemItem ?: '—');
+                                            $origemTitle  = $lo ? $lo['title'] : ($origemItem ?: '');
+                                            $origemBg     = $lo['bg'] ?? '#f3f4f6';
+                                            $origemFg     = $lo['fg'] ?? '#374151';
+                                            $origemBorder = $lo['border'] ?? '#e5e7eb';
                                         ?>
                                             <tr>
-                                                <td><span class="hist-code"><?= htmlspecialchars($r['ns_transformador'] ?? '—') ?></span></td>
                                                 <td>
                                                     <span class="hist-code" style="font-weight:500;"><?= htmlspecialchars($r['reprova_codigo'] ?? '—') ?></span>
                                                     <?php if (!empty($r['reprova_descricao'])): ?>
@@ -422,17 +539,25 @@ layoutHeader($pageTitle);
                                                     <?php endif; ?>
                                                 </td>
                                                 <td style="font-size:12px;"><?= htmlspecialchars($r['reprova_familia'] ?? '—') ?></td>
-                                                <td style="font-size:12px;"><?= htmlspecialchars($r['causa_reprova'] ?? '—') ?></td>
-                                                <td style="font-size:12px;"><?= htmlspecialchars($r['causa_raiz'] ?? '—') ?></td>
-                                                <td><span class="hist-badge" style="background:<?= $st['bg'] ?>;color:<?= $st['fg'] ?>;"><?= $st['label'] ?></span></td>
-                                                <td style="font-size:12px;"><?= htmlspecialchars(histFmtData($r['concluido_em'])) ?></td>
                                                 <td>
-                                                    <button type="button" class="hist-ver-btn js-ver-detalhe"
-                                                            data-detalhe='<?= htmlspecialchars(json_encode(histMontarDetalhe($r, $localMap, $setoresLabel, $unidadeLabel), JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>'
-                                                            title="Ver tudo o que foi registrado na Triagem">
-                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                                        Ver detalhes
-                                                    </button>
+                                                    <span class="hist-badge" style="background:<?= $origemBg ?>;color:<?= $origemFg ?>;border:1px solid <?= $origemBorder ?>;font-size:11px;font-weight:700;padding:2px 7px;" title="<?= htmlspecialchars($origemTitle) ?>">
+                                                        <?= htmlspecialchars($origemLabel) ?>
+                                                    </span>
+                                                </td>
+                                                <td style="font-size:12px;"><?= htmlspecialchars($r['causa_raiz'] ?? '—') ?></td>
+                                                <td style="font-size:12px;"><?= htmlspecialchars(histFmtData($r['concluido_em'])) ?></td>
+                                                <td style="text-align:right;">
+                                                    <div style="display:inline-flex;align-items:center;gap:6px;">
+                                                        <button type="button" class="hist-ver-btn js-ver-detalhe"
+                                                                data-detalhe='<?= htmlspecialchars(json_encode(histMontarDetalhe($r, $localMap, $setoresLabel), JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>'
+                                                                title="Ver tudo o que foi registrado na Triagem">
+                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                            Ver detalhes
+                                                        </button>
+                                                        <button type="button" class="btn-icon btn-icon-danger btn-icon-sm js-hist-del-item" data-id="<?= (int) $r['id'] ?>" title="Excluir esta reprova">
+                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                                        </button>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         <?php endforeach; ?>
@@ -504,8 +629,7 @@ layoutHeader($pageTitle);
 
             <div class="hd-section">Causa &amp; observações</div>
             <div class="hd-grid">
-                <div class="hd-field full"><div class="lbl">Causa da Reprova</div><div class="val" id="hd-causa-reprova"></div></div>
-                <div class="hd-field full"><div class="lbl">Causa Raiz</div><div class="val" id="hd-causa-raiz"></div></div>
+                <div class="hd-field full"><div class="lbl">Causa da Reprova</div><div class="val" id="hd-causa-raiz"></div></div>
                 <div class="hd-field full"><div class="lbl">Observações</div><div class="val" id="hd-observacoes"></div></div>
                 <div class="hd-field full"><div class="lbl">Próximos setores</div><div class="val" id="hd-setores"></div></div>
             </div>
@@ -513,7 +637,7 @@ layoutHeader($pageTitle);
             <div class="hd-section">Materiais utilizados</div>
             <div id="hd-materiais-vazio" class="hd-vazio">Nenhum material registrado nesta Triagem.</div>
             <table class="hd-materiais" id="hd-materiais-tabela" style="display:none;">
-                <thead><tr><th>Material</th><th>Quantidade</th></tr></thead>
+                <thead><tr><th>Código</th><th>Descrição</th><th>Quantidade</th><th>Unidade</th></tr></thead>
                 <tbody id="hd-materiais-corpo"></tbody>
             </table>
         </div>
@@ -541,14 +665,13 @@ layoutHeader($pageTitle);
             setTxt('hd-reprova-familia', d.reprova_familia);
             setTxt('hd-reprova-desc', d.reprova_desc);
             setTxt('hd-reprova-local', d.reprova_local);
-            setTxt('hd-status', d.status === 'finalizado' ? 'Finalizado' : (d.status === 'aprovado' ? 'Aprovado' : d.status));
+            setTxt('hd-status', d.status === 'finalizado' ? 'Finalizado' : d.status);
             setTxt('hd-responsavel', d.responsavel);
             setTxt('hd-data-reprova', d.data_reprova);
             setTxt('hd-data-chegada', d.data_chegada);
             setTxt('hd-data-inicio', d.data_inicio);
             setTxt('hd-data-finalizacao', d.data_finalizacao);
             setTxt('hd-concluido-em', d.concluido_em);
-            setTxt('hd-causa-reprova', d.causa_reprova);
             setTxt('hd-causa-raiz', d.causa_raiz);
             setTxt('hd-observacoes', d.observacoes);
             setTxt('hd-setores', d.setores);
@@ -560,12 +683,18 @@ layoutHeader($pageTitle);
             if (d.materiais && d.materiais.length) {
                 d.materiais.forEach(function (m) {
                     var tr = document.createElement('tr');
+                    var tdCod = document.createElement('td');
+                    tdCod.textContent = m.codigo || '—';
                     var tdDesc = document.createElement('td');
                     tdDesc.textContent = m.descricao;
                     var tdQtd = document.createElement('td');
-                    tdQtd.textContent = m.quantidade + (m.unidade ? ' ' + m.unidade : '');
+                    tdQtd.textContent = m.quantidade;
+                    var tdUnid = document.createElement('td');
+                    tdUnid.textContent = m.unidade || '—';
+                    tr.appendChild(tdCod);
                     tr.appendChild(tdDesc);
                     tr.appendChild(tdQtd);
+                    tr.appendChild(tdUnid);
                     corpo.appendChild(tr);
                 });
                 tabela.style.display = '';
@@ -591,6 +720,91 @@ layoutHeader($pageTitle);
         btn.textContent = aberto ? '−' : '+';
         btn.setAttribute('aria-expanded', aberto ? 'true' : 'false');
     });
+
+    (function() {
+        var formTimer;
+        var buscaInput = document.querySelector('#hist-filtros input[name="busca"]');
+        if (buscaInput) {
+            buscaInput.addEventListener('input', function() {
+                clearTimeout(formTimer);
+                formTimer = setTimeout(function() {
+                    buscaInput.form.submit();
+                }, 600);
+            });
+        }
+    })();
+
+    // ─── Excluir reprova(s) direto do Histórico (soft delete) ──────────────────
+    (function () {
+        var HIST_API = <?= json_encode($base . '/api/retrabalho-acao.php') ?>;
+
+        function histNotify(msg) {
+            if (typeof window.showAlert === 'function') window.showAlert(msg, 'danger');
+            else alert(msg);
+        }
+
+        function postAcao(body) {
+            return fetch(HIST_API, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString()
+            }).then(function (r) {
+                return r.json().catch(function () { return { sucesso: false, erro: 'Resposta inválida do servidor.' }; });
+            });
+        }
+
+        // Excluir uma única reprova (dentro do "+")
+        document.addEventListener('click', function (e) {
+            var btn = e.target.closest('.js-hist-del-item');
+            if (!btn || btn.disabled) return;
+            if (!window.confirm('Excluir esta reprova? Esta ação não pode ser desfeita por aqui.')) return;
+
+            btn.disabled = true;
+            postAcao(new URLSearchParams({ acao: 'excluir', id: btn.dataset.id })).then(function (res) {
+                if (res && res.sucesso) {
+                    window.location.reload();
+                } else {
+                    histNotify((res && res.erro) || 'Erro ao excluir a reprova.');
+                    btn.disabled = false;
+                }
+            }).catch(function () {
+                histNotify('Falha de conexão ao excluir a reprova.');
+                btn.disabled = false;
+            });
+        });
+
+        // Excluir todas as reprovas de um N° de série (linha principal)
+        document.addEventListener('click', function (e) {
+            var btn = e.target.closest('.js-hist-del-grupo');
+            if (!btn || btn.disabled) return;
+
+            var ids = (btn.dataset.ids || '').split(',').filter(Boolean);
+            if (!ids.length) return;
+
+            var ns = btn.dataset.ns;
+            var msg = ids.length > 1
+                ? 'Excluir todas as ' + ids.length + ' reprovas do N° de série ' + ns + '? Esta ação não pode ser desfeita por aqui.'
+                : 'Excluir esta reprova? Esta ação não pode ser desfeita por aqui.';
+            if (!window.confirm(msg)) return;
+
+            btn.disabled = true;
+            var body = new URLSearchParams({ acao: 'excluir_lote' });
+            ids.forEach(function (id) { body.append('ids[]', id); });
+
+            postAcao(body).then(function (res) {
+                if (res && res.sucesso) {
+                    if (res.bloqueadas > 0) alert(res.mensagem);
+                    window.location.reload();
+                } else {
+                    histNotify((res && res.erro) || 'Erro ao excluir as reprovas.');
+                    btn.disabled = false;
+                }
+            }).catch(function () {
+                histNotify('Falha de conexão ao excluir as reprovas.');
+                btn.disabled = false;
+            });
+        });
+    })();
 </script>
 
 <?php layoutFooter(); ?>
