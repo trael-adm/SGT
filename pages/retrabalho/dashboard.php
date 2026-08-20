@@ -14,6 +14,9 @@ $base = defined('APP_URL') ? APP_URL : '';
 $tz   = new DateTimeZone('America/Cuiaba');
 $hoje = new DateTime('today', $tz);
 $dataHojeFormatada = (new DateTime('now', $tz))->format('d/m/Y');
+$dataHojeIso = (new DateTime('now', $tz))->format('Y-m-d');
+$mesAtualIso = (new DateTime('now', $tz))->format('Y-m');
+$mesAnteriorIso = (new DateTime('first day of last month', $tz))->format('Y-m');
 
 // ─── Filtros (GET) ───────────────────────────────────────────────────────────
 $fEstacao = trim((string) ($_GET['estacao'] ?? ''));
@@ -25,6 +28,18 @@ $fBusca   = trim((string) ($_GET['busca'] ?? ''));
 
 $ESTACOES_VALIDAS = ['LAB', 'IQF', 'GER'];
 if (!in_array($fEstacao, $ESTACOES_VALIDAS, true)) $fEstacao = '';
+
+// ─── Filtro de Data Avançado (Hoje | Mês | Personalizável) ───────────────────
+$tipoData = trim((string) ($_GET['tipo_data'] ?? ''));
+$fDataHoje = trim((string) ($_GET['data_hoje'] ?? $dataHojeIso));
+$fDataMes  = trim((string) ($_GET['data_mes'] ?? $mesAtualIso));
+$fDataDe   = trim((string) ($_GET['data_de'] ?? ''));
+$fDataAte  = trim((string) ($_GET['data_ate'] ?? ''));
+$fDatasEsp = trim((string) ($_GET['datas_especificas'] ?? ''));
+
+// Rótulo da data para o cabeçalho (padrão se nenhum filtro de data: data de hoje)
+$labelDataExibicao = $dataHojeFormatada;
+$dataExpr = 'DATE(COALESCE(r.data_reprova, r.data_inicio, r.created_at))';
 
 // Condição de status e reprova
 $where = [
@@ -53,7 +68,6 @@ if ($fStatus === 'em_andamento' || $fStatus === 'ativos') {
           AND pe.deleted_at IS NULL
     )";
 }
-// se for 'todos', exibe ambos os registros
 
 if ($fEstacao !== '') {
     $where[] = '(r.estacao = ? OR rep.local = ?)';
@@ -65,6 +79,51 @@ if ($fBusca !== '') {
     $where[] = '(pr.codigo LIKE ? OR ped.numero LIKE ? OR r.ns_transformador LIKE ? OR rep.codigo LIKE ? OR rep.descricao LIKE ?)';
     $like = '%' . $fBusca . '%';
     array_push($params, $like, $like, $like, $like, $like);
+}
+
+// Aplicação dos Filtros de Data
+if ($tipoData === 'hoje') {
+    $where[] = "$dataExpr = ?";
+    $params[] = $dataHojeIso;
+    $labelDataExibicao = "Hoje ({$dataHojeFormatada})";
+} elseif ($tipoData === 'mes') {
+    $mesValido = preg_match('/^\d{4}-\d{2}$/', $fDataMes) ? $fDataMes : $mesAtualIso;
+    $where[] = "DATE_FORMAT($dataExpr, '%Y-%m') = ?";
+    $params[] = $mesValido;
+    $dtMesObj = DateTime::createFromFormat('Y-m', $mesValido, $tz);
+    $mesAnoFormatado = $dtMesObj ? $dtMesObj->format('m/Y') : $mesValido;
+    $labelDataExibicao = "Mês: {$mesAnoFormatado}";
+} elseif ($tipoData === 'intervalo') {
+    if ($fDataDe !== '' && $fDataAte !== '') {
+        $where[] = "$dataExpr BETWEEN ? AND ?";
+        $params[] = $fDataDe;
+        $params[] = $fDataAte;
+        $dtDeFmt = date('d/m/y', strtotime($fDataDe));
+        $dtAteFmt = date('d/m/y', strtotime($fDataAte));
+        $labelDataExibicao = "{$dtDeFmt} a {$dtAteFmt}";
+    } elseif ($fDataDe !== '') {
+        $where[] = "$dataExpr >= ?";
+        $params[] = $fDataDe;
+        $dtDeFmt = date('d/m/y', strtotime($fDataDe));
+        $labelDataExibicao = "A partir de {$dtDeFmt}";
+    } elseif ($fDataAte !== '') {
+        $where[] = "$dataExpr <= ?";
+        $params[] = $fDataAte;
+        $dtAteFmt = date('d/m/y', strtotime($fDataAte));
+        $labelDataExibicao = "Até {$dtAteFmt}";
+    }
+} elseif ($tipoData === 'especificas') {
+    $listaDatas = array_values(array_filter(array_map('trim', explode(',', $fDatasEsp)), fn($d) => preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)));
+    if (!empty($listaDatas)) {
+        $ph = implode(',', array_fill(0, count($listaDatas), '?'));
+        $where[] = "$dataExpr IN ($ph)";
+        foreach ($listaDatas as $d) $params[] = $d;
+        if (count($listaDatas) === 1) {
+            $labelDataExibicao = date('d/m/Y', strtotime($listaDatas[0]));
+        } else {
+            $labelDataExibicao = count($listaDatas) . ' datas sel.';
+        }
+    }
 }
 
 $whereSql = implode(' AND ', $where);
@@ -213,19 +272,60 @@ $stmtHist = $pdo->prepare($sqlHist);
 $stmtHist->execute($paramsHist);
 $todosHistoricos = $stmtHist->fetchAll(PDO::FETCH_ASSOC);
 
-// Determinar as datas a serem analisadas no gráfico diário (últimos 10 dias operacionais até hoje)
-$cursor = clone $hoje;
-$diasColetados = [];
-$maxIter = 30;
-while (count($diasColetados) < 10 && $maxIter > 0) {
-    $maxIter--;
-    // Exclui domingos (N=7)
-    if ((int) $cursor->format('N') !== 7) {
-        $diasColetados[] = clone $cursor;
+// Determinar as datas a serem analisadas no gráfico diário
+$datasParaAnalise = [];
+
+if ($tipoData === 'intervalo' && $fDataDe !== '' && $fDataAte !== '') {
+    try {
+        $dtIni = new DateTime($fDataDe, $tz);
+        $dtFim = new DateTime($fDataAte, $tz);
+        if ($dtIni <= $dtFim) {
+            $cur = clone $dtIni;
+            while ($cur <= $dtFim && count($datasParaAnalise) < 31) {
+                if ((int) $cur->format('N') !== 7) {
+                    $datasParaAnalise[] = clone $cur;
+                }
+                $cur->modify('+1 day');
+            }
+        }
+    } catch (\Throwable $e) {}
+} elseif ($tipoData === 'especificas' && !empty($listaDatas)) {
+    sort($listaDatas);
+    foreach ($listaDatas as $dIso) {
+        try {
+            $datasParaAnalise[] = new DateTime($dIso, $tz);
+        } catch (\Throwable $e) {}
     }
-    $cursor->modify('-1 day');
+} elseif ($tipoData === 'mes') {
+    try {
+        $mesValido = preg_match('/^\d{4}-\d{2}$/', $fDataMes) ? $fDataMes : $mesAtualIso;
+        $dtIni = new DateTime($mesValido . '-01', $tz);
+        $dtFim = clone $dtIni;
+        $dtFim->modify('last day of this month');
+        $cur = clone $dtIni;
+        while ($cur <= $dtFim && count($datasParaAnalise) < 31) {
+            if ((int) $cur->format('N') !== 7) {
+                $datasParaAnalise[] = clone $cur;
+            }
+            $cur->modify('+1 day');
+        }
+    } catch (\Throwable $e) {}
 }
-$datasParaAnalise = array_reverse($diasColetados);
+
+if (empty($datasParaAnalise)) {
+    // Padrão: últimos 10 dias operacionais até hoje
+    $cursor = clone $hoje;
+    $diasColetados = [];
+    $maxIter = 30;
+    while (count($diasColetados) < 10 && $maxIter > 0) {
+        $maxIter--;
+        if ((int) $cursor->format('N') !== 7) {
+            $diasColetados[] = clone $cursor;
+        }
+        $cursor->modify('-1 day');
+    }
+    $datasParaAnalise = array_reverse($diasColetados);
+}
 
 $chartDiarioLabels = [];
 $chartDiarioValues = [];
@@ -329,17 +429,244 @@ layoutHeader($pageTitle);
     align-items: center;
 }
 
-.dash-header-date {
-    font-size: 24px;
-    font-weight: 900;
-    color: var(--dash-red);
-    letter-spacing: -0.02em;
-    font-family: 'JetBrains Mono', monospace;
+.dash-date-filter-wrapper {
+    position: relative;
     margin-left: auto;
+}
+
+.dash-header-date-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 38px;
+    padding: 0 14px;
+    background: #ffffff;
+    border: 1.5px solid var(--dash-red);
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--dash-red);
+    font-family: 'JetBrains Mono', monospace;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 6px rgba(229, 9, 20, 0.08);
+}
+
+.dash-header-date-btn:hover,
+.dash-header-date-btn.is-active-btn {
+    background: var(--dash-red-light);
+    border-color: var(--dash-red-dark);
+    box-shadow: 0 4px 12px rgba(229, 9, 20, 0.18);
+    transform: translateY(-1px);
+}
+
+.dash-header-date-btn.is-filtered {
+    background: #fef2f2;
+    border-color: var(--dash-red);
+    box-shadow: 0 0 0 3px rgba(229, 9, 20, 0.15);
+}
+
+.dash-date-popover {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 100;
+    width: 360px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 20px 40px rgba(15, 23, 42, 0.18);
+    padding: 16px;
+    animation: datePopoverIn 0.18s ease;
+}
+
+@keyframes datePopoverIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.ddp-header {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #f1f5f9;
+    margin-bottom: 12px;
+}
+
+.ddp-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 800;
+    color: #0f172a;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.ddp-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    line-height: 1;
+    color: #94a3b8;
+    cursor: pointer;
+    padding: 0 4px;
+}
+.ddp-close:hover { color: #0f172a; }
+
+.ddp-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    background: #f1f5f9;
+    padding: 4px;
+    border-radius: 8px;
+    margin-bottom: 14px;
+}
+
+.ddp-tab {
+    background: transparent;
+    border: none;
+    padding: 7px 4px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #64748b;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: center;
+}
+
+.ddp-tab.is-active {
+    background: #ffffff;
+    color: var(--dash-red);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.06);
+}
+
+.ddp-hoje-box {
+    text-align: center;
+    background: #fef2f2;
+    border: 1px solid #fee2e2;
+    border-radius: 8px;
+    padding: 14px 10px;
+    margin-bottom: 14px;
+}
+
+.ddp-hoje-label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #991b1b; }
+.ddp-hoje-val { display: block; font-size: 20px; font-weight: 900; color: var(--dash-red); font-family: 'JetBrains Mono', monospace; margin: 4px 0 6px; }
+.ddp-hint { font-size: 11px; color: #64748b; margin: 0; line-height: 1.35; }
+
+.ddp-field { margin-bottom: 12px; }
+.ddp-label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #475569; margin-bottom: 5px; }
+
+.ddp-shortcuts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 14px;
+}
+
+.ddp-chip {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #475569;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.ddp-chip:hover {
+    border-color: var(--dash-red);
+    color: var(--dash-red);
+    background: #fef2f2;
+}
+
+.ddp-submode-toggle {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px dashed #e2e8f0;
+}
+
+.ddp-radio-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #334155;
+    cursor: pointer;
+}
+
+.ddp-range-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.ddp-tags-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 34px;
+    max-height: 90px;
+    overflow-y: auto;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    border-radius: 8px;
+    padding: 6px;
+    margin-top: 8px;
+    margin-bottom: 12px;
+}
+
+.ddp-date-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    color: #0f172a;
+}
+
+.ddp-date-tag button {
+    background: none;
+    border: none;
+    color: #ef4444;
+    cursor: pointer;
+    font-weight: 800;
+    padding: 0 2px;
     line-height: 1;
 }
+
+.ddp-footer {
+    border-top: 1px solid #f1f5f9;
+    padding-top: 10px;
+    margin-top: 12px;
+    text-align: center;
+}
+
+.ddp-btn-clear {
+    background: none;
+    border: none;
+    color: #64748b;
+    font-size: 11.5px;
+    font-weight: 700;
+    text-decoration: underline;
+    cursor: pointer;
+}
+.ddp-btn-clear:hover { color: var(--dash-red); }
 
 .dash-filter-form {
     display: flex;
@@ -751,7 +1078,15 @@ body.tv-mode .dash-page-wrapper {
         </div>
 
         <!-- Formulário de Filtros -->
-        <form method="GET" class="dash-filter-form">
+        <form method="GET" class="dash-filter-form" id="dashFilterForm">
+            <!-- Preserva parâmetros de data -->
+            <input type="hidden" name="tipo_data" id="formTipoData" value="<?= htmlspecialchars($tipoData) ?>">
+            <input type="hidden" name="data_hoje" id="formDataHoje" value="<?= htmlspecialchars($fDataHoje) ?>">
+            <input type="hidden" name="data_mes" id="formDataMes" value="<?= htmlspecialchars($fDataMes) ?>">
+            <input type="hidden" name="data_de" id="formDataDe" value="<?= htmlspecialchars($fDataDe) ?>">
+            <input type="hidden" name="data_ate" id="formDataAte" value="<?= htmlspecialchars($fDataAte) ?>">
+            <input type="hidden" name="datas_especificas" id="formDatasEsp" value="<?= htmlspecialchars($fDatasEsp) ?>">
+
             <select name="status" class="dash-select" onchange="this.form.submit()">
                 <option value="em_andamento" <?= ($fStatus === 'em_andamento' || $fStatus === 'ativos') ? 'selected' : '' ?>>Status: Em andamento</option>
                 <option value="finalizado" <?= $fStatus === 'finalizado' ? 'selected' : '' ?>>Status: Finalizado</option>
@@ -765,8 +1100,8 @@ body.tv-mode .dash-page-wrapper {
                 <option value="GER" <?= $fEstacao === 'GER' ? 'selected' : '' ?>>Geral (GER)</option>
             </select>
 
-            <?php if ($fEstacao || ($fStatus !== 'em_andamento' && $fStatus !== 'ativos') || $fBusca): ?>
-                <a href="dashboard.php" class="btn-dash btn-dash-secondary" title="Limpar Filtros">Limpar</a>
+            <?php if ($fEstacao || ($fStatus !== 'em_andamento' && $fStatus !== 'ativos') || $fBusca || $tipoData): ?>
+                <a href="dashboard.php" class="btn-dash btn-dash-secondary" title="Limpar Todos os Filtros">Limpar</a>
             <?php endif; ?>
 
             <button type="button" class="btn-dash btn-dash-secondary" onclick="toggleFullscreen()" title="Alternar Modo Tela Cheia">
@@ -780,7 +1115,122 @@ body.tv-mode .dash-page-wrapper {
             </button>
         </form>
 
-        <div class="dash-header-date"><?= $dataHojeFormatada ?></div>
+        <!-- Filtro Multi-selecionável de Data (Hoje | Mês | Personalizável) -->
+        <div class="dash-date-filter-wrapper">
+            <button type="button" class="dash-header-date-btn <?= $tipoData ? 'is-filtered' : '' ?>" id="btnDateFilterToggle" onclick="toggleDateFilterModal()" title="Clique para filtrar por data">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                <span id="dashDateLabelExibicao"><?= htmlspecialchars($labelDataExibicao) ?></span>
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+
+            <!-- Popover de Seleção de Datas -->
+            <div class="dash-date-popover" id="dashDatePopover" style="display:none;">
+                <div class="ddp-header">
+                    <div class="ddp-title">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                        <span>Filtro de Data</span>
+                    </div>
+                    <button type="button" class="ddp-close" onclick="toggleDateFilterModal(false)">&times;</button>
+                </div>
+
+                <div class="ddp-tabs">
+                    <button type="button" class="ddp-tab <?= ($tipoData === 'hoje' || !$tipoData) ? 'is-active' : '' ?>" id="tabBtn_hoje" onclick="switchDateTab('hoje')">Hoje</button>
+                    <button type="button" class="ddp-tab <?= $tipoData === 'mes' ? 'is-active' : '' ?>" id="tabBtn_mes" onclick="switchDateTab('mes')">Mês</button>
+                    <button type="button" class="ddp-tab <?= in_array($tipoData, ['intervalo', 'especificas'], true) ? 'is-active' : '' ?>" id="tabBtn_personalizado" onclick="switchDateTab('personalizado')">Personalizável</button>
+                </div>
+
+                <!-- ABA 1: Hoje -->
+                <div class="ddp-content" id="ddpTab_hoje" style="<?= ($tipoData === 'hoje' || !$tipoData) ? '' : 'display:none;' ?>">
+                    <div class="ddp-hoje-box">
+                        <span class="ddp-hoje-label">Data de Hoje</span>
+                        <span class="ddp-hoje-val"><?= $dataHojeFormatada ?></span>
+                        <p class="ddp-hint">Filtra os apontamentos registrados exclusivamente na data de hoje.</p>
+                    </div>
+                    <div class="ddp-actions">
+                        <button type="button" class="btn-dash btn-dash-primary" onclick="aplicarFiltroData('hoje')" style="width:100%;justify-content:center;">
+                            Aplicar Data de Hoje
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ABA 2: Mês -->
+                <div class="ddp-content" id="ddpTab_mes" style="<?= $tipoData === 'mes' ? '' : 'display:none;' ?>">
+                    <div class="ddp-field">
+                        <label class="ddp-label">Mês e Ano:</label>
+                        <input type="month" id="ddpInputMes" class="dash-input" style="width:100%;" value="<?= htmlspecialchars($fDataMes ?: $mesAtualIso) ?>">
+                    </div>
+                    <div class="ddp-shortcuts">
+                        <button type="button" class="ddp-chip" onclick="document.getElementById('ddpInputMes').value='<?= $mesAtualIso ?>'">Mês Atual (<?= date('m/Y') ?>)</button>
+                        <button type="button" class="ddp-chip" onclick="document.getElementById('ddpInputMes').value='<?= $mesAnteriorIso ?>'">Mês Anterior</button>
+                    </div>
+                    <div class="ddp-actions">
+                        <button type="button" class="btn-dash btn-dash-primary" onclick="aplicarFiltroData('mes')" style="width:100%;justify-content:center;">
+                            Aplicar Mês
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ABA 3: Personalizável (Intervalo ou Específicas) -->
+                <div class="ddp-content" id="ddpTab_personalizado" style="<?= in_array($tipoData, ['intervalo', 'especificas'], true) ? '' : 'display:none;' ?>">
+                    <div class="ddp-submode-toggle">
+                        <label class="ddp-radio-label">
+                            <input type="radio" name="ddp_submode" value="intervalo" <?= ($tipoData !== 'especificas') ? 'checked' : '' ?> onchange="switchSubmode('intervalo')">
+                            <span>Intervalo de Datas</span>
+                        </label>
+                        <label class="ddp-radio-label">
+                            <input type="radio" name="ddp_submode" value="especificas" <?= ($tipoData === 'especificas') ? 'checked' : '' ?> onchange="switchSubmode('especificas')">
+                            <span>Datas Específicas</span>
+                        </label>
+                    </div>
+
+                    <!-- Submodo: Intervalo -->
+                    <div id="ddpSub_intervalo" style="<?= ($tipoData !== 'especificas') ? '' : 'display:none;' ?>">
+                        <div class="ddp-range-grid">
+                            <div class="ddp-field">
+                                <label class="ddp-label">De (Início):</label>
+                                <input type="date" id="ddpInputDataDe" class="dash-input" style="width:100%;" value="<?= htmlspecialchars($fDataDe) ?>">
+                            </div>
+                            <div class="ddp-field">
+                                <label class="ddp-label">Até (Fim):</label>
+                                <input type="date" id="ddpInputDataAte" class="dash-input" style="width:100%;" value="<?= htmlspecialchars($fDataAte) ?>">
+                            </div>
+                        </div>
+                        <div class="ddp-shortcuts">
+                            <button type="button" class="ddp-chip" onclick="setIntervaloAtalho(7)">Últimos 7 dias</button>
+                            <button type="button" class="ddp-chip" onclick="setIntervaloAtalho(15)">Últimos 15 dias</button>
+                            <button type="button" class="ddp-chip" onclick="setIntervaloAtalho(30)">Últimos 30 dias</button>
+                        </div>
+                    </div>
+
+                    <!-- Submodo: Datas Específicas -->
+                    <div id="ddpSub_especificas" style="<?= ($tipoData === 'especificas') ? '' : 'display:none;' ?>">
+                        <div class="ddp-field">
+                            <label class="ddp-label">Adicionar Data à Seleção:</label>
+                            <div style="display:flex;gap:6px;">
+                                <input type="date" id="ddpInputDataAdd" class="dash-input" style="flex:1;">
+                                <button type="button" class="btn-dash btn-dash-secondary" onclick="adicionarDataEspecifica()" style="white-space:nowrap;">+ Adicionar</button>
+                            </div>
+                        </div>
+                        <label class="ddp-label" style="margin-top:6px;">Datas Selecionadas:</label>
+                        <div class="ddp-tags-wrap" id="ddpDatasTagsWrap">
+                            <!-- Inserido dinamicamente via JS -->
+                        </div>
+                    </div>
+
+                    <div class="ddp-actions" style="margin-top:12px;">
+                        <button type="button" class="btn-dash btn-dash-primary" onclick="aplicarFiltroData('personalizado')" style="width:100%;justify-content:center;">
+                            Aplicar Filtro Personalizado
+                        </button>
+                    </div>
+                </div>
+
+                <div class="ddp-footer">
+                    <button type="button" class="ddp-btn-clear" onclick="limparFiltroData()">
+                        Ver Todas as Datas (Limpar filtro de data)
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Layout Principal -->
@@ -1175,6 +1625,153 @@ body.tv-mode .dash-page-wrapper {
             plugins: [topValuesPlugin]
         });
     }
+
+    // ─── 3. Filtro de Data Avançado (Hoje | Mês | Personalizável) ─────────────
+    window.toggleDateFilterModal = function (forcar) {
+        var pop = document.getElementById('dashDatePopover');
+        var btn = document.getElementById('btnDateFilterToggle');
+        if (!pop) return;
+        var abrir = (forcar !== undefined) ? forcar : (pop.style.display === 'none');
+        pop.style.display = abrir ? 'block' : 'none';
+        if (btn) btn.classList.toggle('is-active-btn', abrir);
+    };
+
+    document.addEventListener('click', function (e) {
+        var wrapper = document.querySelector('.dash-date-filter-wrapper');
+        var pop = document.getElementById('dashDatePopover');
+        if (!wrapper || !pop || pop.style.display === 'none') return;
+        if (!wrapper.contains(e.target)) {
+            window.toggleDateFilterModal(false);
+        }
+    });
+
+    window.switchDateTab = function (tab) {
+        ['hoje', 'mes', 'personalizado'].forEach(function (t) {
+            var elContent = document.getElementById('ddpTab_' + t);
+            var elBtn = document.getElementById('tabBtn_' + t);
+            if (elContent) elContent.style.display = (t === tab) ? 'block' : 'none';
+            if (elBtn) elBtn.classList.toggle('is-active', t === tab);
+        });
+    };
+
+    window.switchSubmode = function (sub) {
+        var elInt = document.getElementById('ddpSub_intervalo');
+        var elEsp = document.getElementById('ddpSub_especificas');
+        if (elInt) elInt.style.display = (sub === 'intervalo') ? 'block' : 'none';
+        if (elEsp) elEsp.style.display = (sub === 'especificas') ? 'block' : 'none';
+    };
+
+    // Gerenciamento de tags para datas específicas
+    var datasEspecificasSet = new Set();
+    var initialDatasEsp = <?= json_encode($fDatasEsp) ?>;
+    if (initialDatasEsp) {
+        initialDatasEsp.split(',').forEach(function (d) {
+            d = d.trim();
+            if (d) datasEspecificasSet.add(d);
+        });
+    }
+
+    function renderDatasTags() {
+        var wrap = document.getElementById('ddpDatasTagsWrap');
+        if (!wrap) return;
+        wrap.innerHTML = '';
+        if (!datasEspecificasSet.size) {
+            wrap.innerHTML = '<span style="font-size:11px;color:#94a3b8;padding:4px;">Nenhuma data adicionada ainda.</span>';
+            return;
+        }
+        var sorted = Array.from(datasEspecificasSet).sort();
+        sorted.forEach(function (dIso) {
+            var parts = dIso.split('-');
+            var dFmt = (parts.length === 3) ? (parts[2] + '/' + parts[1] + '/' + parts[0]) : dIso;
+            var tag = document.createElement('span');
+            tag.className = 'ddp-date-tag';
+            tag.innerHTML = dFmt + ' <button type="button" onclick="removerDataEspecifica(\'' + dIso + '\')" title="Remover">&times;</button>';
+            wrap.appendChild(tag);
+        });
+    }
+    renderDatasTags();
+
+    window.adicionarDataEspecifica = function () {
+        var input = document.getElementById('ddpInputDataAdd');
+        if (!input || !input.value) return;
+        datasEspecificasSet.add(input.value);
+        input.value = '';
+        renderDatasTags();
+    };
+
+    window.removerDataEspecifica = function (dIso) {
+        datasEspecificasSet.delete(dIso);
+        renderDatasTags();
+    };
+
+    window.setIntervaloAtalho = function (dias) {
+        var hoje = new Date();
+        var ateIso = hoje.toISOString().split('T')[0];
+        var deDate = new Date();
+        deDate.setDate(hoje.getDate() - dias + 1);
+        var deIso = deDate.toISOString().split('T')[0];
+
+        var inputDe = document.getElementById('ddpInputDataDe');
+        var inputAte = document.getElementById('ddpInputDataAte');
+        if (inputDe) inputDe.value = deIso;
+        if (inputAte) inputAte.value = ateIso;
+    };
+
+    window.aplicarFiltroData = function (tipo) {
+        var form = document.getElementById('dashFilterForm');
+        if (!form) return;
+
+        var tipoInput = document.getElementById('formTipoData');
+        var mesInput = document.getElementById('formDataMes');
+        var deInput = document.getElementById('formDataDe');
+        var ateInput = document.getElementById('formDataAte');
+        var espInput = document.getElementById('formDatasEsp');
+
+        if (tipo === 'hoje') {
+            tipoInput.value = 'hoje';
+        } else if (tipo === 'mes') {
+            tipoInput.value = 'mes';
+            var ddpMes = document.getElementById('ddpInputMes');
+            mesInput.value = ddpMes ? ddpMes.value : '';
+        } else if (tipo === 'personalizado') {
+            var submode = document.querySelector('input[name="ddp_submode"]:checked');
+            var subVal = submode ? submode.value : 'intervalo';
+            if (subVal === 'intervalo') {
+                tipoInput.value = 'intervalo';
+                var ddpDe = document.getElementById('ddpInputDataDe');
+                var ddpAte = document.getElementById('ddpInputDataAte');
+                deInput.value = ddpDe ? ddpDe.value : '';
+                ateInput.value = ddpAte ? ddpAte.value : '';
+            } else {
+                if (datasEspecificasSet.size === 0) {
+                    var inputAdd = document.getElementById('ddpInputDataAdd');
+                    if (inputAdd && inputAdd.value) {
+                        datasEspecificasSet.add(inputAdd.value);
+                    } else {
+                        alert('Por favor, adicione pelo menos uma data para filtrar.');
+                        return;
+                    }
+                }
+                tipoInput.value = 'especificas';
+                espInput.value = Array.from(datasEspecificasSet).join(',');
+            }
+        }
+
+        form.submit();
+    };
+
+    window.limparFiltroData = function () {
+        var tipoInput = document.getElementById('formTipoData');
+        var deInput = document.getElementById('formDataDe');
+        var ateInput = document.getElementById('formDataAte');
+        var espInput = document.getElementById('formDatasEsp');
+        if (tipoInput) tipoInput.value = '';
+        if (deInput) deInput.value = '';
+        if (ateInput) ateInput.value = '';
+        if (espInput) espInput.value = '';
+        var form = document.getElementById('dashFilterForm');
+        if (form) form.submit();
+    };
 
     // ─── Redimensionamento Suave dos Gráficos ─────────────────────────────────
     function resizeAllCharts() {
