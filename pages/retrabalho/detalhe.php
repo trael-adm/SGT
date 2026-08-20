@@ -90,9 +90,22 @@ if (!$dataInicio) {
 }
 $materiaisExistentes = [];
 if ($idLote) {
-    $stmtMat = $pdo->prepare("SELECT codigo, descricao, unidade, quantidade, preco_medio FROM retrabalho_material_uso WHERE id_lote = ? ORDER BY id");
-    $stmtMat->execute([$idLote]);
-    $materiaisExistentes = $stmtMat->fetchAll();
+    try {
+        $stmtMat = $pdo->prepare("SELECT codigo, descricao, unidade, quantidade, preco_medio FROM retrabalho_material_uso WHERE id_lote = ? ORDER BY id");
+        $stmtMat->execute([$idLote]);
+        $materiaisExistentes = $stmtMat->fetchAll();
+    } catch (\Throwable $e) {
+        try {
+            $pdo->exec("ALTER TABLE retrabalho_material_uso ADD COLUMN preco_medio DECIMAL(14,4) NULL DEFAULT NULL AFTER quantidade");
+            $stmtMat = $pdo->prepare("SELECT codigo, descricao, unidade, quantidade, preco_medio FROM retrabalho_material_uso WHERE id_lote = ? ORDER BY id");
+            $stmtMat->execute([$idLote]);
+            $materiaisExistentes = $stmtMat->fetchAll();
+        } catch (\Throwable $e2) {
+            $stmtMat = $pdo->prepare("SELECT codigo, descricao, unidade, quantidade FROM retrabalho_material_uso WHERE id_lote = ? ORDER BY id");
+            $stmtMat->execute([$idLote]);
+            $materiaisExistentes = $stmtMat->fetchAll();
+        }
+    }
 }
 
 function fmtDataBR(?string $iso): string

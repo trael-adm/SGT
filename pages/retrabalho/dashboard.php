@@ -234,22 +234,24 @@ $custoPorLote = [];
 
 if (!empty($lotesIds)) {
     $ph = implode(',', array_fill(0, count($lotesIds), '?'));
-    $stmtCusto = $pdo->prepare("
-        SELECT rmu.id_lote,
-               COALESCE(SUM(rmu.quantidade * COALESCE(rmu.preco_medio, 0)), 0) AS custo_lote,
-               COUNT(*) AS total_itens
-        FROM retrabalho_material_uso rmu
-        WHERE rmu.id_lote IN ($ph)
-        GROUP BY rmu.id_lote
-    ");
-    $stmtCusto->execute($lotesIds);
-    foreach ($stmtCusto->fetchAll(PDO::FETCH_ASSOC) as $rowC) {
-        $idL = (int) $rowC['id_lote'];
-        $cVal = (float) $rowC['custo_lote'];
-        $custoPorLote[$idL] = $cVal;
-        $custoTotalMateriais += $cVal;
-        $totalItensMateriais += (int) $rowC['total_itens'];
-    }
+    try {
+        $stmtCusto = $pdo->prepare("
+            SELECT rmu.id_lote,
+                   COALESCE(SUM(rmu.quantidade * COALESCE(rmu.preco_medio, 0)), 0) AS custo_lote,
+                   COUNT(*) AS total_itens
+            FROM retrabalho_material_uso rmu
+            WHERE rmu.id_lote IN ($ph)
+            GROUP BY rmu.id_lote
+        ");
+        $stmtCusto->execute($lotesIds);
+        foreach ($stmtCusto->fetchAll(PDO::FETCH_ASSOC) as $rowC) {
+            $idL = (int) $rowC['id_lote'];
+            $cVal = (float) $rowC['custo_lote'];
+            $custoPorLote[$idL] = $cVal;
+            $custoTotalMateriais += $cVal;
+            $totalItensMateriais += (int) $rowC['total_itens'];
+        }
+    } catch (\Throwable $e) {}
 }
 
 // Vincula o custo do lote a cada registro para filtros dinâmicos

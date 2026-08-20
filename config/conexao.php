@@ -124,5 +124,32 @@ function getDB(): PDO
     $pdo->exec("SET NAMES utf8mb4");
     $pdo->exec("SET time_zone = '-04:00'");
 
+    // Auto-verificação de esquema para colunas novas essenciais (evita erro 1054 em produção/Railway)
+    static $schemaChecked = false;
+    if (!$schemaChecked) {
+        $schemaChecked = true;
+        try {
+            // 1. preco_medio em itens_catalogo
+            $colItens = $pdo->query("
+                SELECT COUNT(*) FROM information_schema.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'itens_catalogo' AND COLUMN_NAME = 'preco_medio'
+            ")->fetchColumn();
+            if (!$colItens) {
+                $pdo->exec("ALTER TABLE itens_catalogo ADD COLUMN preco_medio DECIMAL(14,4) NULL DEFAULT NULL AFTER unidade");
+            }
+        } catch (\Throwable $e) {}
+
+        try {
+            // 2. preco_medio em retrabalho_material_uso
+            $colUso = $pdo->query("
+                SELECT COUNT(*) FROM information_schema.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'retrabalho_material_uso' AND COLUMN_NAME = 'preco_medio'
+            ")->fetchColumn();
+            if (!$colUso) {
+                $pdo->exec("ALTER TABLE retrabalho_material_uso ADD COLUMN preco_medio DECIMAL(14,4) NULL DEFAULT NULL AFTER quantidade");
+            }
+        } catch (\Throwable $e) {}
+    }
+
     return $pdo;
 }

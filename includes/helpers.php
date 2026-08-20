@@ -200,18 +200,33 @@ function buscarMateriaisCatalogo(PDO $pdo, string $termo, int $limite = 20): arr
     // Permite que tanto '%' quanto espaços funcionem como coringa entre palavras
     $padrao = '%' . preg_replace('/\s+/', '%', $termoEscapado) . '%';
 
-    $stmt = $pdo->prepare("
-        SELECT codigo, descricao, unidade, preco_medio FROM itens_catalogo
-        WHERE codigo LIKE :padraoCodigo OR descricao LIKE :padraoDescricao
-        ORDER BY (codigo = :termoExato) DESC, descricao
-        LIMIT :limite
-    ");
-    $stmt->bindValue(':padraoCodigo', $padrao, PDO::PARAM_STR);
-    $stmt->bindValue(':padraoDescricao', $padrao, PDO::PARAM_STR);
-    $stmt->bindValue(':termoExato', $termo, PDO::PARAM_STR);
-    $stmt->bindValue(':limite', $limite, PDO::PARAM_INT);
-    $stmt->execute();
-    return $stmt->fetchAll();
+    try {
+        $stmt = $pdo->prepare("
+            SELECT codigo, descricao, unidade, preco_medio FROM itens_catalogo
+            WHERE codigo LIKE :padraoCodigo OR descricao LIKE :padraoDescricao
+            ORDER BY (codigo = :termoExato) DESC, descricao
+            LIMIT :limite
+        ");
+        $stmt->bindValue(':padraoCodigo', $padrao, PDO::PARAM_STR);
+        $stmt->bindValue(':padraoDescricao', $padrao, PDO::PARAM_STR);
+        $stmt->bindValue(':termoExato', $termo, PDO::PARAM_STR);
+        $stmt->bindValue(':limite', $limite, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetchAll();
+    } catch (\Throwable $e) {
+        $stmt = $pdo->prepare("
+            SELECT codigo, descricao, unidade FROM itens_catalogo
+            WHERE codigo LIKE :padraoCodigo OR descricao LIKE :padraoDescricao
+            ORDER BY (codigo = :termoExato) DESC, descricao
+            LIMIT :limite
+        ");
+        $stmt->bindValue(':padraoCodigo', $padrao, PDO::PARAM_STR);
+        $stmt->bindValue(':padraoDescricao', $padrao, PDO::PARAM_STR);
+        $stmt->bindValue(':termoExato', $termo, PDO::PARAM_STR);
+        $stmt->bindValue(':limite', $limite, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetchAll();
+    }
 }
 
 /**
