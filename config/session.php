@@ -15,34 +15,50 @@ class TraelDbSessionHandler implements SessionHandlerInterface
 
     public function read(string $id): string
     {
-        $maxAge = time() - (int) ini_get('session.gc_maxlifetime');
-        $stmt = $this->pdo->prepare(
-            'SELECT data FROM php_sessions WHERE id = ? AND updated_at > ? LIMIT 1'
-        );
-        $stmt->execute([$id, $maxAge]);
-        return (string) ($stmt->fetchColumn() ?: '');
+        try {
+            $maxAge = time() - (int) ini_get('session.gc_maxlifetime');
+            $stmt = $this->pdo->prepare(
+                'SELECT data FROM php_sessions WHERE id = ? AND updated_at > ? LIMIT 1'
+            );
+            $stmt->execute([$id, $maxAge]);
+            return (string) ($stmt->fetchColumn() ?: '');
+        } catch (\Throwable $e) {
+            return '';
+        }
     }
 
     public function write(string $id, string $data): bool
     {
-        $this->pdo->prepare(
-            'INSERT INTO php_sessions (id, data, updated_at) VALUES (?, ?, ?)
-             ON DUPLICATE KEY UPDATE data = VALUES(data), updated_at = VALUES(updated_at)'
-        )->execute([$id, $data, time()]);
-        return true;
+        try {
+            $this->pdo->prepare(
+                'INSERT INTO php_sessions (id, data, updated_at) VALUES (?, ?, ?)
+                 ON DUPLICATE KEY UPDATE data = VALUES(data), updated_at = VALUES(updated_at)'
+            )->execute([$id, $data, time()]);
+            return true;
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     public function destroy(string $id): bool
     {
-        $this->pdo->prepare('DELETE FROM php_sessions WHERE id = ?')->execute([$id]);
-        return true;
+        try {
+            $this->pdo->prepare('DELETE FROM php_sessions WHERE id = ?')->execute([$id]);
+            return true;
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     public function gc(int $max_lifetime): int|false
     {
-        $stmt = $this->pdo->prepare('DELETE FROM php_sessions WHERE updated_at < ?');
-        $stmt->execute([time() - $max_lifetime]);
-        return $stmt->rowCount();
+        try {
+            $stmt = $this->pdo->prepare('DELETE FROM php_sessions WHERE updated_at < ?');
+            $stmt->execute([time() - $max_lifetime]);
+            return $stmt->rowCount();
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 }
 
