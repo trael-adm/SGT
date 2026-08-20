@@ -3,16 +3,10 @@
 -- Banco de Dados: Estrutura inicial (autenticação + Retrabalho)
 -- Versão: 1.0.0
 -- Fuso horário: America/Cuiaba (UTC-4 fixo)
--- ===============================================trael_dbtrael_dbtrael_db_dev==============================
--- USO: execute em um servidor MySQL/MariaDB para criar o banco trael_db,
--- toda a estrutura e os dados iniciais (usuário admin + exemplos de retrabalho).
---   mysql -u root < _inicial/database.sql
--- ou importe este arquivo pelo phpMyAdmin/HeidiSQL do Laragon.
 -- =============================================================================
-
-CREATE DATABASE IF NOT EXISTS trael_db
-    DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE trael_db;
+-- USO: execute no banco selecionado (ex: railway ou trael_db) para criar
+-- toda a estrutura e os dados iniciais.
+-- =============================================================================
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
@@ -207,4 +201,3 @@ CREATE TABLE IF NOT EXISTS retrabalhos (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
-`trael_db_devtrael_db_devsgt-dev`perfis
