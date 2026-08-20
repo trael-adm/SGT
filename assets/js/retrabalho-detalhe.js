@@ -396,20 +396,20 @@
     }
 
     // ─── Materiais utilizados: busca no catálogo (itens_catalogo, via acao=
-    // buscar_material) + linhas adicionadas na tabela. Cada linha guarda seus
-    // dados em inputs hidden (material_codigo[]/material_descricao[]/
-    // material_unidade[]/material_qtd[]) dentro do próprio #rtd-form-add, então
-    // o submit existente (FormData) já pega tudo sem mudança na lógica de envio.
+    // buscar_material) + linhas adicionadas na tabela com Preço Médio e Subtotal.
     (function () {
         var buscaInput   = document.getElementById('rtd-material-busca');
         var sugestoesEl  = document.getElementById('rtd-material-sugestoes');
         var linhasWrap   = document.getElementById('rtd-material-linhas');
         var vazioEl      = document.getElementById('rtd-material-vazio');
+        var totalFootEl  = document.getElementById('rtd-material-total-foot');
+        var totalGeralEl = document.getElementById('rtd-material-total-geral');
         var manualToggle = document.getElementById('rtd-material-manual-toggle');
         var manualWrap   = document.getElementById('rtd-material-manual');
         var manualCodigo = document.getElementById('rtd-material-manual-codigo');
         var manualDesc   = document.getElementById('rtd-material-manual-descricao');
         var manualUnid   = document.getElementById('rtd-material-manual-unidade');
+        var manualPreco  = document.getElementById('rtd-material-manual-preco');
         var manualAdd    = document.getElementById('rtd-material-manual-add');
         var chkNenhum    = document.getElementById('rtd-material-nenhum');
         var exportCsvBtn = document.getElementById('rtd-exportar-csv');
@@ -421,8 +421,50 @@
             });
         }
 
+        function formatarBRL(val) {
+            if (val == null || isNaN(val)) return '—';
+            return 'R$ ' + Number(val).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function parseNum(v) {
+            if (v == null || v === '') return 0;
+            var n = parseFloat(String(v).replace(',', '.'));
+            return isNaN(n) ? 0 : n;
+        }
+
+        function recalcularTotais() {
+            var linhas = linhasWrap.querySelectorAll('.rtd-material-linha');
+            var somaTotal = 0;
+            var temPrecoQualquer = false;
+
+            linhas.forEach(function (tr) {
+                var qtdInput = tr.querySelector('.js-material-qtd');
+                var qtd = parseNum(qtdInput ? qtdInput.value : 0);
+                var precoAttr = tr.getAttribute('data-preco');
+                var preco = precoAttr !== '' && precoAttr != null ? parseNum(precoAttr) : null;
+                var subtotalEl = tr.querySelector('.js-material-subtotal-txt');
+
+                if (preco !== null && preco > 0) {
+                    temPrecoQualquer = true;
+                    var sub = qtd * preco;
+                    somaTotal += sub;
+                    if (subtotalEl) subtotalEl.textContent = formatarBRL(sub);
+                } else {
+                    if (subtotalEl) subtotalEl.textContent = '—';
+                }
+            });
+
+            if (totalFootEl) {
+                totalFootEl.style.display = (linhas.length > 0) ? '' : 'none';
+            }
+            if (totalGeralEl) {
+                totalGeralEl.textContent = formatarBRL(somaTotal);
+            }
+        }
+
         function atualizarVazio() {
             if (vazioEl) vazioEl.style.display = linhasWrap.children.length ? 'none' : 'block';
+            recalcularTotais();
         }
 
         function syncNenhumMaterial() {
@@ -460,16 +502,22 @@
             var descricao = (item.descricao || '').trim();
             var unidade   = (item.unidade || '').trim();
             var qtd       = item.quantidade != null ? item.quantidade : '';
+            var preco     = item.preco_medio != null && item.preco_medio !== '' ? parseNum(item.preco_medio) : null;
+            var qtdNum    = parseNum(qtd);
+            var subtotal  = preco !== null ? (qtdNum * preco) : null;
 
             var tr = document.createElement('tr');
             tr.className = 'rtd-material-linha';
             tr.setAttribute('data-codigo', codigo);
+            tr.setAttribute('data-preco', preco !== null ? String(preco) : '');
             tr.innerHTML =
                 '<td class="rtd-material-col-codigo"><input type="hidden" name="material_codigo[]" value="' + escapeHtml(codigo) + '">' + escapeHtml(codigo || '—') + '</td>' +
                 '<td class="rtd-material-col-desc"><input type="hidden" name="material_descricao[]" value="' + escapeHtml(descricao) + '">' + escapeHtml(descricao) + '</td>' +
-                '<td class="rtd-material-col-qtd"><input type="number" name="material_qtd[]" step="0.01" min="0" class="form-control" value="' + escapeHtml(String(qtd)) + '" placeholder="Qtd"></td>' +
+                '<td class="rtd-material-col-qtd"><input type="number" name="material_qtd[]" step="0.01" min="0" class="form-control js-material-qtd" value="' + escapeHtml(String(qtd)) + '" placeholder="Qtd"></td>' +
                 '<td class="rtd-material-col-unid"><input type="hidden" name="material_unidade[]" value="' + escapeHtml(unidade) + '">' + escapeHtml(unidade || '—') + '</td>' +
-                '<td class="rtd-material-col-acao"><button type="button" class="rtd-item-del js-remover-material" title="Remover material">✕</button></td>';
+                '<td class="rtd-material-col-preco" style="text-align:right;font-size:12.5px;color:#334155;white-space:nowrap;"><input type="hidden" name="material_preco_unitario[]" value="' + (preco !== null ? escapeHtml(String(preco)) : '') + '"><span class="js-material-preco-txt">' + formatarBRL(preco) + '</span></td>' +
+                '<td class="rtd-material-col-subtotal" style="text-align:right;font-size:12.5px;font-weight:700;color:#0f172a;white-space:nowrap;"><span class="js-material-subtotal-txt">' + formatarBRL(subtotal) + '</span></td>' +
+                '<td class="rtd-material-col-acao" style="text-align:center;"><button type="button" class="rtd-item-del js-remover-material" title="Remover material">✕</button></td>';
             return tr;
         }
 
@@ -505,6 +553,12 @@
             syncNenhumMaterial();
         });
 
+        linhasWrap.addEventListener('input', function (e) {
+            if (e.target && e.target.classList.contains('js-material-qtd')) {
+                recalcularTotais();
+            }
+        });
+
         // ─── Busca com debounce + dropdown de sugestões ────────────────────
         var debounceTimer = null;
 
@@ -514,7 +568,6 @@
         }
 
         function renderSugestoes(itens, termoBuscado) {
-            // Resposta desatualizada (usuário já digitou outra coisa antes de chegar) — descarta.
             if (buscaInput.value.trim() !== termoBuscado) return;
 
             sugestoesEl.innerHTML = '';
@@ -526,15 +579,21 @@
             } else {
                 var header = document.createElement('div');
                 header.className = 'rtd-material-sugestoes-header';
-                header.innerHTML = '<span class="mat-col-cod">Código</span><span class="mat-col-desc">Descrição</span><span class="mat-col-unid">Unidade</span>';
+                header.innerHTML = '<span class="mat-col-cod">Código</span><span class="mat-col-desc">Descrição</span><span class="mat-col-unid">Unid</span><span class="mat-col-preco">Preço Médio</span>';
                 sugestoesEl.appendChild(header);
 
                 itens.forEach(function (item) {
                     var el = document.createElement('div');
                     el.className = 'rtd-material-sugestao';
+                    var precoNum = item.preco_medio != null ? parseNum(item.preco_medio) : null;
+                    var precoHtml = (precoNum !== null && precoNum > 0)
+                        ? '<span class="mat-preco">' + formatarBRL(precoNum) + '</span>'
+                        : '<span style="color:#9ca3af;font-size:11px;text-align:right;">—</span>';
+
                     el.innerHTML = '<span class="mat-codigo">' + escapeHtml(item.codigo || '—') + '</span>' +
                                    '<span class="mat-desc" title="' + escapeHtml(item.descricao || '') + '">' + escapeHtml(item.descricao || '') + '</span>' +
-                                   '<span class="mat-unid">' + escapeHtml(item.unidade || 'UN') + '</span>';
+                                   '<span class="mat-unid">' + escapeHtml(item.unidade || 'UN') + '</span>' +
+                                   precoHtml;
                     el.addEventListener('click', function () {
                         adicionarLinha(item);
                         buscaInput.value = '';
@@ -621,11 +680,13 @@
                     codigo: manualCodigo ? manualCodigo.value : '',
                     descricao: descricao,
                     unidade: manualUnid ? manualUnid.value : '',
+                    preco_medio: manualPreco ? manualPreco.value : null,
                     quantidade: ''
                 });
                 if (manualCodigo) manualCodigo.value = '';
                 manualDesc.value = '';
                 if (manualUnid) manualUnid.value = '';
+                if (manualPreco) manualPreco.value = '';
                 if (manualWrap) manualWrap.style.display = 'none';
             });
         }

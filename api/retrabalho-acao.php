@@ -111,19 +111,31 @@ if (!function_exists('lerMateriaisUsados')) {
         $descricoes = (array) ($_POST['material_descricao'] ?? []);
         $unidades   = (array) ($_POST['material_unidade'] ?? []);
         $qtds       = (array) ($_POST['material_qtd'] ?? []);
+        $precos     = (array) ($_POST['material_preco_unitario'] ?? []);
 
         $itens = [];
         foreach ($descricoes as $i => $descricao) {
             $descricao = trim((string) $descricao);
             if ($descricao === '') continue;
-            $codigo  = trim((string) ($codigos[$i] ?? ''));
-            $unidade = trim((string) ($unidades[$i] ?? ''));
-            $qtd     = (float) str_replace(',', '.', (string) ($qtds[$i] ?? 0));
+            $codigo   = trim((string) ($codigos[$i] ?? ''));
+            $unidade  = trim((string) ($unidades[$i] ?? ''));
+            $qtd      = (float) str_replace(',', '.', (string) ($qtds[$i] ?? 0));
+            $precoRaw = trim((string) ($precos[$i] ?? ''));
+            $preco    = null;
+            if ($precoRaw !== '') {
+                $limpo = str_replace(['R$', ' ', '"'], '', $precoRaw);
+                $limpo = str_replace(',', '.', $limpo);
+                if (is_numeric($limpo)) {
+                    $preco = (float) $limpo;
+                }
+            }
+
             $itens[] = [
-                'codigo'    => $codigo !== '' ? $codigo : null,
-                'descricao' => $descricao,
-                'unidade'   => $unidade !== '' ? $unidade : null,
-                'quantidade' => max(0, $qtd),
+                'codigo'      => $codigo !== '' ? $codigo : null,
+                'descricao'   => $descricao,
+                'unidade'     => $unidade !== '' ? $unidade : null,
+                'quantidade'  => max(0, $qtd),
+                'preco_medio' => $preco,
             ];
         }
 
@@ -139,15 +151,26 @@ if (!function_exists('gravarMateriaisUsados')) {
      */
     function gravarMateriaisUsados(PDO $pdo, int $idLote, array $itens, int $userId): void
     {
+        // Garante que a coluna preco_medio exista antes de gravar
+        try {
+            $colCheck = $pdo->query("
+                SELECT COUNT(*) FROM information_schema.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'retrabalho_material_uso' AND COLUMN_NAME = 'preco_medio'
+            ")->fetchColumn();
+            if (!$colCheck) {
+                $pdo->exec("ALTER TABLE retrabalho_material_uso ADD COLUMN preco_medio DECIMAL(14,4) NULL DEFAULT NULL AFTER quantidade");
+            }
+        } catch (\Throwable $e) {}
+
         $pdo->prepare("DELETE FROM retrabalho_material_uso WHERE id_lote = ?")->execute([$idLote]);
         if (!$itens) return;
 
         $stmt = $pdo->prepare("
-            INSERT INTO retrabalho_material_uso (id_lote, codigo, descricao, unidade, quantidade, id_criador)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO retrabalho_material_uso (id_lote, codigo, descricao, unidade, quantidade, preco_medio, id_criador)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ");
         foreach ($itens as $it) {
-            $stmt->execute([$idLote, $it['codigo'], $it['descricao'], $it['unidade'], $it['quantidade'], $userId]);
+            $stmt->execute([$idLote, $it['codigo'], $it['descricao'], $it['unidade'], $it['quantidade'], $it['preco_medio'], $userId]);
         }
     }
 }

@@ -80,7 +80,7 @@ $materiaisPorLote = [];
 if ($idLotes) {
     $ph = implode(',', array_fill(0, count($idLotes), '?'));
     $stmtMat = $pdo->prepare("
-        SELECT id_lote, codigo, descricao, unidade, quantidade
+        SELECT id_lote, codigo, descricao, unidade, quantidade, preco_medio
         FROM retrabalho_material_uso
         WHERE id_lote IN ($ph)
         ORDER BY id
@@ -636,9 +636,24 @@ layoutHeader($pageTitle);
 
             <div class="hd-section">Materiais utilizados</div>
             <div id="hd-materiais-vazio" class="hd-vazio">Nenhum material registrado nesta Triagem.</div>
-            <table class="hd-materiais" id="hd-materiais-tabela" style="display:none;">
-                <thead><tr><th>Código</th><th>Descrição</th><th>Quantidade</th><th>Unidade</th></tr></thead>
+            <table class="hd-materiais" id="hd-materiais-tabela" style="display:none;width:100%;">
+                <thead>
+                    <tr>
+                        <th>Código</th>
+                        <th>Descrição</th>
+                        <th>Qtd</th>
+                        <th>Unidade</th>
+                        <th style="text-align:right;">Preço Médio</th>
+                        <th style="text-align:right;">Subtotal</th>
+                    </tr>
+                </thead>
                 <tbody id="hd-materiais-corpo"></tbody>
+                <tfoot id="hd-materiais-foot">
+                    <tr style="background:#f8fafc;font-weight:700;border-top:2px solid #e2e8f0;">
+                        <td colspan="4" style="text-align:right;padding:8px 10px;font-size:12px;color:#475569;">Custo Total dos Materiais:</td>
+                        <td colspan="2" style="text-align:right;padding:8px 10px;font-size:13px;color:#1e40af;" id="hd-materiais-total">R$ 0,00</td>
+                    </tr>
+                </tfoot>
             </table>
         </div>
     </div>
@@ -681,6 +696,7 @@ layoutHeader($pageTitle);
             var vazio = document.getElementById('hd-materiais-vazio');
             corpo.innerHTML = '';
             if (d.materiais && d.materiais.length) {
+                var totalSoma = 0;
                 d.materiais.forEach(function (m) {
                     var tr = document.createElement('tr');
                     var tdCod = document.createElement('td');
@@ -691,12 +707,33 @@ layoutHeader($pageTitle);
                     tdQtd.textContent = m.quantidade;
                     var tdUnid = document.createElement('td');
                     tdUnid.textContent = m.unidade || '—';
+
+                    var preco = m.preco_medio != null && m.preco_medio !== '' ? parseFloat(m.preco_medio) : null;
+                    var qtd = parseFloat(m.quantidade) || 0;
+                    var sub = (preco !== null && !isNaN(preco)) ? (qtd * preco) : null;
+                    if (sub !== null) totalSoma += sub;
+
+                    var tdPreco = document.createElement('td');
+                    tdPreco.style.textAlign = 'right';
+                    tdPreco.style.whiteSpace = 'nowrap';
+                    tdPreco.textContent = preco !== null ? 'R$ ' + preco.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+
+                    var tdSub = document.createElement('td');
+                    tdSub.style.textAlign = 'right';
+                    tdSub.style.fontWeight = '700';
+                    tdSub.style.whiteSpace = 'nowrap';
+                    tdSub.textContent = sub !== null ? 'R$ ' + sub.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+
                     tr.appendChild(tdCod);
                     tr.appendChild(tdDesc);
                     tr.appendChild(tdQtd);
                     tr.appendChild(tdUnid);
+                    tr.appendChild(tdPreco);
+                    tr.appendChild(tdSub);
                     corpo.appendChild(tr);
                 });
+                var totalEl = document.getElementById('hd-materiais-total');
+                if (totalEl) totalEl.textContent = 'R$ ' + totalSoma.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 tabela.style.display = '';
                 vazio.style.display = 'none';
             } else {

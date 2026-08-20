@@ -60,22 +60,44 @@ if ($fh === false) {
 $bom = fread($fh, 3);
 if ($bom !== "\xEF\xBB\xBF") rewind($fh);
 
-$cabecalho = fgetcsv($fh);
+$cabecalho = fgetcsv($fh, null, ',', '"', '\\');
 if (!$cabecalho || trim((string) $cabecalho[0]) !== 'CodProd') {
     echo "ERRO: cabeçalho inesperado — esperava a coluna 'CodProd' primeiro, achei: " . json_encode($cabecalho) . "\n";
     exit(1);
 }
 
-$itens = []; // codigo => [descricao, unidade]
+// Garante que a coluna preco_medio exista antes de gravar
+try {
+    $colCheck = $pdo->query("
+        SELECT COUNT(*) FROM information_schema.COLUMNS 
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'itens_catalogo' AND COLUMN_NAME = 'preco_medio'
+    ")->fetchColumn();
+    if (!$colCheck) {
+        $pdo->exec("ALTER TABLE itens_catalogo ADD COLUMN preco_medio DECIMAL(14,4) NULL DEFAULT NULL AFTER unidade");
+    }
+} catch (Throwable $e) {}
+
+$itens = []; // codigo => [descricao, unidade, preco_medio]
 $linha = 1;
 $ignoradas = 0;
-while (($row = fgetcsv($fh)) !== false) {
+while (($row = fgetcsv($fh, null, ',', '"', '\\')) !== false) {
     $linha++;
-    $codigo = trim((string) ($row[0] ?? ''));
+    $codigo    = trim((string) ($row[0] ?? ''));
     $descricao = trim((string) ($row[1] ?? ''));
-    $unidade = trim((string) ($row[2] ?? ''));
+    $unidade   = trim((string) ($row[2] ?? ''));
     if ($codigo === '' || $descricao === '' || $unidade === '') { $ignoradas++; continue; }
-    $itens[$codigo] = [$descricao, $unidade];
+
+    $precoRaw = trim((string) ($row[3] ?? ''));
+    $preco = null;
+    if ($precoRaw !== '') {
+        $limpo = str_replace(['R$', ' ', '"'], '', $precoRaw);
+        $limpo = str_replace(',', '.', $limpo);
+        if (is_numeric($limpo)) {
+            $preco = round((float) $limpo, 4);
+        }
+    }
+
+    $itens[$codigo] = [$descricao, $unidade, $preco];
 }
 fclose($fh);
 
@@ -99,20 +121,20 @@ function inserirEmLotes(PDO $pdo, string $sql, array $tuplas, int $tamanhoLote =
 }
 
 $tuplas = [];
-foreach ($itens as $codigo => [$descricao, $unidade]) {
-    $tuplas[] = [$codigo, $descricao, $unidade];
+foreach ($itens as $codigo => [$descricao, $unidade, $preco]) {
+    $tuplas[] = [$codigo, $descricao, $unidade, $preco];
 }
 
 $pdo->beginTransaction();
 try {
     if ($tuplas) {
         inserirEmLotes($pdo, "
-            INSERT INTO itens_catalogo (codigo, descricao, unidade) VALUES __VALUES__
-            ON DUPLICATE KEY UPDATE descricao = VALUES(descricao), unidade = VALUES(unidade)
+            INSERT INTO itens_catalogo (codigo, descricao, unidade, preco_medio) VALUES __VALUES__
+            ON DUPLICATE KEY UPDATE descricao = VALUES(descricao), unidade = VALUES(unidade), preco_medio = VALUES(preco_medio)
         ", $tuplas);
     }
     $pdo->commit();
-    echo "OK — " . count($tuplas) . " itens gravados/atualizados em itens_catalogo.\n";
+    echo "OK — " . count($tuplas) . " itens gravados/atualizados em itens_catalogo (com preço médio).\n";
 } catch (Throwable $e) {
     $pdo->rollBack();
     echo "ERRO, desfeito: " . $e->getMessage() . "\n";

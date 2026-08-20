@@ -201,7 +201,7 @@ function buscarMateriaisCatalogo(PDO $pdo, string $termo, int $limite = 20): arr
     $padrao = '%' . preg_replace('/\s+/', '%', $termoEscapado) . '%';
 
     $stmt = $pdo->prepare("
-        SELECT codigo, descricao, unidade FROM itens_catalogo
+        SELECT codigo, descricao, unidade, preco_medio FROM itens_catalogo
         WHERE codigo LIKE :padraoCodigo OR descricao LIKE :padraoDescricao
         ORDER BY (codigo = :termoExato) DESC, descricao
         LIMIT :limite

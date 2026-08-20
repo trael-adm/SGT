@@ -84,7 +84,7 @@ $materiaisPorLote = [];
 if ($idLotes) {
     $ph = implode(',', array_fill(0, count($idLotes), '?'));
     $stmtMat = $pdo->prepare("
-        SELECT id_lote, codigo, descricao, unidade, quantidade
+        SELECT id_lote, codigo, descricao, unidade, quantidade, preco_medio
         FROM retrabalho_material_uso
         WHERE id_lote IN ($ph)
         ORDER BY id

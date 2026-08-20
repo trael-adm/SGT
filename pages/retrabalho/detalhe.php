@@ -90,7 +90,7 @@ if (!$dataInicio) {
 }
 $materiaisExistentes = [];
 if ($idLote) {
-    $stmtMat = $pdo->prepare("SELECT codigo, descricao, unidade, quantidade FROM retrabalho_material_uso WHERE id_lote = ? ORDER BY id");
+    $stmtMat = $pdo->prepare("SELECT codigo, descricao, unidade, quantidade, preco_medio FROM retrabalho_material_uso WHERE id_lote = ? ORDER BY id");
     $stmtMat->execute([$idLote]);
     $materiaisExistentes = $stmtMat->fetchAll();
 }
@@ -106,10 +106,7 @@ function fmtDataBR(?string $iso): string
  * Markup de 1 linha da tabela de materiais utilizados — reaproveitado tanto
  * para pré-renderizar as linhas já gravadas (retrabalho_material_uso) quanto
  * como referência da estrutura que assets/js/retrabalho-detalhe.js clona ao
- * adicionar uma linha nova (busca ou manual). Os 3 primeiros campos vão em
- * inputs hidden — só quantidade é editável — pra virar `material_codigo[]` /
- * `material_descricao[]` / `material_unidade[]` / `material_qtd[]` no submit
- * (arrays paralelos, mesmo padrão de `id_reprova[]`/`data_reprova[]`).
+ * adicionar uma linha nova (busca ou manual).
  */
 function rtdMaterialLinha(array $item): string
 {
@@ -117,9 +114,16 @@ function rtdMaterialLinha(array $item): string
     $descricao = trim((string) ($item['descricao'] ?? ''));
     $unidade   = trim((string) ($item['unidade'] ?? ''));
     $qtd       = $item['quantidade'] ?? '';
+    $preco     = isset($item['preco_medio']) && $item['preco_medio'] !== null && $item['preco_medio'] !== '' ? (float) $item['preco_medio'] : null;
+    $qtdNum    = (float) ($qtd ?: 0);
+    $subtotal  = $preco !== null ? ($qtdNum * $preco) : null;
+
+    $precoFmt    = $preco !== null ? 'R$ ' . number_format($preco, 2, ',', '.') : '—';
+    $subtotalFmt = $subtotal !== null ? 'R$ ' . number_format($subtotal, 2, ',', '.') : '—';
+
     ob_start();
     ?>
-    <tr class="rtd-material-linha" data-codigo="<?= htmlspecialchars($codigo) ?>">
+    <tr class="rtd-material-linha" data-codigo="<?= htmlspecialchars($codigo) ?>" data-preco="<?= $preco !== null ? htmlspecialchars((string) $preco) : '' ?>">
         <td class="rtd-material-col-codigo">
             <input type="hidden" name="material_codigo[]" value="<?= htmlspecialchars($codigo) ?>"><?= htmlspecialchars($codigo !== '' ? $codigo : '—') ?>
         </td>
@@ -127,12 +131,19 @@ function rtdMaterialLinha(array $item): string
             <input type="hidden" name="material_descricao[]" value="<?= htmlspecialchars($descricao) ?>"><?= htmlspecialchars($descricao) ?>
         </td>
         <td class="rtd-material-col-qtd">
-            <input type="number" name="material_qtd[]" step="0.01" min="0" class="form-control" value="<?= htmlspecialchars((string) $qtd) ?>" placeholder="Qtd">
+            <input type="number" name="material_qtd[]" step="0.01" min="0" class="form-control js-material-qtd" value="<?= htmlspecialchars((string) $qtd) ?>" placeholder="Qtd">
         </td>
         <td class="rtd-material-col-unid">
             <input type="hidden" name="material_unidade[]" value="<?= htmlspecialchars($unidade) ?>"><?= htmlspecialchars($unidade !== '' ? $unidade : '—') ?>
         </td>
-        <td class="rtd-material-col-acao">
+        <td class="rtd-material-col-preco" style="text-align:right;font-size:12.5px;color:#334155;white-space:nowrap;">
+            <input type="hidden" name="material_preco_unitario[]" value="<?= $preco !== null ? htmlspecialchars((string) $preco) : '' ?>">
+            <span class="js-material-preco-txt"><?= htmlspecialchars($precoFmt) ?></span>
+        </td>
+        <td class="rtd-material-col-subtotal" style="text-align:right;font-size:12.5px;font-weight:700;color:#0f172a;white-space:nowrap;">
+            <span class="js-material-subtotal-txt"><?= htmlspecialchars($subtotalFmt) ?></span>
+        </td>
+        <td class="rtd-material-col-acao" style="text-align:center;">
             <button type="button" class="rtd-item-del js-remover-material" title="Remover material">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
             </button>
@@ -215,14 +226,15 @@ function rtdBlocoReprova(array $reprovas): string
         max-height:280px; overflow-y:auto; padding:0; margin:0;
     }
     .rtd-material-sugestoes-header {
-        display:grid; grid-template-columns: 110px 1fr 70px; gap: 12px;
+        display:grid; grid-template-columns: 100px 1fr 60px 110px; gap: 10px;
         padding:8px 14px; background:#f9fafb; border-bottom:1px solid #e5e7eb;
         font-size:11px; font-weight:700; text-transform:uppercase; color:#6b7280;
         letter-spacing:0.04em; position:sticky; top:0; z-index:2;
     }
-    .rtd-material-sugestoes-header .mat-col-unid { text-align:right; }
+    .rtd-material-sugestoes-header .mat-col-preco { text-align:right; }
+    .rtd-material-sugestoes-header .mat-col-unid { text-align:center; }
     .rtd-material-sugestao {
-        display:grid; grid-template-columns: 110px 1fr 70px; gap: 12px;
+        display:grid; grid-template-columns: 100px 1fr 60px 110px; gap: 10px;
         align-items:center; padding:8px 14px; border-bottom:1px solid #f3f4f6;
         cursor:pointer; font-size:13px; transition:background 0.15s ease;
     }
@@ -238,18 +250,24 @@ function rtdBlocoReprova(array $reprovas): string
         color:#1f2937; font-weight:500; line-height:1.35;
     }
     .rtd-material-sugestao .mat-unid {
-        text-align:right; font-size:11px; font-weight:600;
+        text-align:center; font-size:11px; font-weight:600;
         color:#4b5563; background:#f3f4f6; border-radius:4px;
-        padding:2px 6px; display:inline-block; margin-left:auto;
+        padding:2px 6px; display:inline-block;
         text-transform:uppercase;
+    }
+    .rtd-material-sugestao .mat-preco {
+        text-align:right; font-size:12px; font-weight:700;
+        color:#1e40af; background:#eff6ff; border:1px solid #bfdbfe; border-radius:4px;
+        padding:2px 8px; display:inline-block; margin-left:auto;
+        white-space:nowrap;
     }
     .rtd-material-sugestao.is-vazio {
         display:block; padding:16px 14px; text-align:center;
         color:#9ca3af; font-size:13px; cursor:default;
     }
     @media (max-width: 640px) {
-        .rtd-material-sugestoes-header { grid-template-columns: 85px 1fr 50px; gap: 8px; padding: 6px 10px; font-size: 10px; }
-        .rtd-material-sugestao { grid-template-columns: 85px 1fr 50px; gap: 8px; padding: 8px 10px; font-size: 12px; }
+        .rtd-material-sugestoes-header { grid-template-columns: 85px 1fr 45px 85px; gap: 6px; padding: 6px 10px; font-size: 10px; }
+        .rtd-material-sugestao { grid-template-columns: 85px 1fr 45px 85px; gap: 6px; padding: 8px 10px; font-size: 12px; }
     }
     .rtd-material-tabela-wrap { border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; margin-bottom:10px; }
     .rtd-material-tabela { width:100%; border-collapse:collapse; font-size:13px; }
@@ -405,7 +423,8 @@ function rtdBlocoReprova(array $reprovas): string
                     <div class="rtd-item-form">
                         <div class="form-group"><label class="form-label">Código (opcional)</label><input type="text" id="rtd-material-manual-codigo" class="form-control"></div>
                         <div class="form-group full"><label class="form-label">Descrição *</label><input type="text" id="rtd-material-manual-descricao" class="form-control" placeholder="Descreva o material"></div>
-                        <div class="form-group"><label class="form-label">Unidade</label><input type="text" id="rtd-material-manual-unidade" class="form-control" placeholder="und, kg, L…"></div>
+                        <div class="form-group"><label class="form-label">Unidade</label><input type="text" id="rtd-material-manual-unidade" class="form-control" placeholder="Un, Kg, M…"></div>
+                        <div class="form-group"><label class="form-label">Preço Unitário R$ (opcional)</label><input type="number" step="0.01" min="0" id="rtd-material-manual-preco" class="form-control" placeholder="0,00"></div>
                     </div>
                     <button type="button" class="btn btn-primary btn-sm" id="rtd-material-manual-add" style="margin-top:8px;">+ Adicionar à lista</button>
                 </div>
@@ -415,14 +434,33 @@ function rtdBlocoReprova(array $reprovas): string
                         <colgroup>
                             <col style="width:100px;">
                             <col>
-                            <col style="width:110px;">
-                            <col style="width:90px;">
+                            <col style="width:100px;">
+                            <col style="width:70px;">
+                            <col style="width:115px;">
+                            <col style="width:115px;">
                             <col style="width:40px;">
                         </colgroup>
-                        <thead><tr><th>Código</th><th>Descrição</th><th>Quantidade</th><th>Unidade</th><th></th></tr></thead>
+                        <thead>
+                            <tr>
+                                <th>Código</th>
+                                <th>Descrição</th>
+                                <th>Quantidade</th>
+                                <th>Unidade</th>
+                                <th style="text-align:right;">Preço Médio</th>
+                                <th style="text-align:right;">Subtotal</th>
+                                <th></th>
+                            </tr>
+                        </thead>
                         <tbody id="rtd-material-linhas">
                             <?php foreach ($materiaisExistentes as $m) echo rtdMaterialLinha($m); ?>
                         </tbody>
+                        <tfoot id="rtd-material-total-foot" style="<?= $materiaisExistentes ? '' : 'display:none;' ?>">
+                            <tr style="background:#f8fafc;font-weight:700;border-top:2px solid #e2e8f0;">
+                                <td colspan="4" style="text-align:right;padding:10px 12px;font-size:13px;color:#475569;">Custo Total dos Materiais:</td>
+                                <td colspan="2" style="text-align:right;padding:10px 12px;font-size:14px;color:#1e40af;" id="rtd-material-total-geral">R$ 0,00</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
                 <p id="rtd-material-vazio" class="rtd-hint" style="<?= $materiaisExistentes ? 'display:none;' : '' ?>">Nenhum material adicionado ainda.</p>
