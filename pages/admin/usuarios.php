@@ -236,7 +236,7 @@ tr.detail td{background:#FAFBFC;padding:0}
       <button class="btn-new" id="btnNew">＋ Novo usuário</button>
     </div>
     <div class="card-body">
-      <input class="search" id="q" type="search" placeholder="Buscar nome, e-mail, matrícula, setor..." autocomplete="off">
+      <input class="search" id="q" type="search" placeholder="Buscar nome, e-mail, setor..." autocomplete="off">
       <div class="filters">
         <select class="f" id="fSetor"></select>
         <select class="f" id="fPerfil"></select>
@@ -253,7 +253,7 @@ tr.detail td{background:#FAFBFC;padding:0}
           <thead><tr>
             <th style="width:44px"></th>
             <th class="l">Perfil de acesso</th>
-            <th>#</th><th>Matrícula</th>
+            <th>#</th>
             <th class="l">Usuário</th><th class="l">E-mail</th>
             <th>Setor</th><th>Status</th><th>Último acesso</th><th>Sinal</th>
             <th>Acesso</th><th class="r">Ações</th>
@@ -281,10 +281,8 @@ tr.detail td{background:#FAFBFC;padding:0}
       <button class="x" id="mClose" aria-label="Fechar">✕</button>
     </div>
     <div class="modal-body">
-      <div class="grid-2">
-        <div class="field"><label for="mNome">Nome completo</label><input id="mNome" type="text" placeholder="Ex.: Ana Beatriz Moraes" autocomplete="off"></div>
-        <div class="field"><label for="mMat">Matrícula</label><input id="mMat" type="text" placeholder="Ex.: 40218" autocomplete="off"></div>
-      </div>
+      <div class="field"><label for="mNome">Nome completo</label><input id="mNome" type="text" placeholder="Ex.: Ana Beatriz Moraes" autocomplete="off"></div>
+      <input id="mMat" type="hidden" value="">
       <div class="field"><label for="mEmail">E-mail corporativo</label><input id="mEmail" type="email" placeholder="nome.sobrenome@empresa.com.br" autocomplete="off"></div>
       <div class="field" id="wrapSenha"><label for="mSenha">Senha de acesso <span style="text-transform:none;color:var(--orange);font-weight:400" id="senhaHint"></span></label><input id="mSenha" type="password" placeholder="Mínimo 6 caracteres" autocomplete="new-password"></div>
       <div class="grid-2">
@@ -382,7 +380,7 @@ function filtered(){
   if(setor&&u.setor!==setor)return false;
   if(perfil&&u.perfil!==perfil)return false;
   if(area){const p=eff(u);if(!AREAS.find(a=>a.id===area).telas.some(t=>(p[t[0]]||'off')!=='off'))return false}
-  if(q&&![u.nome,u.email,u.mat,u.setor,P?P.nome:''].join(' ').toLowerCase().includes(q))return false;
+  if(q&&![u.nome,u.email,u.setor,P?P.nome:''].join(' ').toLowerCase().includes(q))return false;
   return true;
  });
 }
@@ -394,7 +392,7 @@ function render(){
  const slice=list.slice((page-1)*perPage,page*perPage),tb=$('#tbody');
 
  if(!list.length){
-  tb.innerHTML='<tr><td colspan="12"><div class="empty"><strong>Nenhum usuário encontrado</strong>Ajuste a busca ou os filtros para ver outros resultados.</div></td></tr>';
+  tb.innerHTML='<tr><td colspan="11"><div class="empty"><strong>Nenhum usuário encontrado</strong>Ajuste a busca ou os filtros para ver outros resultados.</div></td></tr>';
  }else{
   tb.innerHTML=slice.map((u,i)=>{
    const P=getPerfil(u.perfil),perms=eff(u),lib=liberadas(perms),pct=Math.round(lib/TOTAL*100),ex=nExc(u);
@@ -406,7 +404,6 @@ function render(){
      <td><button class="expander" data-exp="${u.id}" aria-expanded="${open}" aria-label="Detalhes de ${esc(u.nome)}">${open?'−':'+'}</button></td>
      <td class="l"><span class="badge ${GRP_CLS[pGrupo]||'b-VIS'}">${pNome}</span></td>
      <td>${(page-1)*perPage+i+1}º</td>
-     <td class="mono">${esc(u.mat)||'—'}</td>
      <td class="l"><div class="user-cell"><span class="user-name">${esc(u.nome)}</span><span class="user-role">${esc(u.setor)||'—'} · Administrativo</span></div></td>
      <td class="l"><span class="email">${esc(u.email)}</span></td>
      <td>${esc(u.setor)||'—'}</td>
@@ -432,10 +429,9 @@ function render(){
       <span class="tag t-${r.nivel}">${NIVEIS[r.nivel]}</span>
       <span class="count">${r.on} de ${r.tot}</span></div>`;
    }).join('');
-   return main+`<tr class="detail"><td colspan="12"><div class="detail-inner">
+   return main+`<tr class="detail"><td colspan="11"><div class="detail-inner">
      <div><div class="detail-h">Acesso por área — perfil ${pNome}</div><div class="area-list">${areas}</div></div>
      <div><div class="detail-h">Dados da conta</div><div class="facts">
-       <div class="fact"><span>Matrícula</span><span class="mono">${esc(u.mat)||'—'}</span></div>
        <div class="fact"><span>Setor</span><span>${esc(u.setor)||'—'}</span></div>
        <div class="fact"><span>Perfil</span><span>${pNome}</span></div>
        <div class="fact"><span>Exceções</span><span>${ex||'nenhuma'}</span></div>
@@ -456,7 +452,7 @@ function render(){
 function openModal(u){
  editingId=u?u.id:null;
  $('#mTitle').textContent=u?'Editar usuário':'Novo usuário';
- $('#mSub').textContent=u?`${u.nome} · matrícula ${u.mat||'—'}`:'Escolha o perfil e ajuste apenas o que for exceção';
+ $('#mSub').textContent=u?u.nome:'Escolha o perfil e ajuste apenas o que for exceção';
  $('#mNome').value=u?u.nome:'';$('#mMat').value=u?u.mat:'';$('#mEmail').value=u?u.email:'';
  $('#mSenha').value='';
  $('#senhaHint').textContent=u?'(Deixe em branco para manter)':'*';
