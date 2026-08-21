@@ -137,13 +137,15 @@ CREATE TABLE IF NOT EXISTS projetos (
 
 -- Reprovas / contenções (tabela de referência) — Local: IQF=inspeção final, LAB=laboratório, GER=geral
 CREATE TABLE IF NOT EXISTS reprovas (
-    id        INT          AUTO_INCREMENT PRIMARY KEY,
-    codigo    VARCHAR(10)  NOT NULL UNIQUE,                            -- Ex.: M1, E1, R1
-    familia   VARCHAR(80)  NOT NULL,                                   -- Família da contenção
-    descricao VARCHAR(150) NOT NULL,                                   -- Descrição da contenção
-    local     ENUM('IQF','LAB','GER') NOT NULL,                        -- Onde reprovou
-    ativo     BOOLEAN      NOT NULL DEFAULT TRUE,
-    ordem     INT          NOT NULL DEFAULT 0
+    id             INT          AUTO_INCREMENT PRIMARY KEY,
+    codigo         VARCHAR(10)  NOT NULL UNIQUE,                            -- Ex.: EG1, C1, E1, L1, P1, R1
+    setor_causador VARCHAR(50)  NOT NULL DEFAULT 'S/ Setor Causador',       -- ENGENHARIA, CALDEIRARIA, ELÉTRICO, LINHA, PINTURA, REVITALIZAÇÃO
+    familia        VARCHAR(80)  NOT NULL,                                   -- Família da contenção
+    descricao      VARCHAR(150) NOT NULL,                                   -- Descrição da contenção
+    local          VARCHAR(50)  NOT NULL DEFAULT 'GER',                     -- Onde é selecionável: IQF, LAB, RET ou GER
+    vai_retrabalho TINYINT(1)   NOT NULL DEFAULT 1,                         -- 1=Retrabalho, 0=Retornos
+    ativo          BOOLEAN      NOT NULL DEFAULT TRUE,
+    ordem          INT          NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT IGNORE INTO reprovas (codigo, familia, descricao, local, ordem) VALUES

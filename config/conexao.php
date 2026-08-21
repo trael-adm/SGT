@@ -135,6 +135,10 @@ function getDB(): PDO
         try {
             $pdo->exec("ALTER TABLE retrabalho_material_uso ADD COLUMN preco_medio DECIMAL(14,4) NULL DEFAULT NULL AFTER quantidade");
         } catch (\Throwable $e) {}
+
+        try {
+            $pdo->exec("ALTER TABLE reprovas ADD COLUMN setor_causador VARCHAR(50) NOT NULL DEFAULT 'S/ Setor Causador' AFTER codigo");
+        } catch (\Throwable $e) {}
     }
 
     return $pdo;

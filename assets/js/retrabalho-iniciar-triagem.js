@@ -2,13 +2,14 @@
     'use strict';
 
     var API        = window.RETRABALHO_API || '';
-    var ID         = window.RETRABALHO_CHEGADA_ID || 0;
-    var ESPERADO   = (window.RETRABALHO_CHEGADA_NS || '').trim().toUpperCase();
-    var VOLTAR     = window.RETRABALHO_CHEGADA_VOLTAR || 'relacao.php';
+    var ID_PROJETO = window.RETRABALHO_INICIO_ID_PROJETO || 0;
+    var NS         = window.RETRABALHO_INICIO_NS || '';
+    var VOLTAR     = window.RETRABALHO_INICIO_VOLTAR || 'relacao.php';
+    var DESTINO    = window.RETRABALHO_INICIO_DESTINO || 'detalhe.php';
 
     var inputBarcode   = document.getElementById('inputBarcodeNs');
-    var btnConfirmar   = document.getElementById('btnConfirmarChegada');
-    var msgErro        = document.getElementById('chegadaMsgErro');
+    var btnConfirmar   = document.getElementById('btnConfirmarInicio');
+    var msgErro        = document.getElementById('inicioMsgErro');
     var barcodeBox     = document.getElementById('barcodeBox');
 
     var btnAbrirCamera = document.getElementById('btnAbrirCamera');
@@ -74,12 +75,13 @@
 
         if (btnConfirmar) {
             btnConfirmar.disabled = true;
-            btnConfirmar.textContent = 'Confirmando chegada…';
+            btnConfirmar.textContent = 'Registrando início da triagem…';
         }
 
         var body = new URLSearchParams({
-            acao: 'confirmar_chegada',
-            id: ID,
+            acao: 'confirmar_inicio',
+            id_projeto: ID_PROJETO,
+            ns_transformador: NS,
             codigo: codigo
         });
 
@@ -95,36 +97,36 @@
         })
         .then(function (res) {
             if (res && res.sucesso) {
-                announce('Chegada confirmada com sucesso.');
+                announce('Início da triagem registrado com sucesso.');
                 if (scanOverlay) scanOverlay.style.display = 'none';
                 stopCamera();
                 
                 if (barcodeBox) {
-                    barcodeBox.innerHTML = '<div style="font-size:32px;margin-bottom:8px;">✅</div><h3 style="color:#059669;font-size:16px;font-weight:700;">Chegada confirmada com sucesso!</h3><p style="font-size:12px;color:#64748b;">Redirecionando…</p>';
+                    barcodeBox.innerHTML = '<div style="font-size:32px;margin-bottom:8px;">✅</div><h3 style="color:#059669;font-size:16px;font-weight:700;">Início registrado com sucesso!</h3><p style="font-size:12px;color:#64748b;">Abrindo triagem…</p>';
                 }
                 setTimeout(function () {
-                    window.location.href = VOLTAR;
-                }, 600);
+                    window.location.href = DESTINO;
+                }, 500);
             } else {
                 locked = false;
                 if (btnConfirmar) {
                     btnConfirmar.disabled = false;
-                    btnConfirmar.textContent = 'Confirmar Chegada (Enter)';
+                    btnConfirmar.textContent = 'Confirmar Início da Triagem (Enter)';
                 }
-                mostrarErro(res.erro || 'Não foi possível confirmar a chegada deste transformador.');
+                mostrarErro(res.erro || 'Não foi possível registrar o início da triagem deste transformador.');
             }
         })
         .catch(function (err) {
             locked = false;
             if (btnConfirmar) {
                 btnConfirmar.disabled = false;
-                btnConfirmar.textContent = 'Confirmar Chegada (Enter)';
+                btnConfirmar.textContent = 'Confirmar Início da Triagem (Enter)';
             }
             mostrarErro('Erro de conexão: ' + (err.message || 'Verifique sua rede.'));
         });
     }
 
-    window.submeterChegadaManual = function () {
+    window.submeterInicioManual = function () {
         if (inputBarcode) {
             processarConfirmacao(inputBarcode.value);
         }

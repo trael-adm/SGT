@@ -584,12 +584,16 @@ layoutHeader($pageTitle);
 
                         <td style="text-align:right;vertical-align:middle;">
                             <?php if ($itemPrincipal['data_chegada'] === null): ?>
-                                <a class="rt-btn-chegada" href="<?= htmlspecialchars($base) ?>/pages/retrabalho/confirmar-chegada.php?id=<?= (int) $itemPrincipal['id'] ?>" title="Confirmar chegada por QR Code">
+                                <a class="rt-btn-chegada" href="<?= htmlspecialchars($base) ?>/pages/retrabalho/confirmar-chegada.php?id=<?= (int) $itemPrincipal['id'] ?>&origem=pintura" title="Confirmar chegada">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                                     Aguardando chegada
                                 </a>
+                            <?php elseif ($itemPrincipal['data_inicio'] === null): ?>
+                                <a class="rt-edit-btn" href="<?= htmlspecialchars($base) ?>/pages/retrabalho/iniciar-triagem.php?id=<?= (int) $itemPrincipal['id'] ?>&origem=pintura" title="Leitura de início da triagem">
+                                    Triagem
+                                </a>
                             <?php else: ?>
-                                <a class="rt-edit-btn" href="<?= htmlspecialchars($base) ?>/pages/retrabalho/detalhe.php?id=<?= (int) $itemPrincipal['id'] ?>" title="Ver / editar">
+                                <a class="rt-edit-btn" href="<?= htmlspecialchars($base) ?>/pages/retrabalho/detalhe.php?id=<?= (int) $itemPrincipal['id'] ?>&origem=pintura" title="Ver / editar triagem">
                                     Triagem
                                 </a>
                             <?php endif; ?>

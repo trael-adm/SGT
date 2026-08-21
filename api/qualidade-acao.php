@@ -29,12 +29,64 @@ if (!hasAcesso('qua.tip') && !hasAcesso('tab:retrabalho') && !hasAcesso('admin')
 $acao = trim((string)($_POST['acao'] ?? ''));
 $pdo = getDB();
 
+function gerarProximoCodigoReprova(string $setorCausador, PDO $pdo): string {
+    $setorNorm = mb_strtoupper(trim($setorCausador));
+    $prefixMap = [
+        'ENGENHARIA'     => 'EG',
+        'CALDEIRARIA'    => 'C',
+        'ELÉTRICO'       => 'E',
+        'ELETRICO'       => 'E',
+        'LINHA'          => 'L',
+        'MONTAGEM FINAL' => 'L',
+        'PINTURA'        => 'P',
+        'REVITALIZAÇÃO'  => 'R',
+        'REVITALIZACAO'  => 'R',
+    ];
+
+    $prefix = $prefixMap[$setorNorm] ?? '';
+
+    if ($prefix === '') {
+        $prefix = 'SC';
+    }
+
+    $stmt = $pdo->prepare("SELECT codigo FROM reprovas WHERE codigo REGEXP ?");
+    $stmt->execute(['^' . $prefix . '[0-9]+$']);
+    $codigos = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+    $maxNum = 0;
+    foreach ($codigos as $cod) {
+        if (preg_match('/^' . preg_quote($prefix, '/') . '(\d+)$/i', $cod, $m)) {
+            $num = (int)$m[1];
+            if ($num > $maxNum) {
+                $maxNum = $num;
+            }
+        }
+    }
+
+    return $prefix . ($maxNum + 1);
+}
+
 switch ($acao) {
+    case 'obter_proximo_codigo':
+        $setor = trim((string)($_POST['setor_causador'] ?? ''));
+        $prox = gerarProximoCodigoReprova($setor, $pdo);
+        echo json_encode(['sucesso' => true, 'proximo_codigo' => $prox]);
+        break;
+
     case 'salvar_reprova':
-        $id        = (int)($_POST['id'] ?? 0);
-        $codigo    = mb_strtoupper(trim((string)($_POST['codigo'] ?? '')));
-        $familia   = mb_strtoupper(trim((string)($_POST['familia'] ?? '')));
-        $descricao = mb_strtoupper(trim((string)($_POST['descricao'] ?? '')));
+        $id            = (int)($_POST['id'] ?? 0);
+        $setorCausador = mb_strtoupper(trim((string)($_POST['setor_causador'] ?? '')));
+        if ($setorCausador === '') {
+            $setorCausador = 'S/ SETOR CAUSADOR';
+        }
+        
+        $codigo        = mb_strtoupper(trim((string)($_POST['codigo'] ?? '')));
+        if ($codigo === '' && $id === 0) {
+            $codigo = gerarProximoCodigoReprova($setorCausador, $pdo);
+        }
+
+        $familia       = mb_strtoupper(trim((string)($_POST['familia'] ?? '')));
+        $descricao     = mb_strtoupper(trim((string)($_POST['descricao'] ?? '')));
         $locaisPost = $_POST['locais'] ?? null;
         if (is_array($locaisPost)) {
             $validos = array_values(array_unique(array_intersect(array_map('strtoupper', array_map('trim', $locaisPost)), ['IQF', 'LAB', 'RET'])));
@@ -63,8 +115,8 @@ switch ($acao) {
                     exit;
                 }
 
-                $stmt = $pdo->prepare("UPDATE reprovas SET codigo = ?, familia = ?, descricao = ?, local = ?, vai_retrabalho = ? WHERE id = ?");
-                $stmt->execute([$codigo, $familia, $descricao, $local, $vaiRetrabalho, $id]);
+                $stmt = $pdo->prepare("UPDATE reprovas SET codigo = ?, setor_causador = ?, familia = ?, descricao = ?, local = ?, vai_retrabalho = ? WHERE id = ?");
+                $stmt->execute([$codigo, $setorCausador, $familia, $descricao, $local, $vaiRetrabalho, $id]);
                 echo json_encode(['sucesso' => true, 'mensagem' => 'Reprova atualizada com sucesso.']);
             } else {
                 // Verificar se o código já existe
@@ -81,13 +133,13 @@ switch ($acao) {
                 $maxOrdem = (int)$stmt->fetchColumn();
                 $novaOrdem = $maxOrdem + 1;
 
-                $stmt = $pdo->prepare("INSERT INTO reprovas (codigo, familia, descricao, local, vai_retrabalho, ordem, ativo) VALUES (?, ?, ?, ?, ?, ?, 1)");
-                $stmt->execute([$codigo, $familia, $descricao, $local, $vaiRetrabalho, $novaOrdem]);
-                echo json_encode(['sucesso' => true, 'mensagem' => 'Reprova cadastrada com sucesso.']);
+                $stmt = $pdo->prepare("INSERT INTO reprovas (codigo, setor_causador, familia, descricao, local, vai_retrabalho, ordem, ativo) VALUES (?, ?, ?, ?, ?, ?, ?, 1)");
+                $stmt->execute([$codigo, $setorCausador, $familia, $descricao, $local, $vaiRetrabalho, $novaOrdem]);
+                echo json_encode(['sucesso' => true, 'mensagem' => 'Reprova cadastrada com sucesso.', 'codigo' => $codigo]);
             }
         } catch (Exception $e) {
             http_response_code(500);
-            echo json_encode(['sucesso' => false, 'erro' => 'Erro interno ao salvar.']);
+            echo json_encode(['sucesso' => false, 'erro' => 'Erro interno ao salvar: ' . $e->getMessage()]);
         }
         break;
 

@@ -10,21 +10,24 @@ requireAcessoModulo('retrabalho');
 $pdo  = getDB();
 $base = defined('APP_URL') ? APP_URL : '';
 
-$id = (int) ($_GET['id'] ?? 0);
+$id     = (int) ($_GET['id'] ?? 0);
+$origem = trim((string) ($_GET['origem'] ?? 'retrabalho'));
+$voltarUrl = ($origem === 'pintura') 
+    ? $base . '/pages/pintura/relacao.php' 
+    : $base . '/pages/retrabalho/relacao.php';
 
-$stmt = $pdo->prepare('SELECT id_projeto, ns_transformador FROM retrabalhos WHERE id = ?');
+$stmt = $pdo->prepare('SELECT id, id_projeto, ns_transformador, data_inicio, data_chegada FROM retrabalhos WHERE id = ? AND deleted_at IS NULL');
 $stmt->execute([$id]);
 $anchor = $stmt->fetch();
 
-$pageTitle = 'Retrabalho';
-require_once __DIR__ . '/../../includes/layout.php';
-layoutHeader($pageTitle);
-
 if (!$anchor) {
+    $pageTitle = 'Retrabalho';
+    require_once __DIR__ . '/../../includes/layout.php';
+    layoutHeader($pageTitle);
     ?>
     <div class="card">
         <p style="font-size:13px;color:var(--color-text-secondary,#6b7280);">Registro não encontrado.</p>
-        <a href="<?= htmlspecialchars($base) ?>/pages/retrabalho/relacao.php" class="btn btn-secondary" style="margin-top:10px;">&larr; Voltar para a Relação de Retrabalhos</a>
+        <a href="<?= htmlspecialchars($voltarUrl) ?>" class="btn btn-secondary" style="margin-top:10px;">&larr; Voltar para a Relação</a>
     </div>
     <?php
     layoutFooter();
@@ -33,6 +36,41 @@ if (!$anchor) {
 
 $idProjeto = (int) $anchor['id_projeto'];
 $ns        = (string) $anchor['ns_transformador'];
+
+// Busca todos os itens abertos para verificar se data_inicio já foi registrada
+$stmtItens = $pdo->prepare("
+    SELECT r.*, rep.codigo AS reprova_codigo, rep.familia AS reprova_familia, rep.descricao AS reprova_descricao
+    FROM retrabalhos r
+    LEFT JOIN reprovas rep ON rep.id = r.id_reprova
+    WHERE r.id_projeto = ? AND r.ns_transformador = ? AND r.deleted_at IS NULL
+    ORDER BY r.data_reprova DESC, r.id DESC
+");
+$stmtItens->execute([$idProjeto, $ns]);
+$itens = $stmtItens->fetchAll();
+
+$itensAbertos = array_values(array_filter($itens, fn ($r) => !in_array($r['status'], ['finalizado'], true)));
+
+$idLote = null;
+$dataInicio = null;
+foreach ($itensAbertos as $r) {
+    if ($r['id_lote'] && !$idLote) { $idLote = (int) $r['id_lote']; }
+    if (!empty($r['data_inicio']) && !$dataInicio) { $dataInicio = $r['data_inicio']; }
+}
+if (!$dataInicio) {
+    foreach ($itens as $r) {
+        if (!empty($r['data_inicio'])) { $dataInicio = $r['data_inicio']; break; }
+    }
+}
+
+// OBRIGATÓRIO: Se a data de início ainda não foi lida/bipada, redireciona para a tela intermediária de leitura
+if (!$dataInicio) {
+    header('Location: ' . $base . '/pages/retrabalho/iniciar-triagem.php?id=' . $id . '&origem=' . urlencode($origem));
+    exit;
+}
+
+$pageTitle = 'Retrabalho';
+require_once __DIR__ . '/../../includes/layout.php';
+layoutHeader($pageTitle);
 
 $stmt = $pdo->prepare("
     SELECT pr.codigo AS projeto_codigo, pr.descricao AS projeto_descricao, ped.numero AS pedido_numero
@@ -108,91 +146,97 @@ if ($idLote) {
     }
 }
 
-function fmtDataBR(?string $iso): string
-{
-    if (!$iso) return '—';
-    $ts = strtotime($iso);
-    return $ts ? date('d/m/y', $ts) : '—';
+if (!function_exists('fmtDataBR')) {
+    function fmtDataBR(?string $iso): string
+    {
+        if (!$iso) return '—';
+        $ts = strtotime($iso);
+        return $ts ? date('d/m/y', $ts) : '—';
+    }
 }
 
-/**
- * Markup de 1 linha da tabela de materiais utilizados — reaproveitado tanto
- * para pré-renderizar as linhas já gravadas (retrabalho_material_uso) quanto
- * como referência da estrutura que assets/js/retrabalho-detalhe.js clona ao
- * adicionar uma linha nova (busca ou manual).
- */
-function rtdMaterialLinha(array $item): string
-{
-    $codigo    = trim((string) ($item['codigo'] ?? ''));
-    $descricao = trim((string) ($item['descricao'] ?? ''));
-    $unidade   = trim((string) ($item['unidade'] ?? ''));
-    $qtd       = $item['quantidade'] ?? '';
-    $preco     = isset($item['preco_medio']) && $item['preco_medio'] !== null && $item['preco_medio'] !== '' ? (float) $item['preco_medio'] : null;
-    $qtdNum    = (float) ($qtd ?: 0);
-    $subtotal  = $preco !== null ? ($qtdNum * $preco) : null;
+if (!function_exists('rtdMaterialLinha')) {
+    /**
+     * Markup de 1 linha da tabela de materiais utilizados — reaproveitado tanto
+     * para pré-renderizar as linhas já gravadas (retrabalho_material_uso) quanto
+     * como referência da estrutura que assets/js/retrabalho-detalhe.js clona ao
+     * adicionar uma linha nova (busca ou manual).
+     */
+    function rtdMaterialLinha(array $item): string
+    {
+        $codigo    = trim((string) ($item['codigo'] ?? ''));
+        $descricao = trim((string) ($item['descricao'] ?? ''));
+        $unidade   = trim((string) ($item['unidade'] ?? ''));
+        $qtd       = $item['quantidade'] ?? '';
+        $preco     = isset($item['preco_medio']) && $item['preco_medio'] !== null && $item['preco_medio'] !== '' ? (float) $item['preco_medio'] : null;
+        $qtdNum    = (float) ($qtd ?: 0);
+        $subtotal  = $preco !== null ? ($qtdNum * $preco) : null;
 
-    $precoFmt    = $preco !== null ? 'R$ ' . number_format($preco, 2, ',', '.') : '—';
-    $subtotalFmt = $subtotal !== null ? 'R$ ' . number_format($subtotal, 2, ',', '.') : '—';
+        $precoFmt    = $preco !== null ? 'R$ ' . number_format($preco, 2, ',', '.') : '—';
+        $subtotalFmt = $subtotal !== null ? 'R$ ' . number_format($subtotal, 2, ',', '.') : '—';
 
-    ob_start();
-    ?>
-    <tr class="rtd-material-linha" data-codigo="<?= htmlspecialchars($codigo) ?>" data-preco="<?= $preco !== null ? htmlspecialchars((string) $preco) : '' ?>">
-        <td class="rtd-material-col-codigo">
-            <input type="hidden" name="material_codigo[]" value="<?= htmlspecialchars($codigo) ?>"><?= htmlspecialchars($codigo !== '' ? $codigo : '—') ?>
-        </td>
-        <td class="rtd-material-col-desc">
-            <input type="hidden" name="material_descricao[]" value="<?= htmlspecialchars($descricao) ?>"><?= htmlspecialchars($descricao) ?>
-        </td>
-        <td class="rtd-material-col-qtd">
-            <input type="number" name="material_qtd[]" step="0.01" min="0" class="form-control js-material-qtd" value="<?= htmlspecialchars((string) $qtd) ?>" placeholder="Qtd">
-        </td>
-        <td class="rtd-material-col-unid">
-            <input type="hidden" name="material_unidade[]" value="<?= htmlspecialchars($unidade) ?>"><?= htmlspecialchars($unidade !== '' ? $unidade : '—') ?>
-        </td>
-        <td class="rtd-material-col-preco" style="text-align:right;font-size:12.5px;color:#334155;white-space:nowrap;">
-            <input type="hidden" name="material_preco_unitario[]" value="<?= $preco !== null ? htmlspecialchars((string) $preco) : '' ?>">
-            <span class="js-material-preco-txt"><?= htmlspecialchars($precoFmt) ?></span>
-        </td>
-        <td class="rtd-material-col-subtotal" style="text-align:right;font-size:12.5px;font-weight:700;color:#0f172a;white-space:nowrap;">
-            <span class="js-material-subtotal-txt"><?= htmlspecialchars($subtotalFmt) ?></span>
-        </td>
-        <td class="rtd-material-col-acao" style="text-align:center;">
-            <button type="button" class="rtd-item-del js-remover-material" title="Remover material">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-            </button>
-        </td>
-    </tr>
-    <?php
-    return ob_get_clean();
+        ob_start();
+        ?>
+        <tr class="rtd-material-linha" data-codigo="<?= htmlspecialchars($codigo) ?>" data-preco="<?= $preco !== null ? htmlspecialchars((string) $preco) : '' ?>">
+            <td class="rtd-material-col-codigo">
+                <input type="hidden" name="material_codigo[]" value="<?= htmlspecialchars($codigo) ?>"><?= htmlspecialchars($codigo !== '' ? $codigo : '—') ?>
+            </td>
+            <td class="rtd-material-col-desc">
+                <input type="hidden" name="material_descricao[]" value="<?= htmlspecialchars($descricao) ?>"><?= htmlspecialchars($descricao) ?>
+            </td>
+            <td class="rtd-material-col-qtd">
+                <input type="number" name="material_qtd[]" step="0.01" min="0" class="form-control js-material-qtd" value="<?= htmlspecialchars((string) $qtd) ?>" placeholder="Qtd">
+            </td>
+            <td class="rtd-material-col-unid">
+                <input type="hidden" name="material_unidade[]" value="<?= htmlspecialchars($unidade) ?>"><?= htmlspecialchars($unidade !== '' ? $unidade : '—') ?>
+            </td>
+            <td class="rtd-material-col-preco" style="text-align:right;font-size:12.5px;color:#334155;white-space:nowrap;">
+                <input type="hidden" name="material_preco_unitario[]" value="<?= $preco !== null ? htmlspecialchars((string) $preco) : '' ?>">
+                <span class="js-material-preco-txt"><?= htmlspecialchars($precoFmt) ?></span>
+            </td>
+            <td class="rtd-material-col-subtotal" style="text-align:right;font-size:12.5px;font-weight:700;color:#0f172a;white-space:nowrap;">
+                <span class="js-material-subtotal-txt"><?= htmlspecialchars($subtotalFmt) ?></span>
+            </td>
+            <td class="rtd-material-col-acao" style="text-align:center;">
+                <button type="button" class="rtd-item-del js-remover-material" title="Remover material">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                </button>
+            </td>
+        </tr>
+        <?php
+        return ob_get_clean();
+    }
 }
 
-function rtdBlocoReprova(array $reprovas): string
-{
-    ob_start();
-    ?>
-    <div class="rtd-reprova-bloco" style="border:1px solid #e2e8f0;border-radius:8px;padding:14px;margin-bottom:12px;background:#fafbfc;">
-        <div class="rtd-item-form">
-            <div class="form-group full">
-                <label class="form-label">Código de reprova *</label>
-                <select name="id_reprova[]" class="form-control js-reprova-sel">
-                    <option value="">Selecione…</option>
-                    <?php foreach ($reprovas as $rp): ?>
-                        <option value="<?= (int) $rp['id'] ?>"><?= htmlspecialchars($rp['codigo'] . ' — ' . $rp['descricao']) ?></option>
-                    <?php endforeach; ?>
-                </select>
+if (!function_exists('rtdBlocoReprova')) {
+    function rtdBlocoReprova(array $reprovas): string
+    {
+        ob_start();
+        ?>
+        <div class="rtd-reprova-bloco" style="border:1px solid #e2e8f0;border-radius:8px;padding:14px;margin-bottom:12px;background:#fafbfc;">
+            <div class="rtd-item-form">
+                <div class="form-group full">
+                    <label class="form-label">Código de reprova *</label>
+                    <select name="id_reprova[]" class="form-control js-reprova-sel">
+                        <option value="">Selecione…</option>
+                        <?php foreach ($reprovas as $rp): ?>
+                            <option value="<?= (int) $rp['id'] ?>"><?= htmlspecialchars($rp['codigo'] . ' — ' . $rp['descricao']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <input type="hidden" name="data_reprova[]" class="js-data-reprova" value="<?= date('Y-m-d') ?>">
+                <div class="form-group full">
+                    <label class="form-label">Família</label>
+                    <input type="text" class="form-control js-familia" placeholder="— selecione o código —" disabled>
+                </div>
             </div>
-            <input type="hidden" name="data_reprova[]" class="js-data-reprova" value="<?= date('Y-m-d') ?>">
-            <div class="form-group full">
-                <label class="form-label">Família</label>
-                <input type="text" class="form-control js-familia" placeholder="— selecione o código —" disabled>
+            <div class="rtd-bloco-actions" style="display:flex;justify-content:flex-end;margin-top:8px;">
+                <button type="button" class="btn btn-secondary btn-sm js-remover-bloco">✕ Remover</button>
             </div>
         </div>
-        <div class="rtd-bloco-actions" style="display:flex;justify-content:flex-end;margin-top:8px;">
-            <button type="button" class="btn btn-secondary btn-sm js-remover-bloco">✕ Remover</button>
-        </div>
-    </div>
-    <?php
-    return ob_get_clean();
+        <?php
+        return ob_get_clean();
+    }
 }
 ?>
 
@@ -409,13 +453,10 @@ function rtdBlocoReprova(array $reprovas): string
         <div class="card-header"><div><div class="card-title">Triagem</div><div class="card-subtitle">Chegada ao retrabalho, causa, evidências e para onde encaminhar</div></div></div>
         <div class="rtd-item-form">
             <div class="form-group full">
-                <label class="form-label">Data de início do retrabalho *</label>
-                <div style="display:flex;gap:10px;align-items:center;">
-                    <input type="text" id="rtd-inicio-display" class="form-control" readonly
-                           placeholder="— aguardando leitura do QR Code —"
-                           value="<?= $dataInicio ? htmlspecialchars(date('d/m/y H:i', strtotime($dataInicio))) : '' ?>">
-                </div>
-                <p class="rtd-hint">Registrado automaticamente (dia e horário) ao ler o QR Code do transformador desta sessão. Obrigatório escanear para enviar a Triagem.</p>
+                <label class="form-label">Data de início do retrabalho</label>
+                <input type="text" id="rtd-inicio-display" class="form-control font-mono font-600" readonly
+                       value="<?= htmlspecialchars(date('d/m/y H:i', strtotime($dataInicio))) ?>" style="max-width:280px;background:#f8fafc;">
+                <p class="rtd-hint">Registrado automaticamente (dia e horário) via leitura de código de barras no início da triagem.</p>
             </div>
             <div class="form-group full">
                 <label class="form-label">Materiais utilizados *</label>
@@ -478,73 +519,111 @@ function rtdBlocoReprova(array $reprovas): string
                 </div>
                 <p id="rtd-material-vazio" class="rtd-hint" style="<?= $materiaisExistentes ? 'display:none;' : '' ?>">Nenhum material adicionado ainda.</p>
                 
-                <div style="margin-top: 14px;">
-                    <label class="rtd-setor-chip" style="margin:0;">
-                        <input type="checkbox" id="rtd-material-nenhum" name="nenhum_material" value="1">
-                        Nenhum material foi utilizado
-                    </label>
-                </div>
+                <p class="rtd-hint" style="margin-top:12px;margin-bottom:0;">
+                    Ao alterar as quantidades acima, o saldo dos materiais será debitado no sistema e o custo refletirá nos relatórios de retrabalho.
+                </p>
             </div>
             <div class="form-group full">
-                <label class="form-label">Observações</label>
-                <textarea name="observacoes" class="form-control" placeholder="Detalhes adicionais (opcional)"></textarea>
-            </div>
-            <div class="form-group full">
-                <label class="form-label">Próximos setores *</label>
+                <label class="form-label">Setores de destino *</label>
                 <div class="rtd-setores">
-                    <?php foreach (retrabalhoSetoresTriagem() as $slug => $label): ?>
-                        <label class="rtd-setor-chip">
-                            <input type="checkbox" name="setores_destino[]" value="<?= htmlspecialchars($slug) ?>">
-                            <?= htmlspecialchars($label) ?>
+                    <?php
+                    $setoresChecked = array_filter(array_map('trim', explode(',', (string) ($itensAbertos[0]['setores_destino'] ?? ''))));
+                    foreach (retrabalhoSetoresTriagem() as $chave => $nome):
+                        $checked = in_array($chave, $setoresChecked, true) ? 'checked' : '';
+                        ?>
+                        <label class="rtd-setor-pill">
+                            <input type="checkbox" name="setores_destino[]" value="<?= htmlspecialchars($chave) ?>" <?= $checked ?>>
+                            <span><?= htmlspecialchars($nome) ?></span>
                         </label>
                     <?php endforeach; ?>
                 </div>
             </div>
-            <div id="rtd-add-erro" style="display:none;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:14px;grid-column:1 / -1;"></div>
-            <div class="rtd-item-foot">
-                <button type="submit" class="btn btn-primary" id="rtd-add-submit">Enviar</button>
+            <div class="form-group full">
+                <label class="form-label">Observações da Triagem (opcional)</label>
+                <textarea id="rtd-observacoes" class="form-control" rows="3" placeholder="Detalhes observados na triagem…"><?= htmlspecialchars($itensAbertos[0]['observacoes'] ?? '') ?></textarea>
             </div>
+            <div class="form-group full">
+                <label class="form-label">Evidências / Fotos do Retrabalho (opcional)</label>
+                <p class="rtd-hint" style="margin-top:-2px;margin-bottom:8px;">Selecione imagens ou PDF do problema identificado (máx. 8MB por arquivo).</p>
+                <input type="file" id="rtd-anexos" class="form-control" multiple accept="image/*,application/pdf">
+                <div id="rtd-anexos-preview" class="rtd-anexos-preview"></div>
+                <?php
+                // Lista anexos já gravados (qualquer reprova aberta do NS)
+                $idsAbertos = array_map(fn ($r) => (int) $r['id'], $itensAbertos);
+                if ($idsAbertos) {
+                    $ph = implode(',', array_fill(0, count($idsAbertos), '?'));
+                    $stmtAnexos = $pdo->prepare("
+                        SELECT a.*, u.nome AS criador_nome
+                        FROM retrabalho_anexos a
+                        LEFT JOIN usuarios u ON u.id = a.id_criador
+                        WHERE a.id_retrabalho IN ($ph) AND a.deleted_at IS NULL
+                        ORDER BY a.id DESC
+                    ");
+                    $stmtAnexos->execute($idsAbertos);
+                    $anexosGravados = $stmtAnexos->fetchAll();
+                    if ($anexosGravados) {
+                        echo '<div class="rtd-anexos-existentes" style="margin-top:12px;">';
+                        echo '<div style="font-size:12px;font-weight:600;color:#475569;margin-bottom:6px;">Anexos já vinculados:</div>';
+                        echo '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+                        foreach ($anexosGravados as $anx) {
+                            $url = $base . '/uploads/retrabalho/' . rawurlencode($anx['nome_arquivo']);
+                            $isImg = preg_match('/\.(jpe?g|png|gif|webp)$/i', $anx['nome_arquivo']);
+                            echo '<div style="border:1px solid #cbd5e1;border-radius:6px;padding:6px 10px;background:#f8fafc;font-size:12px;display:flex;align-items:center;gap:6px;">';
+                            if ($isImg) {
+                                echo '<a href="' . htmlspecialchars($url) . '" target="_blank" style="display:flex;align-items:center;gap:6px;color:#1e40af;text-decoration:none;">';
+                                echo '<img src="' . htmlspecialchars($url) . '" style="width:28px;height:28px;object-fit:cover;border-radius:4px;" alt="">';
+                                echo '<span>' . htmlspecialchars($anx['nome_original']) . '</span>';
+                                echo '</a>';
+                            } else {
+                                echo '<a href="' . htmlspecialchars($url) . '" target="_blank" style="color:#1e40af;text-decoration:none;">📄 ' . htmlspecialchars($anx['nome_original']) . '</a>';
+                            }
+                            echo '</div>';
+                        }
+                        echo '</div>';
+                        echo '</div>';
+                    }
+                }
+                ?>
+            </div>
+        </div>
+
+        <div id="rtd-msg-erro" class="rtd-msg-erro" style="display:none;"></div>
+        <div id="rtd-msg-sucesso" class="rtd-msg-sucesso" style="display:none;"></div>
+
+        <div class="rtd-acoes">
+            <a href="<?= htmlspecialchars($voltarUrl) ?>" class="btn btn-secondary">Cancelar / Voltar</a>
+            <button type="button" class="btn btn-primary" id="rtd-btn-submit">
+                <?= $dataInicio ? 'Atualizar Triagem' : 'Salvar Triagem' ?>
+            </button>
         </div>
     </div>
 </form>
 
-<!-- Modal: Causa raiz de uma reprova específica -->
-<div class="modal-overlay" id="rtd-causaraiz-modal" style="display:none;">
-    <div class="modal">
-        <div class="modal-header">
-            <span class="modal-title">Causa da Reprova</span>
-            <button type="button" class="modal-close" id="rtd-causaraiz-close">&times;</button>
-        </div>
-        <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
-            <input type="hidden" id="rtd-causaraiz-id" value="">
-            <div id="rtd-causaraiz-erro" style="display:none;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;font-size:13px;"></div>
-            <div class="form-group" style="margin:0;">
-                <label class="form-label" for="rtd-causaraiz-texto">Descreva a causa da reprova *</label>
-                <textarea id="rtd-causaraiz-texto" class="form-control" style="width:100%;min-height:110px;resize:vertical;" placeholder="Ex.: &quot;Fio rompido por fadiga no ponto de solda da bobina AT&quot;"></textarea>
-                <span class="form-hint">Salva só o texto por enquanto — esta reprova específica passa para "Finalizado" ao enviar a Triagem.</span>
-            </div>
-        </div>
-        <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" id="rtd-causaraiz-cancelar">Cancelar</button>
-            <button type="button" class="btn btn-primary" id="rtd-causaraiz-salvar">Salvar Causa</button>
-        </div>
-    </div>
-</div>
-
-<!-- Modal: Correção de uma reprova específica -->
+<!-- Modal: Corrigir / Trocar Código de Reprova -->
 <div class="modal-overlay" id="rtd-correcao-modal" style="display:none;">
-    <div class="modal">
+    <div class="modal" style="max-width:480px;">
         <div class="modal-header">
-            <span class="modal-title">Correção da Reprova</span>
+            <span class="modal-title">Corrigir Código de Reprova</span>
             <button type="button" class="modal-close" id="rtd-correcao-close">&times;</button>
         </div>
-        <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
-            <input type="hidden" id="rtd-correcao-id" value="">
-            <div id="rtd-correcao-erro" style="display:none;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;font-size:13px;"></div>
-            <div class="form-group" style="margin:0;">
-                <label class="form-label" for="rtd-correcao-texto">Descreva a correção feita nesta reprova *</label>
-                <textarea id="rtd-correcao-texto" class="form-control" style="width:100%;min-height:110px;resize:vertical;" placeholder="Ex.: &quot;Feito nova isolação&quot;"></textarea>
-                <span class="form-hint">Salva a ação corretiva executada para esta reprova.</span>
+        <div class="modal-body">
+            <p style="font-size:13px;color:var(--color-text-secondary,#6b7280);margin:0 0 12px;">
+                Selecione o novo código para substituir a reprova apontada:
+            </p>
+            <div class="form-group">
+                <label class="form-label">Código Atual</label>
+                <input type="text" id="rtd-correcao-atual" class="form-control font-mono font-600" readonly style="background:#f1f5f9;">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Novo Código de Reprova *</label>
+                <select id="rtd-correcao-novo" class="form-control select-reprova-correcao">
+                    <option value="">— Selecione o novo código —</option>
+                    <?php foreach ($reprovas as $rep): ?>
+                        <option value="<?= (int) $rep['id'] ?>">
+                            <?= htmlspecialchars($rep['codigo']) ?> — <?= htmlspecialchars($rep['descricao']) ?> (<?= htmlspecialchars($rep['familia'] ?? 'Geral') ?>)
+                        </option>
+                    <?php endforeach; ?>
+                </select>
             </div>
         </div>
         <div class="modal-footer">
@@ -554,71 +633,7 @@ function rtdBlocoReprova(array $reprovas): string
     </div>
 </div>
 
-<!-- Modal: Confirmar Exclusão de Reprova -->
-<div class="modal-overlay" id="rtd-excluir-modal" style="display:none;">
-    <div class="modal" style="max-width:420px;">
-        <div class="modal-header">
-            <span class="modal-title">Confirmar Exclusão</span>
-            <button type="button" class="modal-close" id="rtd-excluir-close">&times;</button>
-        </div>
-        <div class="modal-body">
-            <p style="font-size:14px;color:var(--color-text-secondary,#6b7280);margin:0 0 6px;">
-                Deseja realmente excluir esta reprova adicionada no Retrabalho?
-            </p>
-            <p style="font-size:12px;color:var(--color-text-muted,#9ca3af);margin:0;">
-                Esta ação removerá o apontamento de reprova deste transformador.
-            </p>
-        </div>
-        <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" id="rtd-excluir-cancelar">Cancelar</button>
-            <button type="button" class="btn btn-danger" id="rtd-excluir-confirmar">Excluir Reprova</button>
-        </div>
-    </div>
-</div>
-
 </div><!-- /.rtd-wrap -->
-
-<!-- Scan overlay: leitura do QR Code para registrar dia + horário de início do retrabalho -->
-<div class="scan-overlay" id="rtd-inicio-overlay" role="dialog" aria-modal="true" aria-label="Registrar início do retrabalho por QR Code">
-    <div class="scan-overlay__bar">
-        <span>
-            Início do retrabalho — <strong><?= htmlspecialchars($ns) ?></strong>
-            · <?= htmlspecialchars($projeto['projeto_codigo'] ?? '—') ?>
-        </span>
-        <a class="scan-overlay__close" id="rtd-inicio-close" href="<?= htmlspecialchars($base) ?>/pages/retrabalho/relacao.php" aria-label="Voltar para a Relação">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </a>
-    </div>
-
-    <div class="scan-stage" id="rtd-inicio-stage">
-        <video id="rtd-inicio-video" autoplay playsinline muted></video>
-        <div class="viewfinder" id="rtd-inicio-viewfinder">
-            <span class="corner corner--tl"></span><span class="corner corner--tr"></span>
-            <span class="corner corner--bl"></span><span class="corner corner--br"></span>
-            <span class="scan-line"></span>
-        </div>
-        <div class="scan-stage__empty" id="rtd-inicio-stage-empty">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-            <p id="rtd-inicio-stage-empty-text">Solicitando acesso à câmera…</p>
-        </div>
-    </div>
-
-    <p class="scan-hint" id="rtd-inicio-hint">Aponte a câmera para o QR Code do transformador</p>
-    <div class="scan-overlay__error" id="rtd-inicio-error"></div>
-
-    <div class="scan-overlay__manual">
-        <button class="btn btn-secondary btn-block" id="rtd-inicio-show-manual-btn" type="button">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect><line x1="6" y1="8" x2="6" y2="8"></line><line x1="10" y1="8" x2="10" y2="8"></line><line x1="14" y1="8" x2="14" y2="8"></line><line x1="18" y1="8" x2="18" y2="8"></line><line x1="6" y1="12" x2="6" y2="12"></line><line x1="10" y1="12" x2="10" y2="12"></line><line x1="14" y1="12" x2="14" y2="12"></line><line x1="18" y1="12" x2="18" y2="12"></line><line x1="7" y1="16" x2="17" y2="16"></line></svg>
-            Digitar manualmente
-        </button>
-        <div class="manual-row" id="rtd-inicio-manual-row" style="display:none; margin-top:12px;">
-            <input id="rtd-inicio-manual-ns" type="text" placeholder="Ex.: 900201" autocomplete="off">
-            <button class="btn btn-secondary" id="rtd-inicio-manual-btn" type="button">Buscar</button>
-        </div>
-    </div>
-</div>
-
-<div id="rtd-inicio-live-region" aria-live="polite" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;"></div>
 
 <script>
     window.RETRABALHO_API = <?= json_encode($base . '/api/retrabalho-acao.php') ?>;
@@ -626,9 +641,8 @@ function rtdBlocoReprova(array $reprovas): string
     window.RETRABALHO_TEM_REPROVA_ABERTA = <?= json_encode($temReprovaAberta) ?>;
     window.RETRABALHO_ID_PROJETO = <?= json_encode($idProjeto) ?>;
     window.RETRABALHO_NS = <?= json_encode($ns) ?>;
-    window.RETRABALHO_VOLTAR = <?= json_encode($base . '/pages/retrabalho/relacao.php') ?>;
+    window.RETRABALHO_VOLTAR = <?= json_encode($voltarUrl) ?>;
 </script>
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <?php $rtdJsVer = @filemtime(__DIR__ . '/../../assets/js/retrabalho-detalhe.js') ?: (defined('APP_VERSION') ? APP_VERSION : '1'); ?>
 <script src="<?= htmlspecialchars($base) ?>/assets/js/retrabalho-detalhe.js?v=<?= htmlspecialchars((string) $rtdJsVer) ?>"></script>
 

@@ -17,9 +17,10 @@ $voltarUrl = ($origem === 'pintura')
     : $base . '/pages/retrabalho/relacao.php';
 
 $origemNome = ($origem === 'pintura') ? 'Pintura' : 'Retrabalho';
+$destinoUrl = $base . '/pages/retrabalho/detalhe.php?id=' . $id . '&origem=' . urlencode($origem);
 
 $stmt = $pdo->prepare("
-    SELECT r.id, r.ns_transformador, r.data_chegada, r.data_reprova,
+    SELECT r.id, r.id_projeto, r.ns_transformador, r.data_chegada, r.data_inicio,
            pr.codigo AS projeto_codigo, pr.descricao AS projeto_descricao,
            ped.numero AS pedido_numero,
            rep.codigo AS reprova_codigo, rep.descricao AS reprova_descricao
@@ -32,19 +33,31 @@ $stmt = $pdo->prepare("
 $stmt->execute([$id]);
 $registro = $stmt->fetch();
 
-$pageTitle = 'Confirmar Chegada — ' . $origemNome;
+// Se o início já foi registrado anteriormente, redireciona direto para a tela de triagem
+if ($registro && $registro['data_inicio'] !== null) {
+    header('Location: ' . $destinoUrl);
+    exit;
+}
+
+// Se a chegada ainda não foi confirmada, redireciona para a confirmação de chegada
+if ($registro && $registro['data_chegada'] === null) {
+    header('Location: ' . $base . '/pages/retrabalho/confirmar-chegada.php?id=' . $id . '&origem=' . urlencode($origem));
+    exit;
+}
+
+$pageTitle = 'Iniciar Triagem — ' . $origemNome;
 require_once __DIR__ . '/../../includes/layout.php';
 layoutHeader($pageTitle);
 
-if (!$registro || $registro['data_chegada'] !== null) {
+if (!$registro) {
     ?>
     <div class="card" style="max-width:600px;margin:32px auto;text-align:center;padding:32px;">
-        <div style="font-size:36px;margin-bottom:12px;">✅</div>
+        <div style="font-size:36px;margin-bottom:12px;">⚠️</div>
         <h2 style="font-size:18px;font-weight:700;color:#0f172a;margin-bottom:8px;">
-            <?= !$registro ? 'Registro não encontrado' : 'Chegada já confirmada!' ?>
+            Registro não encontrado
         </h2>
         <p style="font-size:13px;color:#64748b;margin-bottom:20px;">
-            <?= !$registro ? 'O transformador solicitado não existe ou foi excluído.' : 'A chegada deste transformador já foi registrada no sistema.' ?>
+            O transformador solicitado não existe ou foi excluído.
         </p>
         <a href="<?= htmlspecialchars($voltarUrl) ?>" class="btn btn-secondary">
             &larr; Voltar para a Relação de <?= htmlspecialchars($origemNome) ?>
@@ -57,18 +70,18 @@ if (!$registro || $registro['data_chegada'] !== null) {
 ?>
 
 <style>
-    .chegada-container {
+    .triagem-leitura-container {
         max-width: 680px;
         margin: 20px auto;
     }
-    .chegada-card {
+    .triagem-leitura-card {
         background: #ffffff;
         border: 1px solid #e2e8f0;
         border-radius: 12px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
         overflow: hidden;
     }
-    .chegada-header {
+    .triagem-leitura-header {
         padding: 16px 20px;
         background: #f8fafc;
         border-bottom: 1px solid #e2e8f0;
@@ -153,13 +166,13 @@ if (!$registro || $registro['data_chegada'] !== null) {
     }
 </style>
 
-<div class="chegada-container">
-    <!-- Card Principal de Leitura -->
-    <div class="chegada-card">
-        <div class="chegada-header">
+<div class="triagem-leitura-container">
+    <!-- Card Principal de Leitura Intermediária de Triagem -->
+    <div class="triagem-leitura-card">
+        <div class="triagem-leitura-header">
             <div>
                 <span style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Módulo <?= htmlspecialchars($origemNome) ?></span>
-                <h1 style="font-size:16px;font-weight:700;color:#0f172a;margin:2px 0 0;">Confirmar Chegada da Peça</h1>
+                <h1 style="font-size:16px;font-weight:700;color:#0f172a;margin:2px 0 0;">Leitura de Início da Triagem</h1>
             </div>
             <div style="display:flex;align-items:center;gap:8px;">
                 <button type="button" id="btnAbrirCamera" class="btn-camera-toggle" title="Usar câmera do dispositivo para ler QR Code">
@@ -197,13 +210,13 @@ if (!$registro || $registro['data_chegada'] !== null) {
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:26px;height:26px;"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect><line x1="6" y1="8" x2="6" y2="16"></line><line x1="10" y1="8" x2="10" y2="16"></line><line x1="14" y1="8" x2="14" y2="16"></line><line x1="18" y1="8" x2="18" y2="16"></line></svg>
                 </div>
                 <h3 style="font-size:15px;font-weight:700;color:#0f172a;margin-bottom:4px;">
-                    Aguardando leitura do leitor de código de barras
+                    Aguardando leitura para iniciar a triagem
                 </h3>
                 <p style="font-size:12px;color:#64748b;margin-bottom:16px;">
-                    Bipe a etiqueta do transformador com o leitor USB ou digite o N° de série abaixo e pressione Enter.
+                    Bipe a etiqueta do transformador com o leitor USB ou digite o N° de série abaixo e pressione Enter para abrir a triagem.
                 </p>
 
-                <form id="formChegadaBarcode" onsubmit="event.preventDefault(); submeterChegadaManual();" style="display:flex;flex-direction:column;align-items:center;gap:12px;">
+                <form id="formInicioBarcode" onsubmit="event.preventDefault(); submeterInicioManual();" style="display:flex;flex-direction:column;align-items:center;gap:12px;">
                     <input type="text" 
                            id="inputBarcodeNs" 
                            class="barcode-input" 
@@ -212,12 +225,12 @@ if (!$registro || $registro['data_chegada'] !== null) {
                            autofocus 
                            value="">
                     
-                    <button type="submit" class="btn btn-primary" id="btnConfirmarChegada" style="padding:10px 24px;font-weight:700;">
-                        Confirmar Chegada (Enter)
+                    <button type="submit" class="btn btn-primary" id="btnConfirmarInicio" style="padding:10px 24px;font-weight:700;">
+                        Confirmar Início da Triagem (Enter)
                     </button>
                 </form>
 
-                <div id="chegadaMsgErro" style="display:none;margin-top:14px;padding:10px 14px;border-radius:6px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-size:13px;font-weight:600;"></div>
+                <div id="inicioMsgErro" style="display:none;margin-top:14px;padding:10px 14px;border-radius:6px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-size:13px;font-weight:600;"></div>
             </div>
         </div>
     </div>
@@ -227,7 +240,7 @@ if (!$registro || $registro['data_chegada'] !== null) {
 <div class="scan-overlay" id="scanOverlay" role="dialog" aria-modal="true" aria-label="Leitor por Câmera" style="display:none;">
     <div class="scan-overlay__bar">
         <span>
-            Escanear QR Code — <strong><?= htmlspecialchars($registro['ns_transformador']) ?></strong>
+            Escanear QR Code de Início — <strong><?= htmlspecialchars($registro['ns_transformador']) ?></strong>
         </span>
         <button type="button" class="scan-overlay__close" id="btnFecharCamera" aria-label="Fechar câmera">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -261,12 +274,14 @@ if (!$registro || $registro['data_chegada'] !== null) {
 
 <script>
     window.RETRABALHO_API = <?= json_encode($base . '/api/retrabalho-acao.php') ?>;
-    window.RETRABALHO_CHEGADA_ID = <?= json_encode($registro['id']) ?>;
-    window.RETRABALHO_CHEGADA_NS = <?= json_encode($registro['ns_transformador']) ?>;
-    window.RETRABALHO_CHEGADA_VOLTAR = <?= json_encode($voltarUrl) ?>;
+    window.RETRABALHO_INICIO_ID = <?= json_encode($registro['id']) ?>;
+    window.RETRABALHO_INICIO_ID_PROJETO = <?= json_encode($registro['id_projeto']) ?>;
+    window.RETRABALHO_INICIO_NS = <?= json_encode($registro['ns_transformador']) ?>;
+    window.RETRABALHO_INICIO_VOLTAR = <?= json_encode($voltarUrl) ?>;
+    window.RETRABALHO_INICIO_DESTINO = <?= json_encode($destinoUrl) ?>;
 </script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-<?php $rcJsVer = @filemtime(__DIR__ . '/../../assets/js/retrabalho-chegada.js') ?: (defined('APP_VERSION') ? APP_VERSION : '1'); ?>
-<script src="<?= htmlspecialchars($base) ?>/assets/js/retrabalho-chegada.js?v=<?= htmlspecialchars((string) $rcJsVer) ?>"></script>
+<?php $riJsVer = @filemtime(__DIR__ . '/../../assets/js/retrabalho-iniciar-triagem.js') ?: (defined('APP_VERSION') ? APP_VERSION : '1'); ?>
+<script src="<?= htmlspecialchars($base) ?>/assets/js/retrabalho-iniciar-triagem.js?v=<?= htmlspecialchars((string) $riJsVer) ?>"></script>
 
 <?php layoutFooter(); ?>

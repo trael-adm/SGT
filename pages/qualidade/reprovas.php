@@ -9,7 +9,17 @@ requireAcessoModulo('qualidade');
 
 $pdo = getDB();
 
-$sql = "SELECT * FROM reprovas WHERE ativo = 1 ORDER BY familia ASC, ordem ASC, LENGTH(codigo) ASC, codigo ASC";
+$sql = "SELECT * FROM reprovas WHERE ativo = 1 ORDER BY 
+    CASE 
+        WHEN setor_causador = 'ENGENHARIA' THEN 1
+        WHEN setor_causador = 'CALDEIRARIA' THEN 2
+        WHEN setor_causador = 'ELÉTRICO' THEN 3
+        WHEN setor_causador = 'LINHA' THEN 4
+        WHEN setor_causador = 'PINTURA' THEN 5
+        WHEN setor_causador = 'REVITALIZAÇÃO' THEN 6
+        ELSE 7
+    END ASC,
+    LENGTH(codigo) ASC, codigo ASC, familia ASC";
 $stmt = $pdo->query($sql);
 $reprovas = $stmt->fetchAll();
 
@@ -41,11 +51,11 @@ layoutHeader($pageTitle);
         color: #ffffff;
     }
 
-    /* ─── Pílulas / Botões de Filtro de Setor Superior (Mais Quadradinhos) ─── */
+    /* ─── Pílulas / Botões de Filtro ─── */
     .filter-pill {
-        padding: 5px 14px;
+        padding: 4px 12px;
         border-radius: 6px;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 700;
         cursor: pointer;
         background: #ffffff;
@@ -61,40 +71,50 @@ layoutHeader($pageTitle);
     .filter-pill:hover {
         transform: translateY(-1px);
     }
-    .filter-pill.active[data-setor=""] {
+    .filter-pill.active {
         background: #0f172a;
         border-color: #0f172a;
         color: #ffffff;
     }
-    .filter-pill.pill-lab {
-        color: #7c3aed;
-        border-color: #ddd6fe;
-    }
-    .filter-pill.pill-lab:hover, .filter-pill.pill-lab.active {
-        background: #f5f3ff;
-        border-color: #7c3aed;
-        color: #7c3aed;
-    }
-    .filter-pill.pill-ret {
-        color: #ea580c;
-        border-color: #fed7aa;
-    }
-    .filter-pill.pill-ret:hover, .filter-pill.pill-ret.active {
-        background: #fff7ed;
-        border-color: #ea580c;
-        color: #ea580c;
-    }
-    .filter-pill.pill-iqf {
-        color: #2563eb;
-        border-color: #bfdbfe;
-    }
-    .filter-pill.pill-iqf:hover, .filter-pill.pill-iqf.active {
-        background: #eff6ff;
-        border-color: #2563eb;
-        color: #2563eb;
-    }
+    .filter-pill.pill-lab { color: #7c3aed; border-color: #ddd6fe; }
+    .filter-pill.pill-lab:hover, .filter-pill.pill-lab.active { background: #f5f3ff; border-color: #7c3aed; color: #7c3aed; }
+    .filter-pill.pill-ret { color: #ea580c; border-color: #fed7aa; }
+    .filter-pill.pill-ret:hover, .filter-pill.pill-ret.active { background: #fff7ed; border-color: #ea580c; color: #ea580c; }
+    .filter-pill.pill-iqf { color: #2563eb; border-color: #bfdbfe; }
+    .filter-pill.pill-iqf:hover, .filter-pill.pill-iqf.active { background: #eff6ff; border-color: #2563eb; color: #2563eb; }
 
-    /* ─── Botões na Linha da Tabela (Pílulas Quadradinhas com Borda) ─── */
+    /* Filtros por Setor Causador */
+    .filter-causador.active[data-causador=""] { background: #0f172a; border-color: #0f172a; color: #ffffff; }
+    .filter-causador.active[data-causador="ENGENHARIA"] { background: #eff6ff; border-color: #2563eb; color: #1d4ed8; }
+    .filter-causador.active[data-causador="CALDEIRARIA"] { background: #f1f5f9; border-color: #475569; color: #1e293b; }
+    .filter-causador.active[data-causador="ELÉTRICO"] { background: #f5f3ff; border-color: #7c3aed; color: #6d28d9; }
+    .filter-causador.active[data-causador="LINHA"] { background: #fff7ed; border-color: #ea580c; color: #c2410c; }
+    .filter-causador.active[data-causador="PINTURA"] { background: #ecfdf5; border-color: #10b981; color: #047857; }
+    .filter-causador.active[data-causador="REVITALIZAÇÃO"] { background: #f0fdfa; border-color: #14b8a6; color: #0f766e; }
+    .filter-causador.active[data-causador="S/ SETOR CAUSADOR"] { background: #f8fafc; border-color: #94a3b8; color: #64748b; }
+
+    /* ─── Badges de Setor Causador na Tabela ─── */
+    .badge-causador {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+        text-transform: uppercase;
+        line-height: 1.2;
+    }
+    .badge-causador-eg   { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+    .badge-causador-c    { background: #f8fafc; color: #334155; border: 1px solid #cbd5e1; }
+    .badge-causador-e    { background: #f5f3ff; color: #6d28d9; border: 1px solid #ddd6fe; }
+    .badge-causador-l    { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
+    .badge-causador-p    { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+    .badge-causador-r    { background: #f0fdfa; color: #0f766e; border: 1px solid #99f6e4; }
+    .badge-causador-sem  { background: #f1f5f9; color: #94a3b8; border: 1px dashed #cbd5e1; font-style: italic; }
+
+    /* ─── Botões na Linha da Tabela ─── */
     .row-pill {
         padding: 4px 12px;
         border-radius: 6px;
@@ -161,7 +181,7 @@ layoutHeader($pageTitle);
         pointer-events: none;
     }
 
-    /* ─── Botões de Seleção de Setor no Modal (Sem Checkbox/Radio Nativos) ─── */
+    /* ─── Botões de Seleção de Setor no Modal ─── */
     .modal-sector-btn {
         display: inline-flex;
         align-items: center;
@@ -226,14 +246,14 @@ layoutHeader($pageTitle);
     }
 </style>
 
-<!-- Bloco Superior Totalmente Travado (Header + Filtros) -->
+<!-- Bloco Superior Travado (Header + Filtros) -->
 <div style="position:sticky;top:-8px;z-index:20;background:var(--color-bg,#f8fafc);padding-bottom:14px;margin-top:-4px;">
     <!-- Cabeçalho -->
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
         <div>
             <h1 style="font-size:20px;font-weight:700;margin-top:2px;color:#0f172a;">Tipos de Reprova</h1>
             <p style="font-size:13px;color:#64748b;margin-top:2px;">
-                Gerencie os tipos de reprovas, setores aplicáveis e defina se a não conformidade deve ir para o Retrabalho ou para Retornos internos.
+                Gerencie os tipos de reprovas, setores causadores, locais de seleção e destino de retrabalho ou retorno.
             </p>
         </div>
         <button type="button" onclick="abrirModalNovaReprova()" class="btn-nova-reprova">
@@ -242,38 +262,54 @@ layoutHeader($pageTitle);
     </div>
 
     <!-- Filtros Superiores -->
-    <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;box-shadow:0 1px 2px rgba(0,0,0,0.02);">
-        <div style="flex:1;min-width:280px;">
-            <input type="search" id="busca" oninput="filtrarTabela()" placeholder="Buscar código, família ou descrição…" style="width:100%;height:38px;padding:0 14px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;color:#334155;background:#ffffff;outline:none;transition:border-color .15s ease;">
+    <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 18px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 2px rgba(0,0,0,0.02);">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:280px;">
+                <input type="search" id="busca" oninput="filtrarTabela()" placeholder="Buscar código, setor causador, família ou descrição…" style="width:100%;height:38px;padding:0 14px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;color:#334155;background:#ffffff;outline:none;transition:border-color .15s ease;">
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                <span style="font-size:12px;font-weight:600;color:#64748b;white-space:nowrap;">Selecionável em:</span>
+                <button type="button" class="filter-pill active" data-setor="" onclick="filtrarPorSetorBtn('', this)">Todos</button>
+                <button type="button" class="filter-pill pill-lab" data-setor="LAB" onclick="filtrarPorSetorBtn('LAB', this)">LAB</button>
+                <button type="button" class="filter-pill pill-ret" data-setor="RET" onclick="filtrarPorSetorBtn('RET', this)">RET</button>
+                <button type="button" class="filter-pill pill-iqf" data-setor="IQF" onclick="filtrarPorSetorBtn('IQF', this)">IQF</button>
+            </div>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;">
-            <span style="font-size:12px;font-weight:600;color:#64748b;white-space:nowrap;">Filtrar Setor:</span>
-            <button type="button" class="filter-pill active" data-setor="" onclick="filtrarPorSetorBtn('', this)">Todos</button>
-            <button type="button" class="filter-pill pill-lab" data-setor="LAB" onclick="filtrarPorSetorBtn('LAB', this)">LAB</button>
-            <button type="button" class="filter-pill pill-ret" data-setor="RET" onclick="filtrarPorSetorBtn('RET', this)">RET</button>
-            <button type="button" class="filter-pill pill-iqf" data-setor="IQF" onclick="filtrarPorSetorBtn('IQF', this)">IQF</button>
+
+        <!-- Filtro Rápido por Setor Causador -->
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;border-top:1px dashed #f1f5f9;padding-top:8px;">
+            <span style="font-size:12px;font-weight:600;color:#64748b;white-space:nowrap;">Setor Causador:</span>
+            <button type="button" class="filter-pill filter-causador active" data-causador="" onclick="filtrarPorCausadorBtn('', this)">Todos</button>
+            <button type="button" class="filter-pill filter-causador" data-causador="ENGENHARIA" onclick="filtrarPorCausadorBtn('ENGENHARIA', this)">Engenharia (EG)</button>
+            <button type="button" class="filter-pill filter-causador" data-causador="CALDEIRARIA" onclick="filtrarPorCausadorBtn('CALDEIRARIA', this)">Caldeiraria (C)</button>
+            <button type="button" class="filter-pill filter-causador" data-causador="ELÉTRICO" onclick="filtrarPorCausadorBtn('ELÉTRICO', this)">Elétrico (E)</button>
+            <button type="button" class="filter-pill filter-causador" data-causador="LINHA" onclick="filtrarPorCausadorBtn('LINHA', this)">Linha (L)</button>
+            <button type="button" class="filter-pill filter-causador" data-causador="PINTURA" onclick="filtrarPorCausadorBtn('PINTURA', this)">Pintura (P)</button>
+            <button type="button" class="filter-pill filter-causador" data-causador="REVITALIZAÇÃO" onclick="filtrarPorCausadorBtn('REVITALIZAÇÃO', this)">Revitalização (R)</button>
+            <button type="button" class="filter-pill filter-causador" data-causador="S/ SETOR CAUSADOR" onclick="filtrarPorCausadorBtn('S/ SETOR CAUSADOR', this)">S/ Setor Causador</button>
         </div>
     </div>
 </div>
 
 <!-- Tabela com Cabeçalho Sticky e Scroll Interno -->
-<div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.03);display:flex;flex-direction:column;height:calc(100vh - 250px);">
+<div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.03);display:flex;flex-direction:column;height:calc(100vh - 285px);">
     <div style="overflow-y:auto;overflow-x:auto;flex:1;min-height:0;">
         <table style="width:100%;border-collapse:collapse;text-align:left;" id="tabelaReprovas">
             <thead style="position:sticky;top:0;z-index:10;background:#f8fafc;border-bottom:1px solid #e2e8f0;box-shadow:0 1px 2px rgba(0,0,0,0.03);">
                 <tr>
-                    <th style="padding:12px 18px;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;text-transform:uppercase;cursor:pointer;" onclick="ordenarTabela(0, this)">CÓDIGO <span class="sort-icon"></span></th>
-                    <th style="padding:12px 18px;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;text-transform:uppercase;cursor:pointer;" onclick="ordenarTabela(1, this)">FAMÍLIA <span class="sort-icon"></span></th>
-                    <th style="padding:12px 18px;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;text-transform:uppercase;cursor:pointer;" onclick="ordenarTabela(2, this)">DESCRIÇÃO <span class="sort-icon"></span></th>
-                    <th style="padding:12px 18px;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;text-transform:uppercase;">SETORES ONDE É SELECIONÁVEL</th>
-                    <th style="padding:12px 18px;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;text-transform:uppercase;">DEVE IR PARA O RETRABALHO?</th>
-                    <th style="padding:12px 18px;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;text-transform:uppercase;text-align:right;">AÇÕES</th>
+                    <th style="padding:12px 16px;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;text-transform:uppercase;cursor:pointer;width:90px;" onclick="ordenarTabela(0, this)">CÓDIGO <span class="sort-icon"></span></th>
+                    <th style="padding:12px 16px;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;text-transform:uppercase;cursor:pointer;width:150px;" onclick="ordenarTabela(1, this)">SETOR CAUSADOR <span class="sort-icon"></span></th>
+                    <th style="padding:12px 16px;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;text-transform:uppercase;cursor:pointer;width:170px;" onclick="ordenarTabela(2, this)">FAMÍLIA <span class="sort-icon"></span></th>
+                    <th style="padding:12px 16px;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;text-transform:uppercase;cursor:pointer;" onclick="ordenarTabela(3, this)">DESCRIÇÃO <span class="sort-icon"></span></th>
+                    <th style="padding:12px 16px;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;text-transform:uppercase;width:160px;">SELECIONÁVEL EM</th>
+                    <th style="padding:12px 16px;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;text-transform:uppercase;width:150px;">VAI AO RETRABALHO?</th>
+                    <th style="padding:12px 16px;font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.5px;text-transform:uppercase;text-align:right;width:80px;">AÇÕES</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if (empty($reprovas)): ?>
                     <tr id="linhaVazia">
-                        <td colspan="6" style="text-align:center;padding:36px 16px;color:#94a3b8;">
+                        <td colspan="7" style="text-align:center;padding:36px 16px;color:#94a3b8;">
                             Nenhuma reprova cadastrada.
                         </td>
                     </tr>
@@ -290,19 +326,45 @@ layoutHeader($pageTitle);
                         $hasRet = in_array('RET', $locArray, true);
                         $hasIqf = in_array('IQF', $locArray, true);
                         $vaiRet = (int)($r['vai_retrabalho'] ?? 1) === 1;
+
+                        $setorCausador = trim((string)($r['setor_causador'] ?? 'S/ Setor Causador'));
+                        if ($setorCausador === '') $setorCausador = 'S/ Setor Causador';
+
+                        $badgeClass = 'badge-causador-sem';
+                        $scUpper = mb_strtoupper($setorCausador);
+                        if (str_contains($scUpper, 'ENG'))   $badgeClass = 'badge-causador-eg';
+                        elseif (str_contains($scUpper, 'CALD'))  $badgeClass = 'badge-causador-c';
+                        elseif (str_contains($scUpper, 'EL'))    $badgeClass = 'badge-causador-e';
+                        elseif (str_contains($scUpper, 'LIN'))   $badgeClass = 'badge-causador-l';
+                        elseif (str_contains($scUpper, 'PINT'))  $badgeClass = 'badge-causador-p';
+                        elseif (str_contains($scUpper, 'REV'))   $badgeClass = 'badge-causador-r';
                     ?>
-                        <tr class="linha-reprova" style="border-bottom:1px solid #f1f5f9;" data-id="<?= (int)$r['id'] ?>" data-local="<?= htmlspecialchars(implode(',', $locArray)) ?>" data-raw-local="<?= htmlspecialchars($r['local']) ?>">
-                            <td style="padding:14px 18px;font-weight:700;color:#0f172a;font-size:13px;font-family:monospace;">
+                        <tr class="linha-reprova" style="border-bottom:1px solid #f1f5f9;" 
+                            data-id="<?= (int)$r['id'] ?>" 
+                            data-causador="<?= htmlspecialchars(mb_strtoupper($setorCausador)) ?>"
+                            data-local="<?= htmlspecialchars(implode(',', $locArray)) ?>" 
+                            data-raw-local="<?= htmlspecialchars($r['local']) ?>">
+                            
+                            <td style="padding:12px 16px;font-weight:700;color:#0f172a;font-size:13px;font-family:monospace;">
                                 <?= htmlspecialchars($r['codigo']) ?>
                             </td>
-                            <td style="padding:14px 18px;font-weight:600;color:#334155;font-size:12px;text-transform:uppercase;">
+
+                            <td style="padding:12px 16px;">
+                                <span class="badge-causador <?= $badgeClass ?>">
+                                    <?= htmlspecialchars($setorCausador) ?>
+                                </span>
+                            </td>
+
+                            <td style="padding:12px 16px;font-weight:600;color:#334155;font-size:12px;text-transform:uppercase;">
                                 <?= htmlspecialchars($r['familia']) ?>
                             </td>
-                            <td style="padding:14px 18px;font-weight:500;color:#475569;font-size:12px;text-transform:uppercase;">
+
+                            <td style="padding:12px 16px;font-weight:500;color:#475569;font-size:12px;text-transform:uppercase;">
                                 <?= htmlspecialchars($r['descricao']) ?>
                             </td>
-                            <td style="padding:14px 18px;">
-                                <div style="display:inline-flex;gap:6px;align-items:center;flex-wrap:nowrap;">
+
+                            <td style="padding:12px 16px;">
+                                <div style="display:inline-flex;gap:4px;align-items:center;flex-wrap:nowrap;">
                                     <button type="button" 
                                             class="row-pill <?= $hasLab ? 'active-lab' : 'inactive' ?>" 
                                             onclick="toggleSetorLinha(<?= (int)$r['id'] ?>, 'LAB', this)"
@@ -323,8 +385,9 @@ layoutHeader($pageTitle);
                                     </button>
                                 </div>
                             </td>
-                            <td style="padding:14px 18px;">
-                                <div style="display:inline-flex;gap:6px;align-items:center;flex-wrap:nowrap;">
+
+                            <td style="padding:12px 16px;">
+                                <div style="display:inline-flex;gap:4px;align-items:center;flex-wrap:nowrap;">
                                     <button type="button" 
                                             class="row-pill <?= $vaiRet ? 'pill-vai-sim' : 'inactive' ?>" 
                                             onclick="setVaiRetrabalhoLinha(<?= (int)$r['id'] ?>, 1, this)"
@@ -339,11 +402,13 @@ layoutHeader($pageTitle);
                                     </button>
                                 </div>
                             </td>
-                            <td style="padding:14px 18px;text-align:right;">
-                                <div style="display:inline-flex;gap:6px;align-items:center;justify-content:flex-end;">
+
+                            <td style="padding:12px 16px;text-align:right;">
+                                <div style="display:inline-flex;gap:4px;align-items:center;justify-content:flex-end;">
                                     <button type="button" onclick="abrirModalEdicao(<?= htmlspecialchars(json_encode([
                                         'id' => $r['id'],
                                         'codigo' => $r['codigo'],
+                                        'setor_causador' => $setorCausador,
                                         'familia' => $r['familia'],
                                         'descricao' => $r['descricao'],
                                         'local' => $r['local'],
@@ -351,13 +416,13 @@ layoutHeader($pageTitle);
                                     ])) ?>)" 
                                             class="btn-icon btn-icon-edit"
                                             title="Editar dados da reprova">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                                     </button>
                                     
                                     <button type="button" onclick="confirmarExclusaoReprova(<?= $r['id'] ?>, '<?= htmlspecialchars($r['codigo'], ENT_QUOTES) ?>')" 
                                             class="btn-icon btn-icon-danger"
                                             title="Excluir tipo de reprova">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                                     </button>
                                 </div>
                             </td>
@@ -371,12 +436,12 @@ layoutHeader($pageTitle);
 
 <!-- Modal Nova/Editar Reprova -->
 <div id="modalReprova" class="modal-overlay" style="display:none;">
-    <div class="modal">
+    <div class="modal" style="max-width:540px;">
         <div class="modal-header">
             <div>
                 <span class="modal-title" id="modalTitulo">Nova Reprova</span>
                 <div class="card-subtitle">
-                    Defina o código, família, descrição, setores e se deve ir para o Retrabalho
+                    O código é gerado automaticamente a partir do setor causador selecionado
                 </div>
             </div>
             <button type="button" class="modal-close" onclick="fecharModalReprova()">&times;</button>
@@ -386,24 +451,47 @@ layoutHeader($pageTitle);
             <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
                 <input type="hidden" name="id" id="inputId">
                 
-                <div class="form-group" style="margin:0;">
-                    <label class="form-label">Código (Ex: M1, E2, R1) <span class="required">*</span></label>
-                    <input type="text" name="codigo" id="inputCodigo" required class="form-control font-mono font-600" style="text-transform:uppercase;">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group" style="margin:0;">
+                        <label class="form-label">Setor Causador <span class="required">*</span></label>
+                        <select name="setor_causador" id="inputSetorCausador" onchange="aoMudarSetorCausador()" required class="form-control" style="font-weight:600;height:38px;">
+                            <option value="CALDEIRARIA">CALDEIRARIA (Prefixo C)</option>
+                            <option value="LINHA">LINHA (Prefixo L)</option>
+                            <option value="PINTURA">PINTURA (Prefixo P)</option>
+                            <option value="ENGENHARIA">ENGENHARIA (Prefixo EG)</option>
+                            <option value="ELÉTRICO">ELÉTRICO (Prefixo E)</option>
+                            <option value="REVITALIZAÇÃO">REVITALIZAÇÃO (Prefixo R)</option>
+                            <option value="S/ Setor Causador">S/ Setor Causador</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" style="margin:0;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                            <label class="form-label" style="margin:0;">Código <span class="required">*</span></label>
+                            <button type="button" onclick="gerarCodigoManual()" style="background:none;border:none;color:#2563eb;font-size:11px;font-weight:600;cursor:pointer;padding:0;line-height:1;" title="Recalcular próximo código sequencial">
+                                ⚡ Gerar Código
+                            </button>
+                        </div>
+                        <div style="position:relative;">
+                            <input type="text" name="codigo" id="inputCodigo" required class="form-control font-mono font-600" style="text-transform:uppercase;background:#f8fafc;">
+                            <span id="badgeAutoCode" style="position:absolute;right:8px;top:9px;font-size:10px;font-weight:700;color:#059669;background:#ecfdf5;padding:2px 6px;border-radius:4px;border:1px solid #a7f3d0;display:none;">AUTO</span>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="form-group" style="margin:0;">
                     <label class="form-label">Família / Grupo <span class="required">*</span></label>
-                    <input type="text" name="familia" id="inputFamilia" required class="form-control" style="text-transform:uppercase;" placeholder="Ex: VAZAMENTO, COMUTADOR, PINTURA…">
+                    <input type="text" name="familia" id="inputFamilia" required class="form-control" style="text-transform:uppercase;" placeholder="Ex: SOLDA, TAMPA, ISOLADOR, PINTURA…">
                 </div>
                 
                 <div class="form-group" style="margin:0;">
                     <label class="form-label">Descrição da Não Conformidade <span class="required">*</span></label>
-                    <input type="text" name="descricao" id="inputDescricao" required class="form-control" style="text-transform:uppercase;" placeholder="Ex: VAZAMENTO NA AT, FALTA SERIGRAFIA…">
+                    <input type="text" name="descricao" id="inputDescricao" required class="form-control" style="text-transform:uppercase;" placeholder="Ex: BOLITA/RESPINGO DE SOLDA, FURO NO TANQUE…">
                 </div>
                 
                 <div class="form-group" style="margin:0;">
                     <label class="form-label">Setores onde é selecionável <span class="required">*</span></label>
-                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px;">
                         <label class="modal-sector-btn btn-modal-lab">
                             <input type="checkbox" name="locais[]" value="LAB" id="chkSectorLab" onchange="atualizarModalSectorBtns()">
                             <span>LAB</span>
@@ -417,12 +505,11 @@ layoutHeader($pageTitle);
                             <span>IQF</span>
                         </label>
                     </div>
-                    <span class="form-hint">Clique para ativar ou desativar os setores onde esta reprova poderá ser apontada.</span>
                 </div>
 
                 <div class="form-group" style="margin:0;">
                     <label class="form-label">Deve ir para o retrabalho? <span class="required">*</span></label>
-                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px;">
                         <label class="modal-sector-btn btn-modal-vai-sim">
                             <input type="radio" name="vai_retrabalho" value="1" id="radVaiSim" checked onchange="atualizarModalVaiBtns()">
                             <span>Sim (Retrabalho)</span>
@@ -432,7 +519,6 @@ layoutHeader($pageTitle);
                             <span>Não (Retornos do Setor)</span>
                         </label>
                     </div>
-                    <span class="form-hint">Se 'Sim', a peça segue o fluxo normal para o Retrabalho. Se 'Não', a peça volta para a tela de Retornos do próprio setor para correção interna.</span>
                 </div>
             </div>
             
@@ -470,7 +556,13 @@ layoutHeader($pageTitle);
     const form = document.getElementById('formReprova');
     let idReprovaExcluir = null;
     let setorAtivoFiltro = '';
+    let causadorAtivoFiltro = '';
+    let dadosEdicaoAtual = null;
     const API_URL = (typeof window.__APP_BASE === 'string' ? window.__APP_BASE : '<?= defined('APP_URL') ? APP_URL : '' ?>') + '/api/qualidade-acao.php';
+
+    function normalizarTexto(str) {
+        return (str || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+    }
 
     function atualizarModalSectorBtns() {
         const chkLab = document.getElementById('chkSectorLab');
@@ -497,9 +589,58 @@ layoutHeader($pageTitle);
         if (labelNao) labelNao.classList.toggle('active', radNao.checked);
     }
 
+    function gerarCodigoManual() {
+        const setor = document.getElementById('inputSetorCausador').value;
+        buscarProximoCodigo(setor);
+    }
+
+    function buscarProximoCodigo(setor) {
+        const badge = document.getElementById('badgeAutoCode');
+        const inputCodigo = document.getElementById('inputCodigo');
+
+        const formData = new FormData();
+        formData.append('acao', 'obter_proximo_codigo');
+        formData.append('setor_causador', setor);
+
+        fetch(API_URL, {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.sucesso && data.proximo_codigo) {
+                inputCodigo.value = data.proximo_codigo;
+                if (badge) {
+                    badge.style.display = 'inline-block';
+                    badge.textContent = 'AUTO: ' + data.proximo_codigo;
+                }
+            }
+        })
+        .catch(() => {});
+    }
+
+    function aoMudarSetorCausador() {
+        const id = document.getElementById('inputId').value;
+        const setor = document.getElementById('inputSetorCausador').value;
+        const badge = document.getElementById('badgeAutoCode');
+        const inputCodigo = document.getElementById('inputCodigo');
+
+        // Se estiver editando e voltou ao setor original da reprova, restaura o código original
+        if (dadosEdicaoAtual && normalizarTexto(dadosEdicaoAtual.setor_causador) === normalizarTexto(setor)) {
+            inputCodigo.value = dadosEdicaoAtual.codigo;
+            if (badge) badge.style.display = 'none';
+            return;
+        }
+
+        // Se for novo registro OU se mudou para um setor diferente do original, gera o próximo código
+        buscarProximoCodigo(setor);
+    }
+
     function abrirModalNovaReprova() {
+        dadosEdicaoAtual = null;
         form.reset();
         document.getElementById('inputId').value = '';
+        document.getElementById('inputSetorCausador').value = 'CALDEIRARIA';
         document.getElementById('chkSectorLab').checked = true;
         document.getElementById('chkSectorRet').checked = true;
         document.getElementById('chkSectorIqf').checked = true;
@@ -508,15 +649,36 @@ layoutHeader($pageTitle);
         atualizarModalVaiBtns();
         document.getElementById('modalTitulo').textContent = 'Nova Reprova';
         modal.style.display = 'flex';
-        setTimeout(() => document.getElementById('inputCodigo').focus(), 100);
+        aoMudarSetorCausador();
+        setTimeout(() => document.getElementById('inputFamilia').focus(), 100);
     }
 
     function abrirModalEdicao(dados) {
+        dadosEdicaoAtual = { ...dados };
         document.getElementById('inputId').value = dados.id;
         document.getElementById('inputCodigo').value = dados.codigo;
+        
+        // Selecionar setor causador correspondente no select
+        const selCausador = document.getElementById('inputSetorCausador');
+        const targetNorm = normalizarTexto(dados.setor_causador || 'S/ Setor Causador');
+        let matched = false;
+        for (let i = 0; i < selCausador.options.length; i++) {
+            if (normalizarTexto(selCausador.options[i].value) === targetNorm) {
+                selCausador.selectedIndex = i;
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) {
+            selCausador.value = 'S/ Setor Causador';
+        }
+
         document.getElementById('inputFamilia').value = dados.familia;
         document.getElementById('inputDescricao').value = dados.descricao;
         
+        const badge = document.getElementById('badgeAutoCode');
+        if (badge) badge.style.display = 'none';
+
         const loc = (dados.local || 'GER').toUpperCase();
         if (loc === 'GER' || loc === '') {
             document.getElementById('chkSectorLab').checked = true;
@@ -540,6 +702,7 @@ layoutHeader($pageTitle);
     }
 
     function fecharModalReprova() {
+        dadosEdicaoAtual = null;
         modal.style.display = 'none';
     }
 
@@ -621,14 +784,6 @@ layoutHeader($pageTitle);
         });
     }
 
-    // Toggle de compatibilidade
-    function toggleVaiRetrabalhoLinha(id, btn) {
-        const wrap = btn.parentElement;
-        const btnSim = wrap.querySelector('.row-pill:nth-child(1)');
-        const isSimAtivo = btnSim && btnSim.classList.contains('pill-vai-sim');
-        setVaiRetrabalhoLinha(id, isSimAtivo ? 0 : 1, btn);
-    }
-
     // Alternar setor diretamente na linha da tabela
     function toggleSetorLinha(id, setor, btn) {
         if (btn.classList.contains('loading')) return;
@@ -650,19 +805,13 @@ layoutHeader($pageTitle);
                 const row = btn.closest('tr.linha-reprova');
                 const activeSetores = data.locais || [];
                 
-                const btnLab = row.querySelector('td:nth-child(4) .row-pill:nth-child(1)');
-                const btnRet = row.querySelector('td:nth-child(4) .row-pill:nth-child(2)');
-                const btnIqf = row.querySelector('td:nth-child(4) .row-pill:nth-child(3)');
+                const btnLab = row.querySelector('td:nth-child(5) .row-pill:nth-child(1)');
+                const btnRet = row.querySelector('td:nth-child(5) .row-pill:nth-child(2)');
+                const btnIqf = row.querySelector('td:nth-child(5) .row-pill:nth-child(3)');
 
-                if (btnLab) {
-                    btnLab.className = 'row-pill ' + (activeSetores.includes('LAB') ? 'active-lab' : 'inactive');
-                }
-                if (btnRet) {
-                    btnRet.className = 'row-pill ' + (activeSetores.includes('RET') ? 'active-ret' : 'inactive');
-                }
-                if (btnIqf) {
-                    btnIqf.className = 'row-pill ' + (activeSetores.includes('IQF') ? 'active-iqf' : 'inactive');
-                }
+                if (btnLab) btnLab.className = 'row-pill ' + (activeSetores.includes('LAB') ? 'active-lab' : 'inactive');
+                if (btnRet) btnRet.className = 'row-pill ' + (activeSetores.includes('RET') ? 'active-ret' : 'inactive');
+                if (btnIqf) btnIqf.className = 'row-pill ' + (activeSetores.includes('IQF') ? 'active-iqf' : 'inactive');
 
                 row.setAttribute('data-local', activeSetores.join(','));
                 row.setAttribute('data-raw-local', data.novo_local || '');
@@ -722,29 +871,39 @@ layoutHeader($pageTitle);
         });
     }
 
-    // Filtragem rápida por Botões de Setor (Pílulas)
+    // Filtragem por Botões de Setor Selecionável (LAB, RET, IQF)
     function filtrarPorSetorBtn(setor, btnEl) {
         setorAtivoFiltro = setor;
-        document.querySelectorAll('.filter-pill').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.filter-pill:not(.filter-causador)').forEach(b => b.classList.remove('active'));
+        if (btnEl) btnEl.classList.add('active');
+        filtrarTabela();
+    }
+
+    // Filtragem por Setor Causador
+    function filtrarPorCausadorBtn(causador, btnEl) {
+        causadorAtivoFiltro = normalizarTexto(causador);
+        document.querySelectorAll('.filter-causador').forEach(b => b.classList.remove('active'));
         if (btnEl) btnEl.classList.add('active');
         filtrarTabela();
     }
 
     function filtrarTabela() {
-        const termo = document.getElementById('busca').value.toLowerCase().trim();
+        const termo = normalizarTexto(document.getElementById('busca').value);
         const linhas = document.querySelectorAll('#tabelaReprovas tbody tr.linha-reprova');
         let visiveis = 0;
 
         linhas.forEach(linha => {
-            const codigo = linha.querySelector('td:nth-child(1)').textContent.toLowerCase();
-            const familia = linha.querySelector('td:nth-child(2)').textContent.toLowerCase();
-            const descricao = linha.querySelector('td:nth-child(3)').textContent.toLowerCase();
-            const setoresArray = (linha.getAttribute('data-local') || '').split(',').map(s => s.trim());
+            const codigo = normalizarTexto(linha.querySelector('td:nth-child(1)').textContent);
+            const causador = normalizarTexto(linha.getAttribute('data-causador') || '');
+            const familia = normalizarTexto(linha.querySelector('td:nth-child(3)').textContent);
+            const descricao = normalizarTexto(linha.querySelector('td:nth-child(4)').textContent);
+            const setoresArray = (linha.getAttribute('data-local') || '').split(',').map(s => s.trim().toUpperCase());
 
-            const matchTexto = !termo || codigo.includes(termo) || familia.includes(termo) || descricao.includes(termo);
-            const matchSetor = !setorAtivoFiltro || setoresArray.includes(setorAtivoFiltro);
+            const matchTexto = !termo || codigo.includes(termo) || causador.includes(termo) || familia.includes(termo) || descricao.includes(termo);
+            const matchSetor = !setorAtivoFiltro || setoresArray.includes(setorAtivoFiltro.toUpperCase());
+            const matchCausador = !causadorAtivoFiltro || causador === causadorAtivoFiltro;
 
-            if (matchTexto && matchSetor) {
+            if (matchTexto && matchSetor && matchCausador) {
                 linha.style.display = '';
                 visiveis++;
             } else {
@@ -757,7 +916,7 @@ layoutHeader($pageTitle);
             if (!linhaVazia) {
                 linhaVazia = document.createElement('tr');
                 linhaVazia.id = 'linhaVazia';
-                linhaVazia.innerHTML = '<td colspan="6" style="text-align:center;padding:36px 16px;color:#94a3b8;">Nenhum tipo de reprova encontrado.</td>';
+                linhaVazia.innerHTML = '<td colspan="7" style="text-align:center;padding:36px 16px;color:#94a3b8;">Nenhum tipo de reprova encontrado.</td>';
                 document.querySelector('#tabelaReprovas tbody').appendChild(linhaVazia);
             }
             linhaVazia.style.display = '';
