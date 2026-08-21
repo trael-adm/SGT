@@ -4,7 +4,13 @@
 .DESCRIPTION
     Transfere com segurança todas as alterações do ambiente de desenvolvimento (SGT-dev)
     para a pasta oficial (SGT), preservando o repositório Git (.git), uploads e arquivos .env locais.
+    Opcionalmente também sincroniza a base de dados trael_db_dev -> trael_db.
 #>
+
+[CmdletBinding()]
+param (
+    [switch]$SyncDatabase = $false
+)
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $Host.UI.RawUI.WindowTitle = "Sincronizador SGT-dev -> SGT"
@@ -45,6 +51,31 @@ if (-not (Test-Path "$dst\uploads")) {
 # Sincronizar cache de índices se existir
 if (Test-Path "$src\storage\cache\ns_of_indice.cache") {
     Copy-Item "$src\storage\cache\ns_of_indice.cache" "$dst\storage\cache\ns_of_indice.cache" -Force
+}
+
+# Sincronização opcional de banco de dados
+$mysqldump = 'C:\Users\06688286173\laragon\bin\mysql\mysql-8.0.30-winx64\bin\mysqldump.exe'
+$mysql = 'C:\Users\06688286173\laragon\bin\mysql\mysql-8.0.30-winx64\bin\mysql.exe'
+
+if ($SyncDatabase -or (Test-Path $mysqldump)) {
+    $perguntarDb = $true
+    if ($SyncDatabase) {
+        $resposta = "S"
+    } else {
+        Write-Host ""
+        $resposta = Read-Host "Deseja também sincronizar o banco de dados trael_db_dev -> trael_db oficial? (S/N) [Padrão: N]"
+    }
+
+    if ($resposta -eq 'S' -or $resposta -eq 's' -or $resposta -eq 'sim') {
+        Write-Host "Sincronizando banco de dados local (trael_db_dev -> trael_db)..." -ForegroundColor Yellow
+        $tempDump = "$src\scratch\temp_db_sync.sql"
+        if (-not (Test-Path "$src\scratch")) { New-Item -ItemType Directory -Path "$src\scratch" -Force | Out-Null }
+        & $mysqldump -u root --routines --triggers trael_db_dev --result-file=$tempDump
+        & $mysql -u root -e "DROP DATABASE IF EXISTS trael_db; CREATE DATABASE trael_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+        & $mysql -u root trael_db -e "source $tempDump"
+        if (Test-Path $tempDump) { Remove-Item $tempDump -Force }
+        Write-Host "[OK] Banco de dados trael_db atualizado com sucesso!" -ForegroundColor Green
+    }
 }
 
 Write-Host ""
