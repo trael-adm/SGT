@@ -1,5 +1,7 @@
 .env
+.env.*
 .env.production
+.env.railway
 cookies*.txt
 uploads/*.tmp
 uploads/*.bak
