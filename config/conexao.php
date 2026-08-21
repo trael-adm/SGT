@@ -139,6 +139,22 @@ function getDB(): PDO
         try {
             $pdo->exec("ALTER TABLE reprovas ADD COLUMN setor_causador VARCHAR(50) NOT NULL DEFAULT 'S/ Setor Causador' AFTER codigo");
         } catch (\Throwable $e) {}
+
+        try {
+            $pdo->exec("
+                UPDATE reprovas 
+                SET setor_causador = CASE
+                    WHEN codigo REGEXP '^EG[0-9]+' THEN 'ENGENHARIA'
+                    WHEN codigo REGEXP '^C[0-9]+'  THEN 'CALDEIRARIA'
+                    WHEN codigo REGEXP '^E[0-9]+'  THEN 'ELÉTRICO'
+                    WHEN codigo REGEXP '^L[0-9]+'  THEN 'LINHA'
+                    WHEN codigo REGEXP '^P[0-9]+'  THEN 'PINTURA'
+                    WHEN codigo REGEXP '^R[0-9]+'  THEN 'REVITALIZAÇÃO'
+                    ELSE setor_causador
+                END
+                WHERE setor_causador = 'S/ Setor Causador' AND codigo REGEXP '^(EG|C|E|L|P|R)[0-9]+'
+            ");
+        } catch (\Throwable $e) {}
     }
 
     return $pdo;
