@@ -599,36 +599,70 @@ if (!function_exists('rtdBlocoReprova')) {
     </div>
 </form>
 
-<!-- Modal: Corrigir / Trocar Código de Reprova -->
-<div class="modal-overlay" id="rtd-correcao-modal" style="display:none;">
-    <div class="modal" style="max-width:480px;">
+<!-- Modal: Causa raiz de uma reprova específica -->
+<div class="modal-overlay" id="rtd-causaraiz-modal" style="display:none;">
+    <div class="modal">
         <div class="modal-header">
-            <span class="modal-title">Corrigir Código de Reprova</span>
+            <span class="modal-title">Causa da Reprova</span>
+            <button type="button" class="modal-close" id="rtd-causaraiz-close">&times;</button>
+        </div>
+        <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
+            <input type="hidden" id="rtd-causaraiz-id" value="">
+            <div id="rtd-causaraiz-erro" style="display:none;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;font-size:13px;"></div>
+            <div class="form-group" style="margin:0;">
+                <label class="form-label" for="rtd-causaraiz-texto">Descreva a causa da reprova *</label>
+                <textarea id="rtd-causaraiz-texto" class="form-control" style="width:100%;min-height:110px;resize:vertical;" placeholder="Ex.: &quot;Fio rompido por fadiga no ponto de solda da bobina AT&quot;"></textarea>
+                <span class="form-hint">Salva a causa identificada para esta ocorrência de reprova.</span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" id="rtd-causaraiz-cancelar">Cancelar</button>
+            <button type="button" class="btn btn-primary" id="rtd-causaraiz-salvar">Salvar Causa</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Correção de uma reprova específica -->
+<div class="modal-overlay" id="rtd-correcao-modal" style="display:none;">
+    <div class="modal">
+        <div class="modal-header">
+            <span class="modal-title">Correção da Reprova</span>
             <button type="button" class="modal-close" id="rtd-correcao-close">&times;</button>
         </div>
-        <div class="modal-body">
-            <p style="font-size:13px;color:var(--color-text-secondary,#6b7280);margin:0 0 12px;">
-                Selecione o novo código para substituir a reprova apontada:
-            </p>
-            <div class="form-group">
-                <label class="form-label">Código Atual</label>
-                <input type="text" id="rtd-correcao-atual" class="form-control font-mono font-600" readonly style="background:#f1f5f9;">
-            </div>
-            <div class="form-group">
-                <label class="form-label">Novo Código de Reprova *</label>
-                <select id="rtd-correcao-novo" class="form-control select-reprova-correcao">
-                    <option value="">— Selecione o novo código —</option>
-                    <?php foreach ($reprovas as $rep): ?>
-                        <option value="<?= (int) $rep['id'] ?>">
-                            <?= htmlspecialchars($rep['codigo']) ?> — <?= htmlspecialchars($rep['descricao']) ?> (<?= htmlspecialchars($rep['familia'] ?? 'Geral') ?>)
-                        </option>
-                    <?php endforeach; ?>
-                </select>
+        <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
+            <input type="hidden" id="rtd-correcao-id" value="">
+            <div id="rtd-correcao-erro" style="display:none;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;font-size:13px;"></div>
+            <div class="form-group" style="margin:0;">
+                <label class="form-label" for="rtd-correcao-texto">Descreva a correção feita nesta reprova *</label>
+                <textarea id="rtd-correcao-texto" class="form-control" style="width:100%;min-height:110px;resize:vertical;" placeholder="Ex.: &quot;Feito nova isolação&quot;"></textarea>
+                <span class="form-hint">Salva a ação corretiva executada para esta reprova.</span>
             </div>
         </div>
         <div class="modal-footer">
             <button type="button" class="btn btn-secondary" id="rtd-correcao-cancelar">Cancelar</button>
             <button type="button" class="btn btn-primary" id="rtd-correcao-salvar">Salvar Correção</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Confirmar Exclusão de Reprova -->
+<div class="modal-overlay" id="rtd-excluir-modal" style="display:none;">
+    <div class="modal" style="max-width:420px;">
+        <div class="modal-header">
+            <span class="modal-title">Confirmar Exclusão</span>
+            <button type="button" class="modal-close" id="rtd-excluir-close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size:14px;color:var(--color-text-secondary,#6b7280);margin:0 0 6px;">
+                Deseja realmente excluir esta reprova adicionada no Retrabalho?
+            </p>
+            <p style="font-size:12px;color:var(--color-text-muted,#9ca3af);margin:0;">
+                Esta ação removerá o apontamento de reprova deste transformador.
+            </p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" id="rtd-excluir-cancelar">Cancelar</button>
+            <button type="button" class="btn btn-danger" id="rtd-excluir-confirmar">Excluir Reprova</button>
         </div>
     </div>
 </div>
