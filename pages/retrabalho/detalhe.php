@@ -258,13 +258,56 @@ if (!function_exists('rtdBlocoReprova')) {
     @media (max-width: 640px) {
         .rtd-grid { grid-template-columns: 1fr; }
     }
-    .rtd-hint { font-size:12px; color:var(--color-text-secondary,#6b7280); margin-top:4px; }
-    .rtd-setores { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:10px; margin-top:8px; }
-    .rtd-setor-card { display:flex; align-items:center; gap:10px; padding:10px 14px; border:1px solid var(--color-border,#e5e7eb); border-radius:8px; background:var(--color-surface,#fff); cursor:pointer; user-select:none; font-size:13px; font-weight:500; }
-    .rtd-setor-card:hover { border-color:var(--color-accent,#e8a020); }
-    .rtd-setor-card input { margin:0; }
-    .rtd-setor-chip { display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:500; cursor:pointer; user-select:none; }
-    .rtd-setor-chip.is-disabled { opacity:0.5; cursor:not-allowed; }
+    .rtd-setores { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; }
+    .rtd-setor-pill, .rtd-setor-chip, .rtd-setor-card {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        background: #ffffff;
+        border: 1.5px solid #cbd5e1;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #475569;
+        cursor: pointer;
+        user-select: none;
+        transition: all 0.15s ease;
+    }
+    .rtd-setor-pill:hover, .rtd-setor-chip:hover, .rtd-setor-card:hover {
+        border-color: #f59e0b;
+        background: #fffdf5;
+        color: #1e293b;
+    }
+    .rtd-setor-pill input[type="checkbox"],
+    .rtd-setor-chip input[type="checkbox"],
+    .rtd-setor-card input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        margin: 0;
+        cursor: pointer;
+        accent-color: #d97706;
+    }
+    .rtd-setor-pill:has(input:checked),
+    .rtd-setor-chip:has(input:checked),
+    .rtd-setor-card:has(input:checked),
+    .rtd-setor-pill.is-checked,
+    .rtd-setor-chip.is-checked {
+        border-color: #d97706 !important;
+        background: #fffbeb !important;
+        color: #92400e !important;
+        box-shadow: 0 1px 3px rgba(245, 158, 11, 0.18);
+    }
+    .rtd-setor-pill.is-disabled,
+    .rtd-setor-chip.is-disabled,
+    .rtd-setor-pill:has(input:disabled),
+    .rtd-setor-chip:has(input:disabled) {
+        opacity: 0.5;
+        cursor: not-allowed;
+        background: #f1f5f9 !important;
+        border-color: #e2e8f0 !important;
+        color: #94a3b8 !important;
+    }
     .rtd-actions { display:flex; justify-content:flex-end; gap:12px; margin-top:20px; }
     .rtd-anexos-preview { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
     .rtd-anexo-tag { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; background:#f3f4f6; border-radius:6px; font-size:12px; color:#374151; }
@@ -519,6 +562,13 @@ if (!function_exists('rtdBlocoReprova')) {
                 </div>
                 <p id="rtd-material-vazio" class="rtd-hint" style="<?= $materiaisExistentes ? 'display:none;' : '' ?>">Nenhum material adicionado ainda.</p>
                 
+                <div style="margin-top: 14px;">
+                    <label class="rtd-setor-pill" style="margin:0;display:inline-flex;align-items:center;cursor:pointer;">
+                        <input type="checkbox" id="rtd-material-nenhum" name="nenhum_material" value="1">
+                        <span>Nenhum material foi utilizado</span>
+                    </label>
+                </div>
+
                 <p class="rtd-hint" style="margin-top:12px;margin-bottom:0;">
                     Ao alterar as quantidades acima, o saldo dos materiais será debitado no sistema e o custo refletirá nos relatórios de retrabalho.
                 </p>
@@ -528,6 +578,9 @@ if (!function_exists('rtdBlocoReprova')) {
                 <div class="rtd-setores">
                     <?php
                     $setoresChecked = array_filter(array_map('trim', explode(',', (string) ($itensAbertos[0]['setores_destino'] ?? ''))));
+                    if (in_array('montagem_final', $setoresChecked, true) && !in_array('inspecao_final', $setoresChecked, true)) {
+                        $setoresChecked[] = 'inspecao_final';
+                    }
                     foreach (retrabalhoSetoresTriagem() as $chave => $nome):
                         $checked = in_array($chave, $setoresChecked, true) ? 'checked' : '';
                         ?>
@@ -587,14 +640,9 @@ if (!function_exists('rtdBlocoReprova')) {
             </div>
         </div>
 
-        <div id="rtd-msg-erro" class="rtd-msg-erro" style="display:none;"></div>
-        <div id="rtd-msg-sucesso" class="rtd-msg-sucesso" style="display:none;"></div>
-
-        <div class="rtd-acoes">
-            <a href="<?= htmlspecialchars($voltarUrl) ?>" class="btn btn-secondary">Cancelar / Voltar</a>
-            <button type="button" class="btn btn-primary" id="rtd-btn-submit">
-                <?= $dataInicio ? 'Atualizar Triagem' : 'Salvar Triagem' ?>
-            </button>
+        <div id="rtd-add-erro" style="display:none;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:14px;grid-column:1 / -1;"></div>
+        <div class="rtd-item-foot">
+            <button type="submit" class="btn btn-primary" id="rtd-add-submit">Enviar</button>
         </div>
     </div>
 </form>

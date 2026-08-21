@@ -477,9 +477,10 @@
                 chkNenhum.disabled = false;
             }
 
-            var chipLabel = chkNenhum.closest('.rtd-setor-chip') || chkNenhum.parentElement;
+            var chipLabel = chkNenhum.closest('.rtd-setor-pill, .rtd-setor-chip') || chkNenhum.parentElement;
             if (chipLabel) {
                 chipLabel.classList.toggle('is-disabled', chkNenhum.disabled);
+                chipLabel.classList.toggle('is-checked', chkNenhum.checked);
             }
 
             var nenhumMarcado = chkNenhum.checked;
@@ -750,13 +751,6 @@
                     primeiroSelect.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                     primeiroSelect.focus();
                 }
-                return;
-            }
-
-            if (!qrInicioConfirmadoNestaSessao) {
-                mostraErro('Escaneie o QR Code do transformador (botão "Escanear QR" acima) para confirmar o início antes de enviar.');
-                var scanBtnEl = document.getElementById('rtd-inicio-scan-btn');
-                if (scanBtnEl) scanBtnEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 return;
             }
 

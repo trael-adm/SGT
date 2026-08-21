@@ -124,15 +124,39 @@
         });
     }
 
+    var btnAtivarTeclado   = document.getElementById('btnAtivarTeclado');
+    var btnOcultarTeclado  = document.getElementById('btnOcultarTeclado');
+    var wrapBtnAtivarTeclado = document.getElementById('wrapBtnAtivarTeclado');
+    var wrapInputManual    = document.getElementById('wrapInputManual');
+
     window.submeterChegadaManual = function () {
         if (inputBarcode) {
             processarConfirmacao(inputBarcode.value);
         }
     };
 
-    // ─── Foco Automático e Destaque ──────────────────────────────────────────
+    // ─── Controle de Abertura do Teclado Manual (Sob Demanda) ─────────────────
+    if (btnAtivarTeclado) {
+        btnAtivarTeclado.addEventListener('click', function () {
+            if (wrapBtnAtivarTeclado) wrapBtnAtivarTeclado.style.display = 'none';
+            if (wrapInputManual) wrapInputManual.style.display = 'block';
+            if (inputBarcode) {
+                inputBarcode.focus();
+                inputBarcode.select();
+            }
+        });
+    }
+
+    if (btnOcultarTeclado) {
+        btnOcultarTeclado.addEventListener('click', function () {
+            if (wrapInputManual) wrapInputManual.style.display = 'none';
+            if (wrapBtnAtivarTeclado) wrapBtnAtivarTeclado.style.display = 'block';
+            if (inputBarcode) inputBarcode.value = '';
+            limparErro();
+        });
+    }
+
     if (inputBarcode) {
-        inputBarcode.focus();
         inputBarcode.addEventListener('focus', function () {
             if (barcodeBox) barcodeBox.classList.add('is-focused');
         });

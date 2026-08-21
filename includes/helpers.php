@@ -173,7 +173,6 @@ function retrabalhoSetoresTriagem(): array
         'solda'           => 'Solda',
         'radiador'        => 'Radiador',
         'pintura'         => 'Pintura',
-        'montagem_final'  => 'Montagem Final',
         'laboratorio'     => 'Laboratório',
         'inspecao_final'  => 'Inspeção Final',
     ];

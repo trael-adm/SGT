@@ -206,29 +206,44 @@ if (!$registro) {
 
             <!-- Caixa do Leitor de Código de Barras -->
             <div class="barcode-box" id="barcodeBox">
-                <div style="display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:50%;background:#eff6ff;color:#2563eb;margin-bottom:12px;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:26px;height:26px;"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect><line x1="6" y1="8" x2="6" y2="16"></line><line x1="10" y1="8" x2="10" y2="16"></line><line x1="14" y1="8" x2="14" y2="16"></line><line x1="18" y1="8" x2="18" y2="16"></line></svg>
+                <div style="display:inline-flex;align-items:center;justify-content:center;width:52px;height:52px;border-radius:50%;background:#eff6ff;color:#2563eb;margin-bottom:12px;box-shadow:0 0 0 6px rgba(37,99,235,0.08);">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:28px;height:28px;"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect><line x1="6" y1="8" x2="6" y2="16"></line><line x1="10" y1="8" x2="10" y2="16"></line><line x1="14" y1="8" x2="14" y2="16"></line><line x1="18" y1="8" x2="18" y2="16"></line></svg>
                 </div>
-                <h3 style="font-size:15px;font-weight:700;color:#0f172a;margin-bottom:4px;">
-                    Aguardando leitura para iniciar a triagem
+                <h3 style="font-size:16px;font-weight:700;color:#0f172a;margin-bottom:4px;">
+                    Aguardando leitura do leitor de código de barras
                 </h3>
-                <p style="font-size:12px;color:#64748b;margin-bottom:16px;">
-                    Bipe a etiqueta do transformador com o leitor USB ou digite o N° de série abaixo e pressione Enter para abrir a triagem.
+                <p style="font-size:13px;color:#64748b;margin-bottom:16px;line-height:1.4;">
+                    Bipe a etiqueta do transformador <strong><?= htmlspecialchars($registro['ns_transformador']) ?></strong> diretamente com o leitor físico.
                 </p>
 
-                <form id="formInicioBarcode" onsubmit="event.preventDefault(); submeterInicioManual();" style="display:flex;flex-direction:column;align-items:center;gap:12px;">
-                    <input type="text" 
-                           id="inputBarcodeNs" 
-                           class="barcode-input" 
-                           placeholder="Bipar ou digitar NS..." 
-                           autocomplete="off" 
-                           autofocus 
-                           value="">
-                    
-                    <button type="submit" class="btn btn-primary" id="btnConfirmarInicio" style="padding:10px 24px;font-weight:700;">
-                        Confirmar Início da Triagem (Enter)
+                <!-- Botão para ativar teclado manual (evita abrir teclado do tablet sozinho) -->
+                <div id="wrapBtnAtivarTeclado" style="margin-bottom:8px;">
+                    <button type="button" class="btn btn-secondary" id="btnAtivarTeclado" style="font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:8px;padding:8px 16px;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect><line x1="6" y1="8" x2="6" y2="8"></line><line x1="10" y1="8" x2="10" y2="8"></line><line x1="14" y1="8" x2="14" y2="8"></line><line x1="18" y1="8" x2="18" y2="8"></line><line x1="6" y1="12" x2="6" y2="12"></line><line x1="10" y1="12" x2="10" y2="12"></line><line x1="14" y1="12" x2="14" y2="12"></line><line x1="18" y1="12" x2="18" y2="12"></line><line x1="7" y1="16" x2="17" y2="16"></line></svg>
+                        Digitar número de série manualmente
                     </button>
-                </form>
+                </div>
+
+                <!-- Formulário de digitação manual (oculto por padrão) -->
+                <div id="wrapInputManual" style="display:none;width:100%;max-width:380px;margin:0 auto;">
+                    <form id="formInicioBarcode" onsubmit="event.preventDefault(); submeterInicioManual();" style="display:flex;flex-direction:column;align-items:center;gap:10px;">
+                        <input type="text" 
+                               id="inputBarcodeNs" 
+                               class="barcode-input" 
+                               placeholder="Digite o N° de série..." 
+                               autocomplete="off" 
+                               value="">
+                        
+                        <div style="display:flex;gap:8px;width:100%;justify-content:center;">
+                            <button type="submit" class="btn btn-primary" id="btnConfirmarInicio" style="padding:8px 20px;font-weight:700;font-size:13px;">
+                                Confirmar Início (Enter)
+                            </button>
+                            <button type="button" class="btn btn-secondary" id="btnOcultarTeclado" style="padding:8px 14px;font-size:13px;">
+                                Fechar
+                            </button>
+                        </div>
+                    </form>
+                </div>
 
                 <div id="inicioMsgErro" style="display:none;margin-top:14px;padding:10px 14px;border-radius:6px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-size:13px;font-weight:600;"></div>
             </div>
