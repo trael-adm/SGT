@@ -1041,3 +1041,112 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   background: rgba(255,255,255,.06); color: #fff; font-size: var(--font-size-base);
 }
 .manual-row input::placeholder { color: rgba(255,255,255,.35); }
+
+/* ============================================================
+   CUSTOM SCROLLBARS (SCROLLBARS ELEGANTES E DISCRETOS)
+   ============================================================ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
+}
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
+}
+
+/* Sidebar scrollbar dark custom */
+.sidebar,
+.sidebar-nav {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+.sidebar::-webkit-scrollbar,
+.sidebar-nav::-webkit-scrollbar {
+  width: 5px;
+}
+.sidebar::-webkit-scrollbar-track,
+.sidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar::-webkit-scrollbar-thumb,
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 9999px;
+}
+.sidebar::-webkit-scrollbar-thumb:hover,
+.sidebar-nav::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.45);
+}
+
+/* ============================================================
+   PAGE FIXED LAYOUT (ROLAGEM EXCLUSIVA DENTRO DAS TABELAS)
+   ============================================================ */
+.page-fixed-layout {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--header-height) - 48px);
+  height: calc(100dvh - var(--header-height) - 48px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.page-fixed-layout .page-fixed-header {
+  flex-shrink: 0;
+  margin-bottom: 12px;
+}
+
+.page-fixed-layout .card,
+.page-fixed-layout .rt-card,
+.page-fixed-layout .hist-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin-bottom: 0;
+}
+
+.page-fixed-layout .card-header,
+.page-fixed-layout .filter-bar,
+.page-fixed-layout .rt-filtros,
+.page-fixed-layout .hist-filtros,
+.page-fixed-layout .rt-tabs,
+.page-fixed-layout .hist-tabs {
+  flex-shrink: 0;
+}
+
+.page-fixed-layout .table-wrap,
+.page-fixed-layout .rt-table-wrap,
+.page-fixed-layout .hist-table-wrap,
+.page-fixed-layout .table-scroll-wrap,
+.page-fixed-layout .prio-table-scroll-area {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+.table thead th,
+.data-table thead th,
+.rt-table thead th,
+.hist-table thead th,
+.iqf-table thead th,
+.lab-table thead th,
+.table-sticky thead th {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 10 !important;
+  background: var(--color-surface, #ffffff) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+

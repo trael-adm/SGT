@@ -88,11 +88,53 @@ function filterSubstrings($textos_brutos) {
     return $textos;
 }
 
+/**
+ * Gera hipóteses candidatas a partir de um texto lido pelo OCR:
+ * 1. Texto original limpo
+ * 2. Inversão semântica a 180° (ordem reversa com substituição de 6<->9, 2<->5, 0<->0, 8<->8, 1<->1)
+ */
+function gerarHipotesesOcr(string $texto): array {
+    $candidatos = [];
+    $limpo = trim($texto);
+    if ($limpo === '') return [];
+    
+    $candidatos[] = $limpo;
+    
+    $chars = str_split($limpo);
+    $invertido = '';
+    $map180 = [
+        '0' => '0', '1' => '1', '2' => '5', '5' => '2',
+        '6' => '9', '8' => '8', '9' => '6',
+        'O' => '0', 'o' => '0', 'I' => '1', 'l' => '1',
+        '-' => '-', '.' => '.', ' ' => ' ',
+        'X' => 'X', 'x' => 'x', 'H' => 'H', 'N' => 'N', 'Z' => 'Z', 'S' => 'S', 's' => 's'
+    ];
+    
+    for ($i = count($chars) - 1; $i >= 0; $i--) {
+        $c = $chars[$i];
+        $invertido .= $map180[$c] ?? $c;
+    }
+    
+    if ($invertido !== '' && $invertido !== $limpo) {
+        $candidatos[] = $invertido;
+    }
+    
+    return array_values(array_unique($candidatos));
+}
+
 // 1. Processar imagens individualmente (Sem Pool, Lógica Estrita por Slot)
 $ocr_results_por_foto = [];
 foreach ($payload as $key => $base64) {
     $texts = callPythonOcr($base64);
-    $ocr_results_por_foto[$key] = filterSubstrings($texts);
+    $textosFiltrados = filterSubstrings($texts);
+    
+    $todosCandidatos = [];
+    foreach ($textosFiltrados as $tf) {
+        foreach (gerarHipotesesOcr($tf) as $hip) {
+            $todosCandidatos[] = $hip;
+        }
+    }
+    $ocr_results_por_foto[$key] = array_values(array_unique($todosCandidatos));
 }
 
 // 2. Carregar banco

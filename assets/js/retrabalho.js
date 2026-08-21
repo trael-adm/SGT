@@ -145,7 +145,12 @@
                     seletores: ['#rt-table-wrap', '.rt-pager'],
                     intervaloS: 30,
                     elIndicador: document.getElementById('rt-autorefresh-indicador'),
-                    modaisPausa: ['#rt-modal']
+                    modaisPausa: ['#rt-modal'],
+                    aoAtualizar: function () {
+                        if (typeof window.sgtAplicarExpansao === 'function') {
+                            window.sgtAplicarExpansao();
+                        }
+                    }
                 });
             }
         });

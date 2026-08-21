@@ -65,7 +65,15 @@ $where  = [
 ];
 $params = [];
 
-if ($fLocal !== '')   { $where[] = 'rep.local = ?';   $params[] = $fLocal; }
+if ($fLocal !== '') {
+    if ($fLocal === 'GER') {
+        $where[] = "(rep.codigo LIKE 'R%' OR rep.setor_causador = 'REVITALIZAÇÃO' OR (r.estacao = 'GER' AND rep.codigo LIKE 'R%'))";
+    } else {
+        $where[] = '(r.estacao = ? OR (rep.local = ? AND rep.codigo NOT LIKE \'R%\'))';
+        $params[] = $fLocal;
+        $params[] = $fLocal;
+    }
+}
 if ($fFamilia !== '') { $where[] = 'rep.familia = ?'; $params[] = $fFamilia; }
 if ($fMes !== '')     { $where[] = "DATE_FORMAT($dataExpr, '%Y-%m') = ?"; $params[] = $fMes; }
 
@@ -417,6 +425,8 @@ layoutHeader($pageTitle);
     .rt-check-row label { display:flex; align-items:center; gap:5px; cursor:pointer; white-space:nowrap; }
     .rt-check-row .lbl { font-weight:600; color:var(--color-text-primary,#1a2133); }
     .rt-table { width:100%; border-collapse:collapse; font-size:13px; }
+    #rt-table-wrap { overflow-x:auto; overflow-y:auto; max-height:calc(100vh - 280px); max-height:calc(100dvh - 280px); }
+    .rt-table thead th { position:sticky; top:0; z-index:10; background:#f8fafc; box-shadow:0 1px 2px rgba(0,0,0,0.05); }
     .rt-table th { text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.6px; color:var(--color-text-muted,#6b7280); padding:8px 10px; border-bottom:1px solid var(--color-border,#e5e7eb); white-space:nowrap; }
     .rt-th-link { color:inherit; text-decoration:none; }
     .rt-th-link:hover { color:#E89B1C; text-decoration:none; }
@@ -480,28 +490,29 @@ layoutHeader($pageTitle);
     .modal-foot { display:flex; justify-content:flex-end; gap:10px; padding:16px 20px; border-top:1px solid #e5e7eb; }
 </style>
 
-<!-- Cabeçalho -->
-<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px;">
-    <div>
+<!-- Container de Página com Rolagem Exclusiva na Tabela -->
+<div class="page-fixed-layout">
+
+    <!-- Cabeçalho -->
+    <div class="page-fixed-header">
         <h1 style="font-size:var(--font-size-xl,20px);font-weight:700;margin-top:2px;">Relação de Retrabalhos</h1>
         <p class="text-secondary" style="font-size:13px;color:var(--color-text-secondary,#6b7280);margin-top:2px;">
             Listagem detalhada de todos os retrabalhos, com filtros e paginação
         </p>
     </div>
-</div>
 
-<!-- Abas por local -->
-<div class="rt-tabs">
-    <a class="rt-tab<?= $fLocal === '' ? ' active' : '' ?>" href="<?= rtUrl(['local' => null, 'pagina' => 1]) ?>">Todos</a>
-    <?php foreach ($localMap as $k => $info): ?>
-        <a class="rt-tab<?= $fLocal === $k ? ' active' : '' ?>" href="<?= rtUrl(['local' => $k, 'pagina' => 1]) ?>"><?= htmlspecialchars($info['label']) ?> — <?= htmlspecialchars($info['title']) ?></a>
-    <?php endforeach; ?>
-</div>
+    <!-- Abas por local -->
+    <div class="rt-tabs">
+        <a class="rt-tab<?= $fLocal === '' ? ' active' : '' ?>" href="<?= rtUrl(['local' => null, 'pagina' => 1]) ?>">Todos</a>
+        <?php foreach ($localMap as $k => $info): ?>
+            <a class="rt-tab<?= $fLocal === $k ? ' active' : '' ?>" href="<?= rtUrl(['local' => $k, 'pagina' => 1]) ?>"><?= htmlspecialchars($info['label']) ?> — <?= htmlspecialchars($info['title']) ?></a>
+        <?php endforeach; ?>
+    </div>
 
-<div class="rt-card">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-        <h3>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+    <div class="rt-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+        <h3 style="margin:0;display:flex;align-items:center;gap:8px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
             Retrabalhos
         </h3>
         <span id="rt-autorefresh-indicador" style="font-size:11px;color:var(--color-text-muted,#9aa3b8);white-space:nowrap;"></span>
@@ -541,6 +552,10 @@ layoutHeader($pageTitle);
                     Limpar
                 </a>
             <?php endif; ?>
+            <button type="button" id="btn-toggle-all-rt" class="filter-btn btn-expand-all" aria-expanded="false" title="Expandir ou recolher todas as linhas">
+                <svg class="ico-expand" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                <span class="lbl-expand">Expandir Todos</span>
+            </button>
         </div>
 
         <div class="filter-group-right">
@@ -561,7 +576,7 @@ layoutHeader($pageTitle);
             <thead>
                 <tr>
                     <?php
-                    echo '<th style="width:32px;"></th>';
+                    echo '<th style="width:36px;text-align:center;"><button type="button" class="btn-expand-col js-toggle-all-quick" title="Expandir/Recolher todos" style="cursor:pointer;border:1px solid #cbd5e1;border-radius:4px;background:#f8fafc;color:#475569;font-weight:700;font-size:13px;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;">⤢</button></th>';
                     rtSortTh('Prioridade', 'prioridade');
                     echo '<th>#</th>';
                     rtSortTh('N° Série', 'ns');
@@ -716,8 +731,8 @@ layoutHeader($pageTitle);
             <?php endfor; ?>
             <a class="page-btn<?= $pagina >= $totalPaginas ? ' disabled' : '' ?>" href="<?= $pagina < $totalPaginas ? rtUrl(['pagina' => $pagina + 1]) : '#' ?>" style="text-decoration:none;<?= $pagina >= $totalPaginas ? 'opacity:.4;pointer-events:none;' : '' ?>">&rsaquo;</a>
             <a class="page-btn<?= $pagina >= $totalPaginas ? ' disabled' : '' ?>" href="<?= $pagina < $totalPaginas ? rtUrl(['pagina' => $totalPaginas]) : '#' ?>" style="text-decoration:none;<?= $pagina >= $totalPaginas ? 'opacity:.4;pointer-events:none;' : '' ?>">&raquo;</a>
-        </div>
     </div>
+</div>
 </div>
 
 <!-- Modal: Registrar / Editar retrabalho -->
@@ -820,14 +835,101 @@ layoutHeader($pageTitle);
 <script src="<?= htmlspecialchars($base) ?>/assets/js/retrabalho.js?v=<?= htmlspecialchars((string) $rtJsVer) ?>"></script>
 
 <style>
+.btn-expand-all {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 14px;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.15s ease;
+}
+.btn-expand-all:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+    color: #0f172a;
+}
+.btn-expand-all.is-active {
+    background: #fff7ed;
+    border-color: #ea580c;
+    color: #9a3412;
+}
 .rt-toggle-btn {
     width: 24px; height: 24px; border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 4px; font-weight: bold; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; transition: all 0.2s;
 }
 .rt-toggle-btn:hover { background: #f3f4f6; }
 </style>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
+(function() {
+    const STORAGE_KEY_ALL = 'sgt_relacao_expand_all';
+    const STORAGE_KEY_ROWS = 'sgt_relacao_open_rows';
+
+    function getOpenRows() {
+        try {
+            return JSON.parse(localStorage.getItem(STORAGE_KEY_ROWS) || '[]');
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function saveOpenRows(rows) {
+        localStorage.setItem(STORAGE_KEY_ROWS, JSON.stringify(rows));
+    }
+
+    function syncHeaderButtons(expandAll) {
+        const btnAll = document.getElementById('btn-toggle-all-rt');
+        if (btnAll) {
+            btnAll.setAttribute('aria-expanded', expandAll ? 'true' : 'false');
+            btnAll.classList.toggle('is-active', expandAll);
+            const lbl = btnAll.querySelector('.lbl-expand');
+            if (lbl) lbl.textContent = expandAll ? 'Recolher Todos' : 'Expandir Todos';
+        }
+        const quickBtn = document.querySelector('.js-toggle-all-quick');
+        if (quickBtn) {
+            quickBtn.textContent = expandAll ? '−' : '⤢';
+            quickBtn.title = expandAll ? 'Recolher todos' : 'Expandir todos';
+        }
+    }
+
+    function aplicarEstado() {
+        const expandAll = localStorage.getItem(STORAGE_KEY_ALL) === 'true';
+        const openRows = getOpenRows();
+        syncHeaderButtons(expandAll);
+
+        document.querySelectorAll('.js-toggle-rt').forEach(function(btn) {
+            const targetId = btn.getAttribute('data-target');
+            const targetRow = document.getElementById(targetId);
+            if (!targetRow) return;
+
+            const shouldOpen = expandAll || openRows.includes(targetId);
+            btn.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+            btn.textContent = shouldOpen ? '−' : '+';
+            targetRow.style.display = shouldOpen ? 'table-row' : 'none';
+        });
+    }
+
+    function setAllRows(expand) {
+        localStorage.setItem(STORAGE_KEY_ALL, expand ? 'true' : 'false');
+        if (!expand) {
+            saveOpenRows([]);
+        }
+        aplicarEstado();
+    }
+
     document.addEventListener('click', function(e) {
+        const btnAll = e.target.closest('#btn-toggle-all-rt') || e.target.closest('.js-toggle-all-quick');
+        if (btnAll) {
+            const isCurrentlyExpanded = localStorage.getItem(STORAGE_KEY_ALL) === 'true';
+            setAllRows(!isCurrentlyExpanded);
+            return;
+        }
+
         const btn = e.target.closest('.js-toggle-rt');
         if (!btn) return;
         
@@ -836,10 +938,27 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!targetRow) return;
         
         const isExpanded = btn.getAttribute('aria-expanded') === 'true';
-        btn.setAttribute('aria-expanded', !isExpanded);
-        btn.textContent = isExpanded ? '+' : '-';
-        targetRow.style.display = isExpanded ? 'none' : 'table-row';
+        const nextState = !isExpanded;
+        btn.setAttribute('aria-expanded', nextState ? 'true' : 'false');
+        btn.textContent = nextState ? '−' : '+';
+        targetRow.style.display = nextState ? 'table-row' : 'none';
+
+        let openRows = getOpenRows();
+        if (nextState) {
+            if (!openRows.includes(targetId)) openRows.push(targetId);
+        } else {
+            openRows = openRows.filter(id => id !== targetId);
+            localStorage.setItem(STORAGE_KEY_ALL, 'false');
+            syncHeaderButtons(false);
+        }
+        saveOpenRows(openRows);
     });
-});
+
+    window.sgtAplicarExpansao = aplicarEstado;
+
+    document.addEventListener('DOMContentLoaded', function() {
+        aplicarEstado();
+    });
+})();
 </script>
 <?php layoutFooter(); ?>

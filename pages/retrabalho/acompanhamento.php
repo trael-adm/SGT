@@ -85,10 +85,12 @@ if ($idLotes) {
     $ph = implode(',', array_fill(0, count($idLotes), '?'));
     try {
         $stmtMat = $pdo->prepare("
-            SELECT id_lote, codigo, descricao, unidade, quantidade, preco_medio
-            FROM retrabalho_material_uso
-            WHERE id_lote IN ($ph)
-            ORDER BY id
+            SELECT rmu.id_lote, rmu.codigo, rmu.descricao, rmu.unidade, rmu.quantidade,
+                   COALESCE(rmu.preco_medio, ic.preco_medio) AS preco_medio
+            FROM retrabalho_material_uso rmu
+            LEFT JOIN itens_catalogo ic ON ic.codigo = rmu.codigo
+            WHERE rmu.id_lote IN ($ph)
+            ORDER BY rmu.id
         ");
         $stmtMat->execute($idLotes);
         foreach ($stmtMat->fetchAll() as $m) {
@@ -276,8 +278,13 @@ function histFmtDataHora(?string $iso): string
 /** Monta o payload (JSON) com tudo que foi registrado na Triagem desta reprova, pro popup "Ver detalhes". */
 function histMontarDetalhe(array $r, array $localMap, array $setoresLabel): array
 {
-    $origemItem = strtoupper(trim((string) ($r['estacao'] ?: $r['reprova_local'] ?: '')));
-    if ($origemItem === 'GER') $origemItem = 'LAB';
+    $cod = (string)($r['reprova_codigo'] ?? '');
+    if (str_starts_with($cod, 'R')) {
+        $origemItem = 'GER';
+    } else {
+        $origemItem = strtoupper(trim((string) ($r['estacao'] ?: ($r['reprova_local'] !== 'GER' ? $r['reprova_local'] : 'IQF'))));
+        if ($origemItem === 'GER' || $origemItem === '') $origemItem = 'IQF';
+    }
     $lo = $localMap[$origemItem] ?? null;
     $setores = $r['setores_destino'] !== null ? explode(',', $r['setores_destino']) : [];
 
@@ -356,6 +363,8 @@ layoutHeader($pageTitle);
     .hist-filtros { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:14px 0; }
     .hist-filtros select, .hist-filtros input[type=search] { padding:8px 10px; border:1px solid var(--color-border,#d1d5db); border-radius:8px; font-size:13px; background:#fff; }
     .hist-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .hist-table-wrap { overflow-x:auto; overflow-y:auto; max-height:calc(100vh - 280px); max-height:calc(100dvh - 280px); }
+    .hist-table thead th { position:sticky; top:0; z-index:10; background:#f8fafc; box-shadow:0 1px 2px rgba(0,0,0,0.05); }
     .hist-table th { text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.6px; color:var(--color-text-muted,#6b7280); padding:8px 10px; border-bottom:1px solid var(--color-border,#e5e7eb); white-space:nowrap; }
     .hist-th-link { color:inherit; text-decoration:none; }
     .hist-th-link:hover { color:#E89B1C; text-decoration:none; }
@@ -397,24 +406,32 @@ layoutHeader($pageTitle);
     .hd-field .val { font-size:13px; color:#1a2133; white-space:pre-wrap; }
     .hd-field.full { grid-column:1 / -1; }
     .hd-materiais { width:100%; border-collapse:collapse; font-size:12px; }
-    .hd-materiais th { text-align:left; font-size:9px; text-transform:uppercase; color:#9ca3af; padding:4px 6px; border-bottom:1px solid #e5e7eb; }
-    .hd-materiais td { padding:5px 6px; border-bottom:1px solid #f1f5f9; }
     .hd-vazio { color:#9ca3af; font-size:12px; }
+    .btn-expand-all {
+        display: inline-flex; align-items: center; gap: 7px; padding: 6px 14px;
+        border: 1.5px solid #cbd5e1; border-radius: 6px; background: #ffffff;
+        color: #334155; font-size: 12px; font-weight: 600; cursor: pointer;
+        user-select: none; transition: all 0.15s ease;
+    }
+    .btn-expand-all:hover { background: #f8fafc; border-color: #94a3b8; color: #0f172a; }
+    .btn-expand-all.is-active { background: #fff7ed; border-color: #ea580c; color: #9a3412; }
 </style>
 
-<!-- Cabeçalho -->
-<div style="margin-bottom:18px;">
-    <h1 style="font-size:var(--font-size-xl,20px);font-weight:700;margin-top:2px;">Acompanhamento</h1>
-    <p class="text-secondary" style="font-size:13px;color:var(--color-text-secondary,#6b7280);margin-top:2px;">
-        Peças ativas em processo de retrabalho
-    </p>
-</div>
+<!-- Container de Página com Rolagem Exclusiva na Tabela -->
+<div class="page-fixed-layout">
 
+    <!-- Cabeçalho -->
+    <div class="page-fixed-header">
+        <h1 style="font-size:var(--font-size-xl,20px);font-weight:700;margin-top:2px;">Acompanhamento</h1>
+        <p class="text-secondary" style="font-size:13px;color:var(--color-text-secondary,#6b7280);margin-top:2px;">
+            Peças ativas em processo de retrabalho
+        </p>
+    </div>
 
-<div class="hist-card">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-        <h3>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 21H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v7"/><path d="M21 16v6"/><path d="M18 19h6"/><path d="M9 7h6"/><path d="M9 11h6"/><path d="M9 15h4"/></svg>
+    <div class="hist-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+        <h3 style="margin:0;display:flex;align-items:center;gap:8px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;"><path d="M11 21H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v7"/><path d="M21 16v6"/><path d="M18 19h6"/><path d="M9 7h6"/><path d="M9 11h6"/><path d="M9 15h4"/></svg>
             Acompanhamento
         </h3>
     </div>
@@ -445,14 +462,18 @@ layoutHeader($pageTitle);
                     Limpar
                 </a>
             <?php endif; ?>
+            <button type="button" id="btn-toggle-all-hist" class="filter-btn btn-expand-all" aria-expanded="false" title="Expandir ou recolher todas as linhas">
+                <svg class="ico-expand" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                <span class="lbl-expand">Expandir Todos</span>
+            </button>
         </div>
     </form>
 
-    <div style="overflow-x:auto;">
+    <div class="hist-table-wrap">
         <table class="hist-table">
             <thead>
                 <tr>
-                    <th style="width:32px;"></th>
+                    <th style="width:36px;text-align:center;"><button type="button" class="btn-expand-col js-toggle-all-quick" title="Expandir/Recolher todos" style="cursor:pointer;border:1px solid #cbd5e1;border-radius:4px;background:#f8fafc;color:#475569;font-weight:700;font-size:13px;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;">⤢</button></th>
                     <?php
                     histSortTh('N° Série', 'ns');
                     histSortTh('Pedido', 'pedido');
@@ -560,6 +581,7 @@ layoutHeader($pageTitle);
             </div>
         <?php endif; ?>
     </div>
+</div>
 </div>
 
 <!-- Modal: Ver detalhes (tudo o que foi registrado na Triagem desta reprova) -->
@@ -673,15 +695,96 @@ layoutHeader($pageTitle);
         if (modal) modal.addEventListener('click', function (e) { if (e.target === modal) modal.style.display = 'none'; });
     }());
 
-    document.addEventListener('click', function (e) {
-        var btn = e.target.closest('.js-toggle-hist');
-        if (!btn) return;
-        var row = document.getElementById(btn.dataset.target);
-        if (!row) return;
-        var aberto = row.classList.toggle('is-open');
-        btn.textContent = aberto ? '−' : '+';
-        btn.setAttribute('aria-expanded', aberto ? 'true' : 'false');
-    });
+    (function() {
+        var STORAGE_KEY_ALL = 'sgt_acompanhamento_expand_all';
+        var STORAGE_KEY_ROWS = 'sgt_acompanhamento_open_rows';
+
+        function getOpenRows() {
+            try { return JSON.parse(localStorage.getItem(STORAGE_KEY_ROWS) || '[]'); } catch (e) { return []; }
+        }
+
+        function saveOpenRows(rows) {
+            localStorage.setItem(STORAGE_KEY_ROWS, JSON.stringify(rows));
+        }
+
+        function syncHeaderButtons(expandAll) {
+            var btnAll = document.getElementById('btn-toggle-all-hist');
+            if (btnAll) {
+                btnAll.setAttribute('aria-expanded', expandAll ? 'true' : 'false');
+                btnAll.classList.toggle('is-active', expandAll);
+                var lbl = btnAll.querySelector('.lbl-expand');
+                if (lbl) lbl.textContent = expandAll ? 'Recolher Todos' : 'Expandir Todos';
+            }
+            var quickBtn = document.querySelector('.js-toggle-all-quick');
+            if (quickBtn) {
+                quickBtn.textContent = expandAll ? '−' : '⤢';
+                quickBtn.title = expandAll ? 'Recolher todos' : 'Expandir todos';
+            }
+        }
+
+        function aplicarEstado() {
+            var expandAll = localStorage.getItem(STORAGE_KEY_ALL) === 'true';
+            var openRows = getOpenRows();
+            syncHeaderButtons(expandAll);
+
+            document.querySelectorAll('.js-toggle-hist').forEach(function(btn) {
+                var targetId = btn.dataset.target;
+                var row = document.getElementById(targetId);
+                if (!row) return;
+
+                var shouldOpen = expandAll || openRows.includes(targetId);
+                if (shouldOpen) {
+                    row.classList.add('is-open');
+                    btn.textContent = '−';
+                    btn.setAttribute('aria-expanded', 'true');
+                } else {
+                    row.classList.remove('is-open');
+                    btn.textContent = '+';
+                    btn.setAttribute('aria-expanded', 'false');
+                }
+            });
+        }
+
+        function setAllRows(expand) {
+            localStorage.setItem(STORAGE_KEY_ALL, expand ? 'true' : 'false');
+            if (!expand) {
+                saveOpenRows([]);
+            }
+            aplicarEstado();
+        }
+
+        document.addEventListener('click', function (e) {
+            var btnAll = e.target.closest('#btn-toggle-all-hist') || e.target.closest('.js-toggle-all-quick');
+            if (btnAll) {
+                var isCurrentlyExpanded = localStorage.getItem(STORAGE_KEY_ALL) === 'true';
+                setAllRows(!isCurrentlyExpanded);
+                return;
+            }
+
+            var btn = e.target.closest('.js-toggle-hist');
+            if (!btn) return;
+            var targetId = btn.dataset.target;
+            var row = document.getElementById(targetId);
+            if (!row) return;
+            var aberto = row.classList.toggle('is-open');
+            btn.textContent = aberto ? '−' : '+';
+            btn.setAttribute('aria-expanded', aberto ? 'true' : 'false');
+
+            var openRows = getOpenRows();
+            if (aberto) {
+                if (!openRows.includes(targetId)) openRows.push(targetId);
+            } else {
+                openRows = openRows.filter(function(id) { return id !== targetId; });
+                localStorage.setItem(STORAGE_KEY_ALL, 'false');
+                syncHeaderButtons(false);
+            }
+            saveOpenRows(openRows);
+        });
+
+        window.sgtAplicarExpansao = aplicarEstado;
+
+        aplicarEstado();
+    })();
 
     (function() {
         var formTimer;

@@ -171,6 +171,12 @@ function hasAcesso(string $recurso): bool
             if (($perms['pin.pai'] ?? 'off') !== 'off' || ($perms['pin.ret'] ?? 'off') !== 'off') {
                 $perms['tab:pintura'] = 'total';
             }
+            if (($perms['pcp.pri'] ?? 'off') !== 'off' || ($perms['ret.pri'] ?? 'off') !== 'off') {
+                $perms['tab:pcp'] = 'total';
+                $pVal = ($perms['pcp.pri'] ?? 'off') !== 'off' ? $perms['pcp.pri'] : ($perms['ret.pri'] ?? 'total');
+                $perms['pcp.pri'] = $pVal;
+                $perms['ret.pri'] = $pVal;
+            }
             if (($perms['ret.pan'] ?? 'off') !== 'off' || ($perms['ret.rel'] ?? 'off') !== 'off' || ($perms['ret.dash'] ?? 'off') !== 'off' || ($perms['ret.pri'] ?? 'off') !== 'off') {
                 $perms['tab:retrabalho'] = 'total';
             }
@@ -210,6 +216,7 @@ function requireAcessoModulo(string $modulo): void
         'producao'       => 'tab:laboratorio',
         'inspecao_final' => 'tab:inspecao_final',
         'pintura'        => 'tab:pintura',
+        'pcp'            => 'tab:pcp',
         'retrabalho'     => 'tab:retrabalho',
         'analise'        => 'tab:analise',
         'qualidade'      => 'qua.tip'

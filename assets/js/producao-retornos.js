@@ -31,15 +31,94 @@
         });
     }
 
-    // ─── Expandir/recolher reprovas por trás do "+" ────────────────────────────
+    // ─── Expandir/recolher reprovas por trás do "+" & Expandir Todos ───────────
+    var STORAGE_KEY_ALL = 'sgt_retornos_expand_all';
+    var STORAGE_KEY_ROWS = 'sgt_retornos_open_rows';
+
+    function getOpenRows() {
+        try { return JSON.parse(localStorage.getItem(STORAGE_KEY_ROWS) || '[]'); } catch (e) { return []; }
+    }
+
+    function saveOpenRows(rows) {
+        localStorage.setItem(STORAGE_KEY_ROWS, JSON.stringify(rows));
+    }
+
+    function syncHeaderButtons(expandAll) {
+        var btnAll = document.getElementById('btn-toggle-all-retornos');
+        if (btnAll) {
+            btnAll.setAttribute('aria-expanded', expandAll ? 'true' : 'false');
+            btnAll.classList.toggle('is-active', expandAll);
+            var lbl = btnAll.querySelector('.lbl-expand');
+            if (lbl) lbl.textContent = expandAll ? 'Recolher Todos' : 'Expandir Todos';
+        }
+        var quickBtn = document.querySelector('.js-toggle-all-quick');
+        if (quickBtn) {
+            quickBtn.textContent = expandAll ? '−' : '⤢';
+            quickBtn.title = expandAll ? 'Recolher todos' : 'Expandir todos';
+        }
+    }
+
+    function aplicarEstado() {
+        var expandAll = localStorage.getItem(STORAGE_KEY_ALL) === 'true';
+        var openRows = getOpenRows();
+        syncHeaderButtons(expandAll);
+
+        document.querySelectorAll('.js-toggle-retorno').forEach(function(btn) {
+            var targetId = btn.dataset.target;
+            var row = document.getElementById(targetId);
+            if (!row) return;
+
+            var shouldOpen = expandAll || openRows.includes(targetId);
+            if (shouldOpen) {
+                row.classList.add('is-open');
+                btn.textContent = '−';
+                btn.setAttribute('aria-expanded', 'true');
+            } else {
+                row.classList.remove('is-open');
+                btn.textContent = '+';
+                btn.setAttribute('aria-expanded', 'false');
+            }
+        });
+    }
+
+    function setAllRows(expand) {
+        localStorage.setItem(STORAGE_KEY_ALL, expand ? 'true' : 'false');
+        if (!expand) {
+            saveOpenRows([]);
+        }
+        aplicarEstado();
+    }
+
     document.addEventListener('click', function (e) {
+        var btnAll = e.target.closest('#btn-toggle-all-retornos') || e.target.closest('.js-toggle-all-quick');
+        if (btnAll) {
+            var isCurrentlyExpanded = localStorage.getItem(STORAGE_KEY_ALL) === 'true';
+            setAllRows(!isCurrentlyExpanded);
+            return;
+        }
+
         var btn = e.target.closest('.js-toggle-retorno');
         if (!btn) return;
-        var row = document.getElementById(btn.dataset.target);
+        var targetId = btn.dataset.target;
+        var row = document.getElementById(targetId);
         if (!row) return;
         var aberto = row.classList.toggle('is-open');
         btn.textContent = aberto ? '−' : '+';
         btn.setAttribute('aria-expanded', aberto ? 'true' : 'false');
+
+        var openRows = getOpenRows();
+        if (aberto) {
+            if (!openRows.includes(targetId)) openRows.push(targetId);
+        } else {
+            openRows = openRows.filter(function(id) { return id !== targetId; });
+            localStorage.setItem(STORAGE_KEY_ALL, 'false');
+            syncHeaderButtons(false);
+        }
+        saveOpenRows(openRows);
+    });
+
+    document.addEventListener('DOMContentLoaded', function() {
+        aplicarEstado();
     });
 
     // ─── Aprovado: ação direta ────────────────────────────────────────────────

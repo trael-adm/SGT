@@ -173,18 +173,31 @@ layoutHeader($pageTitle);
         display: flex; align-items: center; justify-content: center; transition: all var(--transition);
     }
     .lst-reprova-remove:hover { border-color: var(--color-danger); color: var(--color-danger); background: var(--color-danger-bg); }
+    .btn-expand-all {
+        display: inline-flex; align-items: center; gap: 7px; padding: 6px 14px;
+        border: 1.5px solid #cbd5e1; border-radius: 6px; background: #ffffff;
+        color: #334155; font-size: 12px; font-weight: 600; cursor: pointer;
+        user-select: none; transition: all 0.15s ease;
+    }
+    .btn-expand-all:hover { background: #f8fafc; border-color: #94a3b8; color: #0f172a; }
+    .btn-expand-all.is-active { background: #fff7ed; border-color: #ea580c; color: #9a3412; }
+    .table-wrap { overflow-x:auto; overflow-y:auto; max-height:calc(100vh - 280px); max-height:calc(100dvh - 280px); }
+    .data-table thead th { position:sticky; top:0; z-index:10; background:#f8fafc; box-shadow:0 1px 2px rgba(0,0,0,0.05); }
 </style>
 
-<!-- Cabeçalho -->
-<div style="margin-bottom:18px;">
-    <h1 style="font-size:var(--font-size-xl,20px);font-weight:700;margin-top:2px;">Retornos ao Laboratório</h1>
-    <p class="text-secondary" style="font-size:13px;color:var(--color-text-secondary,#6b7280);margin-top:2px;">
-        Transformadores encaminhados pelo Retrabalho, aguardando dar entrada de novo no Laboratório
-    </p>
-</div>
+<!-- Container de Página com Rolagem Exclusiva na Tabela -->
+<div class="page-fixed-layout">
 
-<div class="card">
-    <div class="card-header">
+    <!-- Cabeçalho -->
+    <div class="page-fixed-header">
+        <h1 style="font-size:var(--font-size-xl,20px);font-weight:700;margin-top:2px;">Retornos ao Laboratório</h1>
+        <p class="text-secondary" style="font-size:13px;color:var(--color-text-secondary,#6b7280);margin-top:2px;">
+            Transformadores encaminhados pelo Retrabalho, aguardando dar entrada de novo no Laboratório
+        </p>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
         <div>
             <div class="card-title">Aguardando retorno</div>
             <div class="card-subtitle"><?= count($retornos) ?> transformador<?= count($retornos) === 1 ? '' : 'es' ?></div>
@@ -216,6 +229,10 @@ layoutHeader($pageTitle);
                     Limpar
                 </a>
             <?php endif; ?>
+            <button type="button" id="btn-toggle-all-retornos" class="filter-btn btn-expand-all" aria-expanded="false" title="Expandir ou recolher todas as linhas">
+                <svg class="ico-expand" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                <span class="lbl-expand">Expandir Todos</span>
+            </button>
         </div>
     </form>
 
@@ -228,7 +245,7 @@ layoutHeader($pageTitle);
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th style="width:32px;cursor:default;"></th>
+                        <th style="width:36px;text-align:center;"><button type="button" class="btn-expand-col js-toggle-all-quick" title="Expandir/Recolher todos" style="cursor:pointer;border:1px solid #cbd5e1;border-radius:4px;background:#f8fafc;color:#475569;font-weight:700;font-size:13px;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;">⤢</button></th>
                         <th>N° Série</th>
                         <th>Pedido</th>
                         <th>Projeto</th>
@@ -339,6 +356,7 @@ layoutHeader($pageTitle);
             <button type="button" class="btn btn-secondary" id="ret-excluir-cancelar">Cancelar</button>
             <button type="button" class="btn btn-danger" id="ret-excluir-confirmar">Excluir Retorno</button>
         </div>
+    </div>
     </div>
 </div>
 

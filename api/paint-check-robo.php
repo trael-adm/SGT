@@ -66,6 +66,35 @@ if (!$pythonResponse || !$pythonResponse['success']) {
 
 $textos_brutos = $pythonResponse['textos_encontrados'] ?? [];
 
+function gerarHipotesesOcr(string $texto): array {
+    $candidatos = [];
+    $limpo = trim($texto);
+    if ($limpo === '') return [];
+    
+    $candidatos[] = $limpo;
+    
+    $chars = str_split($limpo);
+    $invertido = '';
+    $map180 = [
+        '0' => '0', '1' => '1', '2' => '5', '5' => '2',
+        '6' => '9', '8' => '8', '9' => '6',
+        'O' => '0', 'o' => '0', 'I' => '1', 'l' => '1',
+        '-' => '-', '.' => '.', ' ' => ' ',
+        'X' => 'X', 'x' => 'x', 'H' => 'H', 'N' => 'N', 'Z' => 'Z', 'S' => 'S', 's' => 's'
+    ];
+    
+    for ($i = count($chars) - 1; $i >= 0; $i--) {
+        $c = $chars[$i];
+        $invertido .= $map180[$c] ?? $c;
+    }
+    
+    if ($invertido !== '' && $invertido !== $limpo) {
+        $candidatos[] = $invertido;
+    }
+    
+    return array_values(array_unique($candidatos));
+}
+
 // Filtra pedaços: remove textos que são apenas substrings de outros textos maiores lidos
 $textos = [];
 foreach ($textos_brutos as $t1) {
@@ -77,18 +106,25 @@ foreach ($textos_brutos as $t1) {
         }
     }
     if (!$is_substring) {
-        $textos[] = $t1;
+        foreach (gerarHipotesesOcr($t1) as $hip) {
+            $textos[] = $hip;
+        }
     }
 }
 $textos = array_values(array_unique($textos));
 
-// Tenta verificar se a série esperada está nos textos encontrados
+// Tenta verificar se a série esperada (ou sua versão invertida) está nos textos encontrados
 $validado = false;
+$hipotesesEsperadas = gerarHipotesesOcr($serieEsperada);
+
 foreach ($textos as $t) {
-    // Se a série digitada for encontrada exatamente no texto extraído
-    if ($serieEsperada !== '' && strpos($t, $serieEsperada) !== false) {
-        $validado = true;
-        break;
+    $tClean = preg_replace('/[^a-zA-Z0-9]/', '', (string)$t);
+    foreach ($hipotesesEsperadas as $hExp) {
+        $hClean = preg_replace('/[^a-zA-Z0-9]/', '', (string)$hExp);
+        if ($hClean !== '' && (strpos($tClean, $hClean) !== false || strpos($hClean, $tClean) !== false)) {
+            $validado = true;
+            break 2;
+        }
     }
 }
 

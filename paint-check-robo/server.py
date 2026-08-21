@@ -231,10 +231,34 @@ def analisar():
         print(f"Confiança 0º: {score_0:.2f} | Textos: {texts_0}")
         print(f"Confiança 180º: {score_180:.2f} | Textos: {texts_180}")
         
-        final_texts = texts_0 if score_0 >= score_180 else texts_180
+        def invert_180_text(text_str):
+            char_map = {
+                '0': '0', '1': '1', '2': '5', '5': '2',
+                '6': '9', '8': '8', '9': '6',
+                'O': '0', 'o': '0', 'I': '1', 'l': '1',
+                '-': '-', '.': '.', ' ': ' ',
+                'X': 'X', 'x': 'x', 'H': 'H', 'N': 'N', 'Z': 'Z', 'S': 'S', 's': 's'
+            }
+            rev = ''.join(char_map.get(c, c) for c in reversed(text_str))
+            return rev
+
+        # Coleta os textos da orientação vencedora e também da secundária + inversões
+        candidate_pool = list(texts_0 if score_0 >= score_180 else texts_180)
+        secondary_pool = list(texts_180 if score_0 >= score_180 else texts_0)
         
-        # Remove duplicatas preservando a ordem original
-        final_texts = list(dict.fromkeys(final_texts))
+        # Adiciona inversões semânticas a 180º de todos os textos detectados
+        for t in list(candidate_pool) + list(secondary_pool):
+            inv = invert_180_text(t)
+            if inv and inv not in candidate_pool:
+                candidate_pool.append(inv)
+        
+        # Adiciona a lista secundária
+        for t in secondary_pool:
+            if t not in candidate_pool:
+                candidate_pool.append(t)
+
+        # Remove duplicatas preservando a ordem
+        final_texts = list(dict.fromkeys(candidate_pool))
         
         return jsonify({
             'success': True,

@@ -206,18 +206,23 @@ layoutHeader($pageTitle);
         display: flex; align-items: center; justify-content: center; transition: all var(--transition);
     }
     .lst-reprova-remove:hover { border-color: var(--color-danger); color: var(--color-danger); background: var(--color-danger-bg); }
+    .table-wrap { overflow-x:auto; overflow-y:auto; max-height:calc(100vh - 280px); max-height:calc(100dvh - 280px); }
+    .data-table thead th { position:sticky; top:0; z-index:10; background:#f8fafc; box-shadow:0 1px 2px rgba(0,0,0,0.05); }
 </style>
 
-<!-- Cabeçalho -->
-<div style="margin-bottom:18px;">
-    <h1 style="font-size:var(--font-size-xl,20px);font-weight:700;margin-top:2px;">Lista de Registros</h1>
-    <p class="text-secondary" style="font-size:13px;color:var(--color-text-secondary,#6b7280);margin-top:2px;">
-        Transformadores lidos e registrados no chão de fábrica, com filtros e paginação
-    </p>
-</div>
+<!-- Container de Página com Rolagem Exclusiva na Tabela -->
+<div class="page-fixed-layout">
 
-<div class="card">
-    <div class="card-header">
+    <!-- Cabeçalho -->
+    <div class="page-fixed-header">
+        <h1 style="font-size:var(--font-size-xl,20px);font-weight:700;margin-top:2px;">Lista de Registros</h1>
+        <p class="text-secondary" style="font-size:13px;color:var(--color-text-secondary,#6b7280);margin-top:2px;">
+            Transformadores lidos e registrados no chão de fábrica, com filtros e paginação
+        </p>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
         <div>
             <div class="card-title">Registros de Produção</div>
             <div class="card-subtitle"><?= $totalRegistros ?> registro<?= $totalRegistros === 1 ? '' : 's' ?></div>
@@ -336,6 +341,7 @@ layoutHeader($pageTitle);
             </div>
         <?php endif; ?>
     </div>
+</div>
 </div>
 
 <!-- Modal: Reprovar Transformador -->

@@ -141,6 +141,10 @@ function getDB(): PDO
         } catch (\Throwable $e) {}
 
         try {
+            $pdo->exec("ALTER TABLE usuarios ADD COLUMN cpf VARCHAR(14) NULL DEFAULT NULL AFTER email");
+        } catch (\Throwable $e) {}
+
+        try {
             $pdo->exec("
                 UPDATE reprovas 
                 SET setor_causador = CASE
@@ -153,6 +157,19 @@ function getDB(): PDO
                     ELSE setor_causador
                 END
                 WHERE setor_causador = 'S/ Setor Causador' AND codigo REGEXP '^(EG|C|E|L|P|R)[0-9]+'
+            ");
+        } catch (\Throwable $e) {}
+
+        try {
+            $pdo->exec("
+                UPDATE reprovas 
+                SET local = 'IQF' 
+                WHERE local = 'GER' AND codigo NOT LIKE 'R%'
+            ");
+            $pdo->exec("
+                UPDATE reprovas 
+                SET local = 'GER', setor_causador = 'REVITALIZAÇÃO' 
+                WHERE codigo LIKE 'R%'
             ");
         } catch (\Throwable $e) {}
     }

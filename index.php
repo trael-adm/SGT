@@ -39,7 +39,7 @@ if (hasAcesso('ret.rel')) {
     $urlRetrabalho = 'pages/retrabalho/index.php';
 } elseif (hasAcesso('ret.dash')) {
     $urlRetrabalho = 'pages/retrabalho/dashboard.php';
-} elseif (hasAcesso('ret.pri')) {
+} elseif (hasAcesso('pcp.pri') || hasAcesso('ret.pri')) {
     $urlRetrabalho = 'pages/pedidos/prioridade.php';
 } elseif (hasAcesso('lab.reg')) {
     $urlRetrabalho = 'pages/producao/index.php';
@@ -100,7 +100,7 @@ $todosSistemas = [
         'dot' => '#C0453B', 'iconBg' => '#F7E4E2', 'iconColor' => '#C0453B',
         'icone' => '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
         'url' => $urlRetrabalho,
-        'req' => ['tab:laboratorio', 'tab:inspecao_final', 'tab:pintura', 'tab:retrabalho', 'tab:analise'], // Pode ver se tiver pelo menos uma
+        'req' => ['tab:pcp', 'tab:laboratorio', 'tab:inspecao_final', 'tab:pintura', 'tab:retrabalho', 'tab:analise'], // Pode ver se tiver pelo menos uma
     ],
     [
         'nome' => '5S', 'cat' => 'Organização',

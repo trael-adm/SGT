@@ -70,9 +70,13 @@ if ($fStatus === 'em_andamento' || $fStatus === 'ativos') {
 }
 
 if ($fEstacao !== '') {
-    $where[] = '(r.estacao = ? OR rep.local = ?)';
-    $params[] = $fEstacao;
-    $params[] = $fEstacao;
+    if ($fEstacao === 'GER') {
+        $where[] = "(rep.codigo LIKE 'R%' OR rep.setor_causador = 'REVITALIZAÇÃO' OR (r.estacao = 'GER' AND rep.codigo LIKE 'R%'))";
+    } else {
+        $where[] = '(r.estacao = ? OR (rep.local = ? AND rep.codigo NOT LIKE \'R%\'))';
+        $params[] = $fEstacao;
+        $params[] = $fEstacao;
+    }
 }
 
 if ($fBusca !== '') {

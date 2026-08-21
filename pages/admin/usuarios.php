@@ -3,29 +3,340 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../config/conexao.php';
 require_once __DIR__ . '/../../config/session.php';
+require_once __DIR__ . '/../../includes/helpers.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
 requireAcessoModulo('admin');
 
 $pdo = getDB();
+$base = defined('APP_URL') ? APP_URL : '';
+$curUser = currentUser();
+$curUserId = (int)($curUser['id'] ?? 0);
 
-// Carregar Perfis (cod => dados)
-$perfisDB = $pdo->query("SELECT id, cod, nome, grupo, descricao, status, sistema, perms FROM perfis ORDER BY nome ASC")->fetchAll(PDO::FETCH_ASSOC);
-$PERFIS = [];
-foreach ($perfisDB as $p) {
-    $p['perms'] = json_decode((string)$p['perms'], true) ?: [];
-    $PERFIS[$p['cod']] = $p;
+// ─── Sincronizador de Permissões e Telas ──────────────────────────────────────
+function sincronizarPermissoes(array $perms): array {
+    if (isset($perms['ret.pri']) && !isset($perms['pcp.pri'])) {
+        $perms['pcp.pri'] = $perms['ret.pri'];
+    }
+    if (isset($perms['pcp.pri']) && !isset($perms['ret.pri'])) {
+        $perms['ret.pri'] = $perms['pcp.pri'];
+    }
+    if (isset($perms['ana.his']) && !isset($perms['ana.aco'])) {
+        $perms['ana.aco'] = $perms['ana.his'];
+    }
+    if (isset($perms['adm.per']) && !isset($perms['adm.usu'])) {
+        $perms['adm.usu'] = $perms['adm.per'];
+    }
+    return $perms;
 }
 
-// Carregar Setores
-$setoresDB = $pdo->query("SELECT id, nome FROM setores WHERE status = 'ativo' ORDER BY nome ASC")->fetchAll(PDO::FETCH_ASSOC);
-$SETORES = $setoresDB;
+// ─── Estrutura Completa de Sistemas da Fábrica -> Módulos -> Telas ───────────
+$SISTEMAS_ESTRUTURA = [
+    [
+        'id' => 'retrabalho',
+        'chave' => 'hub:retrabalho',
+        'nome' => 'Retrabalho (SGT)',
+        'badge' => '8 Módulos Operacionais',
+        'badge_color' => '#E89B1C',
+        'categoria' => 'Qualidade & Fábrica',
+        'desc' => 'Gestão de reprovas, reensaios, prioridades e retrabalho da fábrica.',
+        'svg' => '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+        'aberto_padrao' => true,
+        'modulos' => [
+            [
+                'id' => 'pcp',
+                'nome' => 'PCP',
+                'svg' => '<circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>',
+                'telas' => [
+                    ['pcp.pri', 'Prioridades']
+                ]
+            ],
+            [
+                'id' => 'lab',
+                'nome' => 'Laboratório',
+                'svg' => '<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
+                'telas' => [
+                    ['lab.reg', 'Registro de Reprova'],
+                    ['lab.lis', 'Lista de Registros'],
+                    ['lab.ret', 'Retornos ao Laboratório']
+                ]
+            ],
+            [
+                'id' => 'iqf',
+                'nome' => 'Inspeção Final',
+                'svg' => '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+                'telas' => [
+                    ['iqf.reg', 'Registro de Reprova'],
+                    ['iqf.lis', 'Lista de Inspeção'],
+                    ['iqf.ret', 'Retornos à Inspeção']
+                ]
+            ],
+            [
+                'id' => 'ret',
+                'nome' => 'Retrabalho Operacional',
+                'svg' => '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>',
+                'telas' => [
+                    ['ret.dash', 'Dashboard'],
+                    ['ret.pan', 'Retrabalho Operacional'],
+                    ['ret.rel', 'Relação de Retrabalhos']
+                ]
+            ],
+            [
+                'id' => 'pin',
+                'nome' => 'Pintura',
+                'svg' => '<path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"/>',
+                'telas' => [
+                    ['pin.pai', 'Paint Check (Robô)'],
+                    ['pin.ret', 'Relação de Retrabalhos']
+                ]
+            ],
+            [
+                'id' => 'qua',
+                'nome' => 'Qualidade',
+                'svg' => '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+                'telas' => [
+                    ['qua.tip', 'Tipos de Reprova']
+                ]
+            ],
+            [
+                'id' => 'ana',
+                'nome' => 'Análise',
+                'svg' => '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>',
+                'telas' => [
+                    ['ana.aco', 'Acompanhamento'],
+                    ['ana.his', 'Histórico']
+                ]
+            ],
+            [
+                'id' => 'adm',
+                'nome' => 'Administração',
+                'svg' => '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>',
+                'telas' => [
+                    ['adm.usu', 'Usuários & Setores']
+                ]
+            ]
+        ]
+    ],
+    [
+        'id' => 'sge',
+        'chave' => 'hub:sge',
+        'nome' => 'SGE — Engenharia',
+        'badge' => 'Demandas & Projetos',
+        'badge_color' => '#C6800F',
+        'categoria' => 'Engenharia',
+        'desc' => 'Gestão de demandas técnicas, projetos de engenharia e etapas de produção.',
+        'svg' => '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>',
+        'aberto_padrao' => false,
+        'modulos' => [
+            [
+                'id' => 'sge_proj',
+                'nome' => 'Módulo de Projetos',
+                'svg' => '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
+                'telas' => [
+                    ['hub:sge', 'Acesso Geral ao SGE']
+                ]
+            ]
+        ]
+    ],
+    [
+        'id' => 'soma',
+        'chave' => 'hub:soma',
+        'nome' => 'SOMA — PCP & Cronoanálise',
+        'badge' => 'Tempos & Produtividade',
+        'badge_color' => '#2E6CB8',
+        'categoria' => 'PCP / Tempos',
+        'desc' => 'Análise de tempos: peça/hora, metas e dados de produção.',
+        'svg' => '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/>',
+        'aberto_padrao' => false,
+        'modulos' => [
+            [
+                'id' => 'soma_tempos',
+                'nome' => 'Módulo de Tempos',
+                'svg' => '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 14"/>',
+                'telas' => [
+                    ['hub:soma', 'Acesso Geral ao SOMA']
+                ]
+            ]
+        ]
+    ],
+    [
+        'id' => 'producao',
+        'chave' => 'hub:producao',
+        'nome' => 'Produção — Chão de Fábrica',
+        'badge' => 'Apontamentos Operacionais',
+        'badge_color' => '#0F766E',
+        'categoria' => 'Fábrica',
+        'desc' => 'Acompanhamento e registro de etapas no chão de fábrica em tempo real.',
+        'svg' => '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>',
+        'aberto_padrao' => false,
+        'modulos' => [
+            [
+                'id' => 'prod_apont',
+                'nome' => 'Módulo de Produção',
+                'svg' => '<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+                'telas' => [
+                    ['hub:producao', 'Acesso Geral à Produção']
+                ]
+            ]
+        ]
+    ],
+    [
+        'id' => '5s',
+        'chave' => 'hub:5s',
+        'nome' => '5S — Auditorias & Organização',
+        'badge' => 'Checklists por Setor',
+        'badge_color' => '#2E8B57',
+        'categoria' => 'Organização',
+        'desc' => 'Auditorias periódicas e checklists de 5S por setor da fábrica.',
+        'svg' => '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+        'aberto_padrao' => false,
+        'modulos' => [
+            [
+                'id' => '5s_audit',
+                'nome' => 'Módulo de Auditorias',
+                'svg' => '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+                'telas' => [
+                    ['hub:5s', 'Acesso Geral ao 5S']
+                ]
+            ]
+        ]
+    ],
+    [
+        'id' => 'ausencias',
+        'chave' => 'hub:ausencias',
+        'nome' => 'Ausências — Gestão de Pessoas',
+        'badge' => 'Presença & Equipe',
+        'badge_color' => '#7C5CBF',
+        'categoria' => 'Pessoas',
+        'desc' => 'Controle de faltas, férias, atestados e afastamentos da equipe.',
+        'svg' => '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="14.5" y1="14" x2="9.5" y2="19"/><line x1="9.5" y1="14" x2="14.5" y2="19"/>',
+        'aberto_padrao' => false,
+        'modulos' => [
+            [
+                'id' => 'aus_escala',
+                'nome' => 'Módulo de Pessoas',
+                'svg' => '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>',
+                'telas' => [
+                    ['hub:ausencias', 'Acesso Geral a Ausências']
+                ]
+            ]
+        ]
+    ],
+    [
+        'id' => 'incidentes',
+        'chave' => 'hub:incidentes',
+        'nome' => 'Incidentes — Segurança do Trabalho',
+        'badge' => 'Segurança & Saúde',
+        'badge_color' => '#D0453B',
+        'categoria' => 'Segurança',
+        'desc' => 'Registro e acompanhamento de incidentes no processo produtivo.',
+        'svg' => '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+        'aberto_padrao' => false,
+        'modulos' => [
+            [
+                'id' => 'inc_reg',
+                'nome' => 'Módulo de Segurança',
+                'svg' => '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+                'telas' => [
+                    ['hub:incidentes', 'Acesso Geral a Incidentes']
+                ]
+            ]
+        ]
+    ],
+    [
+        'id' => 'perdas',
+        'chave' => 'hub:perdas',
+        'nome' => 'Perdas & Descartes',
+        'badge' => 'Sucatas & Refugos',
+        'badge_color' => '#B5852A',
+        'categoria' => 'Descartes',
+        'desc' => 'Lançamento de descartes de fabricação: sucatas, perdas de cobre e materiais.',
+        'svg' => '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>',
+        'aberto_padrao' => false,
+        'modulos' => [
+            [
+                'id' => 'perd_sucata',
+                'nome' => 'Módulo de Descartes',
+                'svg' => '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>',
+                'telas' => [
+                    ['hub:perdas', 'Acesso Geral a Perdas']
+                ]
+            ]
+        ]
+    ],
+    [
+        'id' => 'paradas',
+        'chave' => 'hub:paradas',
+        'nome' => 'Paradas de Máquina',
+        'badge' => 'Motivos & Tempos',
+        'badge_color' => '#C08A1E',
+        'categoria' => 'Operação',
+        'desc' => 'Registro de paradas operacionais, motivos de máquina parada e tempo improdutivo.',
+        'svg' => '<circle cx="12" cy="12" r="9"/><line x1="10" y1="9" x2="10" y2="15"/><line x1="14" y1="9" x2="14" y2="15"/>',
+        'aberto_padrao' => false,
+        'modulos' => [
+            [
+                'id' => 'par_tempo',
+                'nome' => 'Módulo de Paradas',
+                'svg' => '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 8 14"/>',
+                'telas' => [
+                    ['hub:paradas', 'Acesso Geral a Paradas']
+                ]
+            ]
+        ]
+    ],
+];
 
-// Carregar Usuários
+// ─── Carregamento do Banco de Dados ───────────────────────────────────────────
+// 1. Perfis
+$perfisDB = $pdo->query("
+    SELECT id, cod, nome, grupo, descricao, status, sistema, perms, DATE_FORMAT(created_at, '%d/%m/%Y') as criado 
+    FROM perfis 
+    ORDER BY nome ASC
+")->fetchAll(PDO::FETCH_ASSOC);
+
+$userCountByPerfil = $pdo->query("
+    SELECT id_perfil, COUNT(id) as total 
+    FROM usuarios 
+    WHERE deleted_at IS NULL 
+    GROUP BY id_perfil
+")->fetchAll(PDO::FETCH_KEY_PAIR);
+
+$perfis = [];
+foreach ($perfisDB as $p) {
+    $p['sistema'] = (bool)($p['sistema'] ?? 0);
+    $p['usuarios'] = (int)($userCountByPerfil[$p['id']] ?? 0);
+    $rawPerms = json_decode((string)$p['perms'], true) ?: [];
+    $p['perms'] = sincronizarPermissoes($rawPerms);
+    $perfis[$p['id']] = $p;
+}
+
+// 2. Setores
+$setoresDB = $pdo->query("
+    SELECT id, cod, nome, resp, cc, turnos, perfil, status, DATE_FORMAT(created_at, '%d/%m/%Y') as criado 
+    FROM setores 
+    ORDER BY nome ASC
+")->fetchAll(PDO::FETCH_ASSOC);
+
+$userCountBySetor = $pdo->query("
+    SELECT id_setor, COUNT(id) as total 
+    FROM usuarios 
+    WHERE deleted_at IS NULL 
+    GROUP BY id_setor
+")->fetchAll(PDO::FETCH_KEY_PAIR);
+
+$setores = [];
+foreach ($setoresDB as $s) {
+    $s['usuarios'] = (int)($userCountBySetor[$s['id']] ?? 0);
+    $setores[$s['id']] = $s;
+}
+
+// 3. Usuários e Acessos
 $usersDB = $pdo->query("
-    SELECT u.id, u.nome, u.email, u.matricula as mat, u.status, u.id_setor,
+    SELECT u.id, u.nome, u.email, u.cpf, u.matricula, u.status, u.id_setor, u.id_perfil,
            DATE_FORMAT(u.created_at, '%d/%m/%Y') as criado,
-           p.cod as perfil, s.nome as setor
+           p.nome as perfil_nome, p.cod as perfil_cod,
+           s.nome as setor_nome, s.cod as setor_cod
     FROM usuarios u
     LEFT JOIN perfis p ON u.id_perfil = p.id
     LEFT JOIN setores s ON u.id_setor = s.id
@@ -33,565 +344,1929 @@ $usersDB = $pdo->query("
     ORDER BY u.nome ASC
 ")->fetchAll(PDO::FETCH_ASSOC);
 
-// Carregar Exceções por usuário
 $acessosDB = $pdo->query("SELECT id_usuario, tela, nivel FROM usuario_acessos")->fetchAll(PDO::FETCH_ASSOC);
-$excByUser = [];
+$acessosPorUsuario = [];
 foreach ($acessosDB as $a) {
-    $excByUser[(int)$a['id_usuario']][$a['tela']] = $a['nivel'];
+    $acessosPorUsuario[(int)$a['id_usuario']][$a['tela']] = $a['nivel'];
 }
 
-$users = [];
+$usuarios = [];
+
 foreach ($usersDB as $u) {
-    $u['mat'] = $u['mat'] ?: '';
-    $u['perfil'] = $u['perfil'] ?: '';
-    $u['setor'] = $u['setor'] ?: '';
-    $u['id_setor'] = (int)($u['id_setor'] ?? 0);
-    $u['acesso'] = 'Nunca acessou'; // TODO: implementar rastreio de último acesso
-    $u['sinal'] = $u['status'] === 'ativo' ? 'ok' : ($u['status'] === 'pendente' ? 'warn' : 'bad');
-    $u['exc'] = (object)($excByUser[(int)$u['id']] ?? []);
-    $users[] = $u;
+    $uId = (int)$u['id'];
+    $uPerId = (int)($u['id_perfil'] ?? 0);
+    $uExc = $acessosPorUsuario[$uId] ?? [];
+    
+    $permsBase = $uPerId > 0 && isset($perfis[$uPerId]) ? $perfis[$uPerId]['perms'] : [];
+    $permsEfetivas = sincronizarPermissoes(array_merge($permsBase, $uExc));
+
+    $modulosAtivos = [];
+    foreach ($SISTEMAS_ESTRUTURA as $sys) {
+        $temSys = false;
+        foreach ($sys['modulos'] as $mod) {
+            foreach ($mod['telas'] as $t) {
+                $lvl = $permsEfetivas[$t[0]] ?? 'off';
+                if ($lvl !== 'off' && $lvl !== '') {
+                    $temSys = true;
+                    if ($sys['id'] === 'retrabalho') {
+                        $modulosAtivos[] = $mod['nome'];
+                    }
+                }
+            }
+        }
+        if ($temSys && $sys['id'] !== 'retrabalho') {
+            $modulosAtivos[] = $sys['nome'];
+        }
+    }
+
+    $u['perms_efetivas'] = $permsEfetivas;
+    $u['modulos_ativos'] = array_unique($modulosAtivos);
+    $u['tem_excecoes'] = !empty($uExc);
+    $u['exc_count'] = count($uExc);
+
+    $usuarios[] = $u;
 }
 
-layoutHeader('Controle de Usuários');
+$abaInicial = trim($_GET['aba'] ?? 'usuarios');
+if (!in_array($abaInicial, ['usuarios', 'setores', 'perfis'], true)) {
+    $abaInicial = 'usuarios';
+}
+
+$pageTitle = 'Gestão de Usuários & Setores';
+layoutHeader($pageTitle);
 ?>
 
 <style>
-:root{
-  --sidebar:#133A27;--sidebar-active:#1D5136;--sidebar-label:#7FA890;--sidebar-text:#DCE9E1;
-  --orange:#E0951F;--orange-dark:#C87F12;--green:#16A34A;--green-dark:#15803D;
-  --page:#F4F5F7;--line:#E5E7EB;--line-soft:#F1F2F4;--ink:#111827;--ink-2:#374151;--muted:#6B7280;--muted-2:#9CA3AF;
-}
-.mono{font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;font-weight:600;letter-spacing:.2px}
-.content{padding:24px 26px 40px;max-width:1680px;width:100%}
+    /* ─── Layout Unificado SGT ──────────────────────────────────────────────── */
+    .admin-page-container {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - var(--header-height) - 40px);
+        height: calc(100dvh - var(--header-height) - 40px);
+        min-height: 0;
+        overflow: hidden;
+    }
 
-.crumb{color:var(--muted);font-size:12.5px;text-decoration:none;display:inline-block;margin-bottom:8px}
-.crumb:hover{color:var(--orange-dark)}
-.subtitle{color:var(--muted);font-size:13.5px}
-.pills{display:flex;gap:11px;flex-wrap:wrap;margin:19px 0 17px}
-.pill{padding:9px 19px;border-radius:999px;border:1px solid var(--line);background:#fff;font-size:13.5px;color:var(--ink-2);white-space:nowrap}
-.pill:hover{border-color:#D1D5DB;background:#FAFAFA}
-.pill.is-active{background:var(--orange);border-color:var(--orange);color:#fff;font-weight:600}
+    .admin-sticky-top {
+        flex-shrink: 0;
+        background: var(--color-bg, #f4f5f7);
+        padding-bottom: 12px;
+    }
 
-.card{background:#fff;border:1px solid var(--line);border-radius:11px;overflow:hidden}
-.card-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 18px 4px}
-.card-title{display:flex;align-items:center;gap:9px;font-size:15.5px;font-weight:600}
-.card-title .ico{color:var(--orange)}
-.card-body{padding:12px 18px 0}
-.search{width:100%;padding:11px 14px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;font-family:inherit}
-.search::placeholder{color:var(--muted-2)}
-.search:focus{outline:none;border-color:var(--orange);box-shadow:0 0 0 3px rgba(224,149,31,.15)}
-.filters{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:13px}
-select.f{padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:13.5px;font-family:inherit;color:var(--ink-2);min-width:150px}
-.btn-filter{padding:9px 20px;border-radius:8px;background:var(--orange);color:#fff;font-weight:600;font-size:13.5px}
-.btn-filter:hover{background:var(--orange-dark)}
-.btn-new{padding:8px 15px;border-radius:8px;background:var(--orange);color:#fff;font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:7px}
-.btn-new:hover{background:var(--orange-dark)}
-.toggles{margin-left:auto;display:flex;align-items:center;gap:16px;font-size:13px;color:var(--ink-2)}
-.toggles .lbl{font-weight:600}
-.chk{display:flex;align-items:center;gap:6px;cursor:pointer}
-.chk input{width:15px;height:15px;accent-color:#2563EB;cursor:pointer}
+    /* ─── Switch de Abas (Pills) ────────────────────────────────────────────── */
+    .admin-tab-switch {
+        display: inline-flex;
+        background: #e2e8f0;
+        border-radius: 9999px;
+        padding: 3px;
+        gap: 4px;
+    }
+    .admin-switch-btn {
+        border: none;
+        background: transparent;
+        padding: 6px 14px;
+        border-radius: 9999px;
+        font-size: 12.5px;
+        font-weight: 600;
+        color: #475569;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        transition: all 0.15s ease;
+    }
+    .admin-switch-btn:hover { color: #0f172a; }
+    .admin-switch-btn.is-active {
+        background: #ffffff;
+        color: #0e2c1d;
+        font-weight: 700;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .admin-switch-btn .tab-count-pill {
+        background: #f1f5f9;
+        color: #64748b;
+        font-size: 11px;
+        padding: 1px 7px;
+        border-radius: 9999px;
+    }
+    .admin-switch-btn.is-active .tab-count-pill {
+        background: #e6f4ea;
+        color: #166534;
+        font-weight: 700;
+    }
 
-.table-wrap{overflow-x:auto;margin-top:16px}
-table{width:100%;border-collapse:collapse;min-width:1150px}
-thead th{font-size:10.5px;font-weight:700;letter-spacing:.75px;text-transform:uppercase;color:var(--muted);padding:10px 12px;text-align:center;white-space:nowrap}
-thead th.l{text-align:left}thead th.r{text-align:right}
-tbody td{padding:13px 12px;text-align:center;border-top:1px solid var(--line-soft);font-size:13.5px;color:var(--ink-2)}
-tbody td.l{text-align:left}tbody td.r{text-align:right}
-tbody tr.row:hover{background:#FCFCFD}
-.expander{width:26px;height:26px;border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:15px;display:grid;place-items:center}
-.expander:hover{border-color:var(--orange);color:var(--orange)}
-.user-cell{display:flex;flex-direction:column;gap:2px;min-width:190px}
-.user-name{font-weight:700;color:var(--ink);font-size:13.5px}
-.user-role{font-size:11.5px;color:var(--muted-2)}
-.email{font-size:13px}
-.badge{display:inline-block;padding:4px 11px;border-radius:999px;font-size:11.5px;font-weight:700;white-space:nowrap}
-.b-ADM{background:#FEE2E2;color:#DC2626}
-.b-GES{background:#FEF0DA;color:#B45309}
-.b-SUP{background:#DBEAFE;color:#1D4ED8}
-.b-OPE{background:#F3F4F6;color:#4B5563}
-.b-VIS{background:#F3F4F6;color:#6B7280}
-.s-ativo{background:#DCFCE7;color:#15803D}.s-inativo{background:#F3F4F6;color:#6B7280}
-.s-pendente{background:#FDE8E4;color:#C2410C}.s-bloqueado{background:#FEE2E2;color:#B91C1C}
-.dot{display:inline-block;width:10px;height:10px;border-radius:50%}
-.d-ok{background:#22C55E}.d-warn{background:#EAB308}.d-bad{background:#EF4444}
+    /* ─── Card de Tabela Rolável ────────────────────────────────────────────── */
+    .admin-pane-card {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        background: #ffffff;
+        border: 1px solid var(--color-border,#e5e7eb);
+        border-radius: var(--radius-lg,10px);
+        overflow: hidden;
+    }
 
-.meter{display:inline-flex;flex-direction:column;align-items:center;gap:4px;min-width:118px}
-.meter-top{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-2)}
-.meter-top b{font-weight:700;color:var(--ink)}
-.meter-bar{width:104px;height:6px;border-radius:99px;background:#EDF0F3;overflow:hidden}
-.meter-bar i{display:block;height:100%;background:var(--green);border-radius:99px}
-.meter-bar.partial i{background:#3B82F6}
-.meter-bar.low i{background:#94A3B8}
-.exc{font-size:10.5px;font-weight:700;color:#B45309;background:#FEF0DA;padding:2px 7px;border-radius:5px}
-.exc.none{color:var(--muted-2);background:transparent;font-weight:500}
+    .admin-toolbar {
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--color-border,#f1f5f9);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 10px;
+        flex-shrink: 0;
+        background: #ffffff;
+    }
+    .admin-toolbar-left, .admin-toolbar-right {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
 
-.act{padding:8px 15px;border-radius:8px;font-size:13px;font-weight:600;color:#fff;display:inline-flex;align-items:center;gap:7px}
-.act-green{background:var(--green)}.act-green:hover{background:var(--green-dark)}
-.act-orange{background:var(--orange)}.act-orange:hover{background:var(--orange-dark)}
-.act-ghost{background:#fff;border:1px solid var(--line);color:var(--ink-2);padding:8px 12px;border-radius:8px;font-size:13px;font-weight:600}
-.act-ghost:hover{border-color:#CBD5E1;background:#F9FAFB}
+    .admin-toolbar input[type=search], .admin-toolbar select {
+        padding: 7px 12px;
+        border: 1px solid var(--color-border,#d1d5db);
+        border-radius: 8px;
+        font-size: 13px;
+        background: #fff;
+        color: var(--color-text-primary,#111827);
+    }
+    .admin-toolbar input[type=search]:focus, .admin-toolbar select:focus {
+        outline: none;
+        border-color: #E89B1C;
+        box-shadow: 0 0 0 3px rgba(232,155,28,0.15);
+    }
 
-tr.detail td{background:#FAFBFC;padding:0}
-.detail-inner{padding:18px 22px 20px;display:grid;grid-template-columns:1fr 290px;gap:26px}
-.detail-h{font-size:10.5px;font-weight:700;letter-spacing:.75px;text-transform:uppercase;color:var(--muted);margin-bottom:11px}
-.area-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px}
-.area-row{display:grid;grid-template-columns:1fr 92px 74px;align-items:center;gap:10px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:9px 12px}
-.area-name{font-size:12.5px;font-weight:600;color:var(--ink-2);display:flex;align-items:center;gap:6px}
-.area-name em{font-style:normal;font-size:10px;color:#B45309;background:#FEF0DA;padding:1px 5px;border-radius:4px}
-.area-row.off .area-name{color:var(--muted-2);font-weight:500}
-.tag{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:5px;text-align:center}
-.t-total{background:#E7F6EC;color:#15803D}.t-edit{background:#FEF0DA;color:#B45309}
-.t-view{background:#EEF2F5;color:#475569}.t-off{background:#F5F5F5;color:#B0B5BC}
-.count{font-size:11.5px;color:var(--muted);text-align:right}
-.facts{display:flex;flex-direction:column;gap:9px}
-.fact{display:flex;justify-content:space-between;gap:12px;font-size:12.5px;border-bottom:1px dashed var(--line);padding-bottom:8px}
-.fact span:first-child{color:var(--muted)}
-.fact span:last-child{color:var(--ink-2);font-weight:600;text-align:right}
+    .btn-action-primary {
+        background: #E89B1C;
+        color: #0e2c1d;
+        border: none;
+        padding: 7px 16px;
+        border-radius: 8px;
+        font-size: 12.5px;
+        font-weight: 700;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        transition: all 0.15s ease;
+    }
+    .btn-action-primary:hover { background: #d98e16; }
 
-.card-foot{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:14px 18px;border-top:1px solid var(--line-soft);margin-top:6px}
-.foot-left{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--muted)}
-.foot-left select{padding:6px 9px;border:1px solid var(--line);border-radius:7px;font-family:inherit;font-size:13px;color:var(--ink-2)}
-.pager{display:flex;gap:6px}
-.pg{min-width:31px;height:31px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--muted);font-size:13px;display:grid;place-items:center}
-.pg:hover:not(:disabled):not(.is-active){border-color:#CBD5E1;color:var(--ink-2)}
-.pg.is-active{background:var(--orange);border-color:var(--orange);color:#fff;font-weight:700}
-.pg:disabled{opacity:.45;cursor:not-allowed}
-.empty{padding:46px 20px;text-align:center;color:var(--muted)}
-.empty strong{display:block;color:var(--ink-2);font-size:14.5px;margin-bottom:5px}
+    .admin-table-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: auto;
+    }
 
-.overlay{position:fixed;inset:0;background:rgba(17,24,39,.45);display:none;justify-content:center;padding:40px 18px 60px;overflow-y:auto;z-index:50}
-.overlay.open{display:flex}
-.modal{background:#fff;border-radius:12px;width:100%;max-width:720px;box-shadow:0 18px 48px rgba(0,0,0,.22);flex-shrink:0;align-self:flex-start}
-.modal-head{padding:18px 22px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:flex-start;gap:14px}
-.modal-head h2{font-size:17px;margin-bottom:3px}
-.modal-head p{font-size:12.5px;color:var(--muted)}
-.x{font-size:20px;color:var(--muted);padding:2px 7px;border-radius:6px}
-.x:hover{background:var(--line-soft);color:var(--ink)}
-.modal-body{padding:20px 22px;display:flex;flex-direction:column;gap:17px}
-.field{display:flex;flex-direction:column;gap:6px}
-.field label{font-size:11px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;color:var(--muted)}
-.field input,.field select{padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:13.5px;color:var(--ink);background:#fff}
-.field input:focus,.field select:focus{outline:none;border-color:var(--orange);box-shadow:0 0 0 3px rgba(224,149,31,.15)}
-.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    /* ─── Tabela Padrão SGT ─────────────────────────────────────────────────── */
+    .table-admin { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .table-admin thead th {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: #f8fafc;
+        text-align: left;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: .6px;
+        color: var(--color-text-muted,#6b7280);
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--color-border,#e5e7eb);
+        white-space: nowrap;
+    }
+    .table-admin tbody td {
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--color-border,#f1f5f9);
+        vertical-align: middle;
+        color: #1f2937;
+    }
+    .table-admin tbody tr:hover { background: #fbfcfd; }
 
-.access{border:1px solid var(--line);border-radius:10px;overflow:hidden}
-.access-top{padding:14px 15px;background:#FAFBFC;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:11px}
-.access-line{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.access-note{font-size:12px;color:var(--muted)}
-.access-note b{color:#B45309}
-.link{font-size:12px;font-weight:700;color:var(--orange-dark);text-decoration:underline;text-underline-offset:2px}
-.link:hover{color:var(--orange)}
-.mini-search{width:100%;padding:8px 11px;border:1px solid var(--line);border-radius:7px;font-size:13px;font-family:inherit}
-.mini-search:focus{outline:none;border-color:var(--orange)}
-.groups{max-height:290px;overflow-y:auto}
-.group{border-bottom:1px solid var(--line-soft)}
-.group:last-child{border-bottom:none}
-.g-head{width:100%;display:grid;grid-template-columns:18px 1fr auto auto;align-items:center;gap:10px;padding:11px 15px;text-align:left}
-.g-head:hover{background:#FAFBFC}
-.chev{color:var(--muted-2);font-size:11px;transition:transform .15s}
-.group.open .chev{transform:rotate(90deg)}
-.g-name{font-size:13.5px;font-weight:600;color:var(--ink)}
-.g-sum{font-size:11.5px;color:var(--muted)}
-.g-select{padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:11.5px;font-family:inherit;color:var(--ink-2);background:#fff}
-.g-body{display:none;padding:2px 15px 12px 43px}
-.group.open .g-body{display:block}
-.tela{display:grid;grid-template-columns:1fr 132px;align-items:center;gap:12px;padding:6px 0}
-.tela-name{font-size:12.5px;color:var(--ink-2);display:flex;align-items:center;gap:6px}
-.tela-name em{font-style:normal;font-size:9.5px;font-weight:700;color:#B45309;background:#FEF0DA;padding:1px 5px;border-radius:4px}
-.lv{width:100%;padding:5px 8px;border-radius:6px;font-size:11.5px;font-weight:700;font-family:inherit;border:1px solid transparent;cursor:pointer}
-.lv.v-total{background:#E7F6EC;color:#15803D}
-.lv.v-edit{background:#FEF0DA;color:#B45309}
-.lv.v-view{background:#EEF2F5;color:#475569}
-.lv.v-off{background:#F5F5F5;color:#8E959E}
-.access-foot{padding:11px 15px;background:#FAFBFC;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:12.5px;color:var(--muted)}
-.access-foot b{color:var(--ink-2)}
-.no-hit{padding:16px;text-align:center;color:var(--muted-2);font-size:12.5px}
-.modal-foot{padding:15px 22px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:center;background:#FAFBFC}
-.hint{font-size:12px;color:var(--muted)}
-.toast{position:fixed;bottom:24px;right:24px;background:var(--sidebar);color:#fff;padding:13px 18px;border-radius:9px;font-size:13.5px;box-shadow:0 10px 26px rgba(0,0,0,.25);transform:translateY(16px);opacity:0;pointer-events:none;transition:.22s;z-index:60}
-.toast.show{transform:none;opacity:1}
+    /* ─── Badges e Tags ─────────────────────────────────────────────────────── */
+    .mono-code {
+        font-family: 'JetBrains Mono', monospace;
+        font-weight: 600;
+        font-size: 12px;
+        color: #0f172a;
+    }
 
-@media (max-width:1080px){.detail-inner{grid-template-columns:1fr}.toggles{margin-left:0;width:100%}}
-@media (max-width:620px){.content{padding:18px 14px 34px}.grid-2{grid-template-columns:1fr}.g-head{grid-template-columns:18px 1fr auto;row-gap:6px}.g-select{grid-column:2/4;justify-self:start}}
-@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+    .badge-perfil {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-size: 11.5px;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    .badge-perfil-adm { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; }
+    .badge-perfil-ges { background: #ffedd5; color: #ea580c; border: 1px solid #fdba74; }
+    .badge-perfil-sup { background: #fef9c3; color: #a16207; border: 1px solid #fde047; }
+    .badge-perfil-ope { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+    .badge-perfil-custom { background: #f3e8ff; color: #7e22ce; border: 1px solid #e9d5ff; font-style: italic; }
+
+    .badge-mod-tag {
+        display: inline-block;
+        font-size: 10.5px;
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        color: #475569;
+        font-weight: 600;
+        margin: 1px 2px;
+    }
+
+    .badge-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 2px 8px;
+        border-radius: 9999px;
+        font-size: 11px;
+        font-weight: 700;
+    }
+    .badge-status.is-ativo { background: #dcfce7; color: #15803d; }
+    .badge-status.is-inativo { background: #f1f5f9; color: #64748b; }
+    .badge-status .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+    .badge-status.is-ativo .dot { background: #16a34a; }
+    .badge-status.is-inativo .dot { background: #94a3b8; }
+
+    .btn-row-action {
+        background: #ffffff;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        padding: 5px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #374151;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        transition: all 0.1s ease;
+    }
+    .btn-row-action:hover { border-color: #9ca3af; background: #f9fafb; color: #0f172a; }
+
+    /* ─── Modais com Rolagem e Topo Travado ─────────────────────────────────── */
+    .admin-modal-card {
+        background: #ffffff;
+        border-radius: 14px;
+        width: 100%;
+        max-width: 760px;
+        height: 88vh;
+        height: 88dvh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+        overflow: hidden;
+    }
+    .admin-modal-card form {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+    }
+    .admin-modal-head {
+        flex-shrink: 0;
+        padding: 16px 20px;
+        border-bottom: 1px solid #e5e7eb;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: #f8fafc;
+    }
+    .admin-modal-body {
+        padding: 18px 20px;
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+    }
+    .admin-modal-foot {
+        flex-shrink: 0;
+        padding: 14px 20px;
+        border-top: 1px solid #e5e7eb;
+        background: #f8fafc;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .form-full { grid-column: 1 / -1; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+    .form-group label { font-size: 12px; font-weight: 600; color: #374151; }
+    .form-group input, .form-group select, .form-group textarea {
+        padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 13px;
+    }
+
+    /* ─── Accordion Tree: Sistema -> Módulos -> Telas ───────────────────────── */
+    .system-accordion-card {
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        margin-bottom: 10px;
+        background: #ffffff;
+        overflow: hidden;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .system-accordion-card:hover {
+        border-color: #cbd5e1;
+    }
+    .system-accordion-card.is-expanded {
+        border-color: #f59e0b;
+        box-shadow: 0 4px 12px -2px rgba(232, 155, 28, 0.12);
+    }
+    .system-accordion-header {
+        padding: 12px 14px;
+        background: #f8fafc;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        cursor: pointer;
+        user-select: none;
+        transition: background-color 0.15s ease;
+    }
+    .system-accordion-header:hover {
+        background: #f1f5f9;
+    }
+    .system-accordion-card.is-expanded .system-accordion-header {
+        background: #fffbeb;
+        border-bottom: 1px solid #fef3c7;
+    }
+    .system-header-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex: 1;
+        min-width: 0;
+    }
+    .system-icon-box {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        color: #d97706;
+    }
+    .system-header-title {
+        font-weight: 700;
+        font-size: 13.5px;
+        color: #0f172a;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .system-badge-pill {
+        font-size: 10.5px;
+        font-weight: 700;
+        padding: 2px 7px;
+        border-radius: 9999px;
+        background: #fef3c7;
+        color: #b45309;
+        border: 1px solid #fde68a;
+    }
+    .system-header-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+    }
+    .btn-toggle-accordion {
+        background: #ffffff;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        padding: 4px 8px;
+        font-size: 11px;
+        font-weight: 700;
+        color: #475569;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+    .btn-toggle-accordion:hover {
+        background: #f8fafc;
+        color: #0f172a;
+    }
+    .chevron-icon {
+        transition: transform 0.2s ease;
+        width: 14px;
+        height: 14px;
+    }
+    .system-accordion-card.is-expanded .chevron-icon {
+        transform: rotate(180deg);
+    }
+    .system-accordion-body {
+        display: none;
+        padding: 12px 14px;
+        background: #ffffff;
+    }
+    .system-accordion-card.is-expanded .system-accordion-body {
+        display: block;
+    }
+
+    /* Submódulo dentro do Sistema */
+    .module-group-box {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin-bottom: 8px;
+    }
+    .module-group-box:last-child {
+        margin-bottom: 0;
+    }
+    .module-group-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 6px;
+        margin-bottom: 6px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    .module-group-title {
+        font-weight: 700;
+        font-size: 12.5px;
+        color: #1e293b;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .screen-perm-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 4px 0;
+        font-size: 12px;
+        color: #475569;
+    }
+    .screen-perm-item select {
+        padding: 3px 8px;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        font-size: 11.5px;
+    }
 </style>
 
-<div class="content">
-  <h1 class="text-2xl font-bold tracking-tight">Controle de Usuários</h1>
-  <p class="subtitle">Cada usuário recebe um perfil de acesso; ajustes individuais entram como exceções</p>
+<div class="admin-page-container">
 
-  <div class="pills" id="pills">
-    <button class="pill is-active" data-tab="todos">Todos</button>
-    <button class="pill" data-tab="ADM">ADM — Administradores</button>
-    <button class="pill" data-tab="GES">GES — Gestores</button>
-    <button class="pill" data-tab="SUP">SUP — Supervisores</button>
-    <button class="pill" data-tab="OPE">OPE — Operadores</button>
-    <button class="pill" data-tab="exc">Com exceções</button>
-    <button class="pill" data-tab="pendentes">Pendentes</button>
-  </div>
+    <!-- Topo Fixo com Título e Switch de Abas -->
+    <div class="admin-sticky-top">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+            <div>
+                <h1 style="font-size:var(--font-size-xl,20px);font-weight:700;color:var(--color-text-primary,#111827);margin:0;">
+                    Gestão de Usuários &amp; Setores
+                </h1>
+                <p class="text-secondary" style="font-size:13px;color:var(--color-text-secondary,#6b7280);margin-top:2px;margin-bottom:0;">
+                    Controle unificado de colaboradores, permissões de acesso e estações da fábrica.
+                </p>
+            </div>
 
-  <section class="card">
-    <div class="card-head">
-      <div class="card-title"><span class="ico">☰</span> Usuários</div>
-      <button class="btn-new" id="btnNew">＋ Novo usuário</button>
-    </div>
-    <div class="card-body">
-      <input class="search" id="q" type="search" placeholder="Buscar nome, e-mail, setor..." autocomplete="off">
-      <div class="filters">
-        <select class="f" id="fSetor"></select>
-        <select class="f" id="fPerfil"></select>
-        <select class="f" id="fArea"></select>
-        <button class="btn-filter" id="btnFilter">Filtrar</button>
-        <div class="toggles">
-          <span class="lbl">Mostrar:</span>
-          <label class="chk"><input type="checkbox" id="cAtivos" checked> Ativos</label>
-          <label class="chk"><input type="checkbox" id="cInativos" checked> Inativos</label>
+            <!-- Barra de Alternância de Abas -->
+            <div class="admin-tab-switch">
+                <button type="button" class="admin-switch-btn <?= $abaInicial === 'usuarios' ? 'is-active' : '' ?>" data-tab="usuarios">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                    <span>Usuários</span>
+                    <span class="tab-count-pill"><?= count($usuarios) ?></span>
+                </button>
+                <button type="button" class="admin-switch-btn <?= $abaInicial === 'setores' ? 'is-active' : '' ?>" data-tab="setores">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                    <span>Setores da Fábrica</span>
+                    <span class="tab-count-pill"><?= count($setores) ?></span>
+                </button>
+                <button type="button" class="admin-switch-btn <?= $abaInicial === 'perfis' ? 'is-active' : '' ?>" data-tab="perfis">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    <span>Perfis / Templates</span>
+                    <span class="tab-count-pill"><?= count($perfis) ?></span>
+                </button>
+            </div>
         </div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th style="width:44px"></th>
-            <th class="l">Perfil de acesso</th>
-            <th>#</th>
-            <th class="l">Usuário</th><th class="l">E-mail</th>
-            <th>Setor</th><th>Status</th><th>Último acesso</th><th>Sinal</th>
-            <th>Acesso</th><th class="r">Ações</th>
-          </tr></thead>
-          <tbody id="tbody"></tbody>
-        </table>
-      </div>
     </div>
-    <div class="card-foot">
-      <div class="foot-left">
-        <span>Exibir</span>
-        <select id="perPage"><option>10</option><option>25</option><option>50</option></select>
-        <span id="footInfo">por página</span>
-      </div>
-      <div class="pager" id="pager"></div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════════ -->
+    <!-- ABA 1: USUÁRIOS                                                             -->
+    <!-- ═══════════════════════════════════════════════════════════════════════════ -->
+    <div class="admin-pane-card js-admin-tab-pane" id="pane-usuarios" style="<?= $abaInicial !== 'usuarios' ? 'display:none;' : '' ?>">
+        
+        <div class="admin-toolbar">
+            <div class="admin-toolbar-left">
+                <input type="search" id="filtro-user-busca" placeholder="Buscar por nome, e-mail, matrícula ou CPF..." style="min-width:280px;">
+                
+                <select id="filtro-user-setor">
+                    <option value="">Todos os Setores</option>
+                    <?php foreach ($setores as $s): ?>
+                        <option value="<?= htmlspecialchars($s['nome']) ?>"><?= htmlspecialchars($s['nome']) ?> (<?= htmlspecialchars($s['cod']) ?>)</option>
+                    <?php endforeach; ?>
+                </select>
+
+                <select id="filtro-user-status">
+                    <option value="">Todos os Status</option>
+                    <option value="ativo" selected>Ativos</option>
+                    <option value="inativo">Inativos</option>
+                </select>
+            </div>
+            <div class="admin-toolbar-right">
+                <button type="button" class="btn-action-primary js-btn-novo-usuario">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    <span>Novo Usuário</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="admin-table-scroll">
+            <table class="table-admin">
+                <thead>
+                    <tr>
+                        <th style="width:50px;text-align:center;">#</th>
+                        <th>Colaborador / E-mail</th>
+                        <th>Setor</th>
+                        <th>Perfil / Função</th>
+                        <th>Módulos &amp; Sistemas Liberados</th>
+                        <th style="width:90px;text-align:center;">Status</th>
+                        <th style="width:120px;text-align:center;">Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody-usuarios">
+                    <?php if (!$usuarios): ?>
+                        <tr><td colspan="7" style="text-align:center;padding:30px;color:#64748b;">Nenhum usuário cadastrado.</td></tr>
+                    <?php else: foreach ($usuarios as $idx => $u):
+                        $bClass = 'badge-perfil-ope';
+                        if ($u['id_perfil'] === 1 || str_contains((string)$u['perfil_cod'], 'ADM')) $bClass = 'badge-perfil-adm';
+                        elseif (str_contains((string)$u['perfil_cod'], 'GES')) $bClass = 'badge-perfil-ges';
+                        elseif (str_contains((string)$u['perfil_cod'], 'SUP')) $bClass = 'badge-perfil-sup';
+                        elseif (!$u['id_perfil']) $bClass = 'badge-perfil-custom';
+
+                        $sSearch = mb_strtolower($u['nome'] . ' ' . $u['email'] . ' ' . $u['cpf'] . ' ' . $u['matricula'] . ' ' . $u['setor_nome'] . ' ' . $u['perfil_nome']);
+                    ?>
+                        <tr class="js-row-user"
+                            data-search="<?= htmlspecialchars($sSearch) ?>"
+                            data-setor="<?= htmlspecialchars($u['setor_nome'] ?? '') ?>"
+                            data-status="<?= htmlspecialchars($u['status']) ?>">
+                            <td style="text-align:center;color:#94a3b8;font-size:11.5px;"><?= $idx + 1 ?>°</td>
+                            <td>
+                                <div>
+                                    <strong style="color:#0f172a;font-size:13.5px;"><?= htmlspecialchars($u['nome']) ?></strong>
+                                    <div style="font-size:11.5px;color:#64748b;margin-top:1px;">
+                                        <?= htmlspecialchars($u['email']) ?>
+                                        <?php if ($u['cpf']): ?>
+                                            &middot; <span style="font-family:monospace;"><?= htmlspecialchars($u['cpf']) ?></span>
+                                        <?php endif; ?>
+                                        <?php if ($u['matricula']): ?>
+                                            &middot; <span>Mat: <?= htmlspecialchars($u['matricula']) ?></span>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <?php if ($u['setor_nome']): ?>
+                                    <span class="badge-perfil" style="background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;"><?= htmlspecialchars($u['setor_nome']) ?></span>
+                                <?php else: ?>
+                                    <span style="color:#94a3b8;font-size:12px;">—</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php if ($u['id_perfil'] && $u['perfil_nome']): ?>
+                                    <span class="badge-perfil <?= $bClass ?>"><?= htmlspecialchars($u['perfil_nome']) ?></span>
+                                <?php else: ?>
+                                    <span class="badge-perfil badge-perfil-custom">Personalizado</span>
+                                <?php endif; ?>
+                                <?php if ($u['tem_excecoes']): ?>
+                                    <span style="font-size:10px;color:#ca8a04;font-weight:700;display:block;margin-top:2px;">(<?= $u['exc_count'] ?> ajuste<?= $u['exc_count'] > 1 ? 's' : '' ?>)</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php if (!$u['modulos_ativos']): ?>
+                                    <span style="color:#dc2626;font-size:11.5px;font-weight:600;">Sem acesso</span>
+                                <?php else: ?>
+                                    <div style="display:flex;flex-wrap:wrap;gap:2px;max-width:340px;">
+                                        <?php foreach ($u['modulos_ativos'] as $mod): ?>
+                                            <span class="badge-mod-tag"><?= htmlspecialchars($mod) ?></span>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php endif; ?>
+                            </td>
+                            <td style="text-align:center;">
+                                <span class="badge-status <?= $u['status'] === 'ativo' ? 'is-ativo' : 'is-inativo' ?>">
+                                    <span class="dot"></span>
+                                    <span><?= $u['status'] === 'ativo' ? 'Ativo' : 'Inativo' ?></span>
+                                </span>
+                            </td>
+                            <td style="text-align:center;">
+                                <div style="display:flex;gap:6px;justify-content:center;align-items:center;">
+                                    <button type="button" class="btn-icon btn-icon-edit js-btn-editar-usuario" data-user='<?= htmlspecialchars(json_encode($u, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>' title="Editar Colaborador">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                    </button>
+                                    <button type="button" class="btn-icon js-btn-reset-senha" data-id="<?= $u['id'] ?>" data-nome="<?= htmlspecialchars($u['nome']) ?>" title="Redefinir Senha">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                                    </button>
+                                    <?php if ((int)$u['id'] !== $curUserId): ?>
+                                        <button type="button" class="btn-icon btn-icon-danger js-btn-excluir-usuario" data-id="<?= $u['id'] ?>" data-nome="<?= htmlspecialchars($u['nome']) ?>" title="Excluir Colaborador">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                        </button>
+                                    <?php endif; ?>
+                                </div>
+                            </td>
+                        </tr>
+                    <?php endforeach; endif; ?>
+                    <tr class="js-user-empty-row" style="display:none;"><td colspan="7" style="text-align:center;padding:30px;color:#64748b;">Nenhum usuário encontrado com os filtros aplicados.</td></tr>
+                </tbody>
+            </table>
+        </div>
     </div>
-  </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════════ -->
+    <!-- ABA 2: SETORES DA FÁBRICA                                                   -->
+    <!-- ═══════════════════════════════════════════════════════════════════════════ -->
+    <div class="admin-pane-card js-admin-tab-pane" id="pane-setores" style="<?= $abaInicial !== 'setores' ? 'display:none;' : '' ?>">
+        
+        <div class="admin-toolbar">
+            <div class="admin-toolbar-left">
+                <input type="search" id="filtro-setor-busca" placeholder="Buscar setor por nome, sigla ou responsável..." style="min-width:280px;">
+            </div>
+            <div class="admin-toolbar-right">
+                <button type="button" class="btn-action-primary js-btn-novo-setor">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    <span>Novo Setor</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="admin-table-scroll">
+            <table class="table-admin">
+                <thead>
+                    <tr>
+                        <th style="width:80px;">Sigla</th>
+                        <th>Nome do Setor</th>
+                        <th>Responsável</th>
+                        <th>Centro de Custo</th>
+                        <th style="text-align:center;">Colaboradores</th>
+                        <th style="width:90px;text-align:center;">Status</th>
+                        <th style="width:100px;text-align:center;">Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody-setores">
+                    <?php if (!$setores): ?>
+                        <tr><td colspan="7" style="text-align:center;padding:30px;color:#64748b;">Nenhum setor cadastrado.</td></tr>
+                    <?php else: foreach ($setores as $s):
+                        $sSearch = mb_strtolower($s['nome'] . ' ' . $s['cod'] . ' ' . $s['resp'] . ' ' . $s['cc']);
+                    ?>
+                        <tr class="js-row-setor" data-search="<?= htmlspecialchars($sSearch) ?>">
+                            <td><span class="mono-code"><?= htmlspecialchars($s['cod']) ?></span></td>
+                            <td><strong style="font-size:13.5px;color:#0f172a;"><?= htmlspecialchars($s['nome']) ?></strong></td>
+                            <td><?= $s['resp'] ? htmlspecialchars($s['resp']) : '<span style="color:#94a3b8;">—</span>' ?></td>
+                            <td><?= $s['cc'] ? '<span class="mono-code">' . htmlspecialchars($s['cc']) . '</span>' : '<span style="color:#94a3b8;">—</span>' ?></td>
+                            <td style="text-align:center;">
+                                <a href="javascript:void(0)" class="js-link-filtra-setor badge-perfil" style="background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;cursor:pointer;" data-setor-nome="<?= htmlspecialchars($s['nome']) ?>" title="Ver usuários deste setor">
+                                    <?= $s['usuarios'] ?> <?= $s['usuarios'] === 1 ? 'colaborador' : 'colaboradores' ?>
+                                </a>
+                            </td>
+                            <td style="text-align:center;">
+                                <span class="badge-status <?= $s['status'] === 'ativo' ? 'is-ativo' : 'is-inativo' ?>">
+                                    <span class="dot"></span>
+                                    <span><?= $s['status'] === 'ativo' ? 'Ativo' : 'Inativo' ?></span>
+                                </span>
+                            </td>
+                            <td style="text-align:center;">
+                                <div style="display:flex;gap:6px;justify-content:center;align-items:center;">
+                                    <button type="button" class="btn-icon btn-icon-edit js-btn-editar-setor" data-setor='<?= htmlspecialchars(json_encode($s, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>' title="Editar Setor">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                    </button>
+                                    <?php if ($s['usuarios'] === 0): ?>
+                                        <button type="button" class="btn-icon btn-icon-danger js-btn-excluir-setor" data-id="<?= $s['id'] ?>" data-nome="<?= htmlspecialchars($s['nome']) ?>" title="Excluir Setor">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                        </button>
+                                    <?php endif; ?>
+                                </div>
+                            </td>
+                        </tr>
+                    <?php endforeach; endif; ?>
+                    <tr class="js-setor-empty-row" style="display:none;"><td colspan="7" style="text-align:center;padding:30px;color:#64748b;">Nenhum setor encontrado.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════════ -->
+    <!-- ABA 3: PERFIS / TEMPLATES DE ACESSO                                         -->
+    <!-- ═══════════════════════════════════════════════════════════════════════════ -->
+    <div class="admin-pane-card js-admin-tab-pane" id="pane-perfis" style="<?= $abaInicial !== 'perfis' ? 'display:none;' : '' ?>">
+        
+        <div class="admin-toolbar">
+            <div class="admin-toolbar-left">
+                <input type="search" id="filtro-perfil-busca" placeholder="Buscar perfil ou descrição..." style="min-width:280px;">
+            </div>
+            <div class="admin-toolbar-right">
+                <button type="button" class="btn-action-primary js-btn-novo-perfil">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    <span>Novo Perfil</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="admin-table-scroll">
+            <table class="table-admin">
+                <thead>
+                    <tr>
+                        <th style="width:90px;">Código</th>
+                        <th>Perfil / Função</th>
+                        <th>Descrição</th>
+                        <th>Módulos Incluídos</th>
+                        <th style="text-align:center;">Usuários</th>
+                        <th style="width:90px;text-align:center;">Status</th>
+                        <th style="width:100px;text-align:center;">Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody-perfis">
+                    <?php if (!$perfis): ?>
+                        <tr><td colspan="7" style="text-align:center;padding:30px;color:#64748b;">Nenhum perfil cadastrado.</td></tr>
+                    <?php else: foreach ($perfis as $p):
+                        $mods = [];
+                        foreach ($SISTEMAS_ESTRUTURA as $sys) {
+                            $temSys = false;
+                            foreach ($sys['modulos'] as $mod) {
+                                foreach ($mod['telas'] as $t) {
+                                    if (($p['perms'][$t[0]] ?? 'off') !== 'off') {
+                                        $temSys = true;
+                                        if ($sys['id'] === 'retrabalho') {
+                                            $mods[] = $mod['nome'];
+                                        }
+                                    }
+                                }
+                            }
+                            if ($temSys && $sys['id'] !== 'retrabalho') {
+                                $mods[] = $sys['nome'];
+                            }
+                        }
+                        $sSearch = mb_strtolower($p['nome'] . ' ' . $p['cod'] . ' ' . $p['descricao']);
+                    ?>
+                        <tr class="js-row-perfil" data-search="<?= htmlspecialchars($sSearch) ?>">
+                            <td><span class="mono-code"><?= htmlspecialchars($p['cod']) ?></span></td>
+                            <td>
+                                <strong style="font-size:13.5px;color:#0f172a;"><?= htmlspecialchars($p['nome']) ?></strong>
+                                <?php if ($p['sistema']): ?>
+                                    <span style="font-size:10px;font-weight:700;color:#64748b;background:#f1f5f9;padding:1px 5px;border-radius:4px;margin-left:4px;">SISTEMA</span>
+                                <?php endif; ?>
+                            </td>
+                            <td style="font-size:12px;color:#64748b;max-width:240px;"><?= htmlspecialchars($p['descricao'] ?: '—') ?></td>
+                            <td>
+                                <div style="display:flex;flex-wrap:wrap;gap:2px;">
+                                    <?php foreach (array_unique($mods) as $m): ?>
+                                        <span class="badge-mod-tag"><?= htmlspecialchars($m) ?></span>
+                                    <?php endforeach; ?>
+                                </div>
+                            </td>
+                            <td style="text-align:center;">
+                                <span class="badge-perfil" style="background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;"><?= $p['usuarios'] ?> <?= $p['usuarios'] === 1 ? 'usuário' : 'usuários' ?></span>
+                            </td>
+                            <td style="text-align:center;">
+                                <span class="badge-status <?= $p['status'] === 'ativo' ? 'is-ativo' : 'is-inativo' ?>">
+                                    <span class="dot"></span>
+                                    <span><?= $p['status'] === 'ativo' ? 'Ativo' : 'Inativo' ?></span>
+                                </span>
+                            </td>
+                            <td style="text-align:center;">
+                                <div style="display:flex;gap:6px;justify-content:center;align-items:center;">
+                                    <button type="button" class="btn-icon btn-icon-edit js-btn-editar-perfil" data-perfil='<?= htmlspecialchars(json_encode($p, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>' title="Editar Perfil">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                    </button>
+                                    <?php if (!$p['sistema'] && $p['usuarios'] === 0): ?>
+                                        <button type="button" class="btn-icon btn-icon-danger js-btn-excluir-perfil" data-id="<?= $p['id'] ?>" data-nome="<?= htmlspecialchars($p['nome']) ?>" title="Excluir Perfil">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                        </button>
+                                    <?php endif; ?>
+                                </div>
+                            </td>
+                        </tr>
+                    <?php endforeach; endif; ?>
+                    <tr class="js-perfil-empty-row" style="display:none;"><td colspan="7" style="text-align:center;padding:30px;color:#64748b;">Nenhum perfil encontrado.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
 </div>
 
-<!-- modal -->
-<div class="overlay" id="overlay">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
-    <div class="modal-head">
-      <div><h2 id="mTitle">Editar usuário</h2><p id="mSub"></p></div>
-      <button class="x" id="mClose" aria-label="Fechar">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="field"><label for="mNome">Nome completo</label><input id="mNome" type="text" placeholder="Ex.: Ana Beatriz Moraes" autocomplete="off"></div>
-      <input id="mMat" type="hidden" value="">
-      <div class="field"><label for="mEmail">E-mail corporativo</label><input id="mEmail" type="email" placeholder="nome.sobrenome@empresa.com.br" autocomplete="off"></div>
-      <div class="field" id="wrapSenha"><label for="mSenha">Senha de acesso <span style="text-transform:none;color:var(--orange);font-weight:400" id="senhaHint"></span></label><input id="mSenha" type="password" placeholder="Mínimo 6 caracteres" autocomplete="new-password"></div>
-      <div class="grid-2">
-        <div class="field"><label for="mSetor">Setor</label><select id="mSetor"></select></div>
-        <div class="field"><label for="mStatus">Status da conta</label>
-          <select id="mStatus"><option value="ativo">Ativo</option><option value="pendente">Pendente</option><option value="inativo">Inativo</option><option value="bloqueado">Bloqueado</option></select>
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL DE USUÁRIO (Cadastro & Edição)                                           -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-usuario" style="display:none;">
+    <div class="admin-modal-card">
+        <div class="admin-modal-head">
+            <div>
+                <h2 style="font-size:16px;font-weight:700;margin:0;color:#0f172a;" id="m-user-title">Novo Colaborador</h2>
+                <p style="font-size:12px;color:#64748b;margin:2px 0 0;">Cadastre os dados e atribua um perfil ou marque as permissões manualmente.</p>
+            </div>
+            <button type="button" class="btn-icon js-close-modal" style="border:none;background:transparent;font-size:18px;line-height:1;">&times;</button>
         </div>
-      </div>
 
-      <div class="access">
-        <div class="access-top">
-          <div class="field"><label for="mPerfil">Perfil de acesso</label><select id="mPerfil"></select></div>
-          <div class="access-line">
-            <span class="access-note" id="mExcNote"></span>
-            <button class="link" id="mReset">Voltar ao padrão do perfil</button>
-          </div>
-          <input class="mini-search" id="mFind" type="search" placeholder="Buscar módulo ou tela..." autocomplete="off">
-        </div>
-        <div class="groups" id="mGroups"></div>
-        <div class="access-foot">
-          <span id="mCount"></span>
-          <button class="link" id="mToggleAll">Expandir tudo</button>
-        </div>
-      </div>
+        <form id="form-usuario">
+            <input type="hidden" name="id" id="u-id" value="0">
+
+            <!-- Sub-tabs do Modal -->
+            <div style="display:flex;border-bottom:1px solid #e5e7eb;background:#f8fafc;padding:0 20px;flex-shrink:0;">
+                <button type="button" class="js-user-subtab is-active" data-subtab="dados" style="padding:10px 16px;border:none;background:none;font-size:13px;font-weight:700;color:#E89B1C;border-bottom:2px solid #E89B1C;cursor:pointer;">
+                    1. Dados do Colaborador
+                </button>
+                <button type="button" class="js-user-subtab" data-subtab="acessos" style="padding:10px 16px;border:none;background:none;font-size:13px;font-weight:600;color:#64748b;border-bottom:2px solid transparent;cursor:pointer;">
+                    2. Permissões &amp; Módulos
+                </button>
+            </div>
+
+            <div class="admin-modal-body">
+                <div id="u-error" class="alert alert-danger" style="display:none;margin-bottom:14px;padding:8px 12px;font-size:12.5px;color:#dc2626;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;flex-shrink:0;"></div>
+
+                <!-- Sub-tab 1: Dados -->
+                <div id="user-subtab-dados" style="overflow-y:auto;flex:1;">
+                    <div class="form-grid-2">
+                        <div class="form-group form-full">
+                            <label for="u-nome">Nome Completo *</label>
+                            <input type="text" id="u-nome" name="nome" placeholder="Ex.: Carlos Eduardo Souza" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="u-email">E-mail Profissional *</label>
+                            <input type="email" id="u-email" name="email" placeholder="carlos.souza@trael.com.br" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="u-cpf">CPF <span style="font-weight:400;color:#64748b;">(Opcional)</span></label>
+                            <input type="text" id="u-cpf" name="cpf" placeholder="000.000.000-00" maxlength="14">
+                        </div>
+                        <div class="form-group">
+                            <label for="u-mat">Matrícula / Crachá <span style="font-weight:400;color:#64748b;">(Opcional)</span></label>
+                            <input type="text" id="u-mat" name="mat" placeholder="Ex.: 4509">
+                        </div>
+                        <div class="form-group">
+                            <label for="u-senha">Senha de Acesso <span id="u-senha-hint" style="font-weight:400;color:#64748b;">(Obrigatória)</span></label>
+                            <input type="password" id="u-senha" name="senha" placeholder="Mínimo 4 caracteres">
+                        </div>
+                        <div class="form-group">
+                            <label for="u-setor">Setor da Fábrica</label>
+                            <select id="u-setor" name="setor">
+                                <option value="">Sem setor definido</option>
+                                <?php foreach ($setores as $s): ?>
+                                    <option value="<?= $s['id'] ?>"><?= htmlspecialchars($s['nome']) ?> (<?= htmlspecialchars($s['cod']) ?>)</option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="u-status">Status da Conta</label>
+                            <select id="u-status" name="status">
+                                <option value="ativo">Ativo (Acesso Liberado)</option>
+                                <option value="inativo">Inativo (Acesso Bloqueado)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sub-tab 2: Permissões & Módulos -->
+                <div id="user-subtab-acessos" style="display:none;flex-direction:column;flex:1;min-height:0;overflow:hidden;">
+                    
+                    <!-- 🔒 PARTE TRAVADA NO TOPO: Perfil Base e Botões de Controle -->
+                    <div style="flex-shrink:0;padding-bottom:10px;border-bottom:1px solid #e2e8f0;margin-bottom:10px;">
+                        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;margin-bottom:8px;">
+                            <label style="font-size:12px;font-weight:700;color:#0f172a;display:block;margin-bottom:4px;">
+                                Perfil Base de Acesso:
+                            </label>
+                            <select id="u-perfil" name="perfil" style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid #cbd5e1;font-size:13px;">
+                                <option value="">Sem perfil fixo (Alocação Manual Direta)</option>
+                                <?php foreach ($perfis as $p): ?>
+                                    <option value="<?= $p['id'] ?>" data-perms='<?= htmlspecialchars(json_encode($p['perms']), ENT_QUOTES) ?>'>
+                                        <?= htmlspecialchars($p['nome']) ?> (<?= htmlspecialchars($p['cod']) ?>)
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <span style="font-size:11px;color:#64748b;display:block;margin-top:3px;">
+                                💡 Escolha um perfil para pré-carregar permissões ou personalize os módulos e telas individualmente abaixo.
+                            </span>
+                        </div>
+
+                        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                            <span style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#475569;">
+                                Sistemas da Fábrica &amp; Módulos:
+                            </span>
+                            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                                <button type="button" class="btn-row-action js-user-expand-all" style="font-size:11px;padding:3px 8px;">Expandir Todos</button>
+                                <button type="button" class="btn-row-action js-user-collapse-all" style="font-size:11px;padding:3px 8px;">Recolher Todos</button>
+                                <button type="button" class="btn-row-action js-user-quick-all" data-level="total" style="font-size:11px;padding:3px 8px;">Liberar Todos</button>
+                                <button type="button" class="btn-row-action js-user-quick-all" data-level="off" style="font-size:11px;padding:3px 8px;">Bloquear Todos</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 📜 LISTA ROLÁVEL EM ACCORDION: Sistemas -> Módulos -> Telas -->
+                    <div id="user-matrix-wrap" style="flex:1;min-height:0;overflow-y:auto;padding-right:4px;">
+                        <?php foreach ($SISTEMAS_ESTRUTURA as $sys): 
+                            $isExpanded = !empty($sys['aberto_padrao']);
+                        ?>
+                            <div class="system-accordion-card js-sys-card <?= $isExpanded ? 'is-expanded' : '' ?>" data-sys="<?= $sys['id'] ?>">
+                                
+                                <!-- Cabeçalho do Sistema (Clique para expandir) -->
+                                <div class="system-accordion-header js-sys-header">
+                                    <div class="system-header-left">
+                                        <div class="system-icon-box" style="color:<?= $sys['badge_color'] ?>;">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><?= $sys['svg'] ?></svg>
+                                        </div>
+                                        <div>
+                                            <div class="system-header-title">
+                                                <span><?= htmlspecialchars($sys['nome']) ?></span>
+                                                <span class="system-badge-pill"><?= htmlspecialchars($sys['badge']) ?></span>
+                                            </div>
+                                            <div style="font-size:11.5px;color:#64748b;margin-top:1px;"><?= htmlspecialchars($sys['desc']) ?></div>
+                                        </div>
+                                    </div>
+                                    <div class="system-header-right" onclick="event.stopPropagation();">
+                                        <button type="button" class="btn-row-action js-sys-toggle-all" data-sys="<?= $sys['id'] ?>" style="font-size:10.5px;padding:2px 7px;">
+                                            Marcar Sistema
+                                        </button>
+                                        <button type="button" class="btn-toggle-accordion js-sys-toggle-btn">
+                                            <span>Expandir</span>
+                                            <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Conteúdo Expansível: Módulos e Telas do Sistema -->
+                                <div class="system-accordion-body">
+                                    <div style="display:flex;flex-direction:column;gap:8px;">
+                                        <?php foreach ($sys['modulos'] as $mod): ?>
+                                            <div class="module-group-box">
+                                                <div class="module-group-head">
+                                                    <span class="module-group-title">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;color:#E89B1C;"><?= $mod['svg'] ?></svg>
+                                                        <span><?= htmlspecialchars($mod['nome']) ?></span>
+                                                    </span>
+                                                    <button type="button" class="btn-row-action js-user-toggle-area" data-area="<?= $mod['id'] ?>" style="font-size:10px;padding:1px 6px;">
+                                                        Marcar Módulo
+                                                    </button>
+                                                </div>
+                                                <div style="display:flex;flex-direction:column;gap:4px;">
+                                                    <?php foreach ($mod['telas'] as $tela): ?>
+                                                        <div class="screen-perm-item">
+                                                            <span><?= htmlspecialchars($tela[1]) ?></span>
+                                                            <select class="js-user-perm-select" data-screen="<?= $tela[0] ?>" data-area="<?= $mod['id'] ?>" data-sys="<?= $sys['id'] ?>">
+                                                                <option value="off">Sem Acesso</option>
+                                                                <option value="view">Apenas Consulta</option>
+                                                                <option value="total">Acesso Completo</option>
+                                                            </select>
+                                                        </div>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
+
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+
+                </div>
+
+            </div>
+
+            <div class="admin-modal-foot">
+                <button type="button" class="btn btn-secondary js-close-modal">Cancelar</button>
+                <button type="submit" class="btn btn-primary" id="btn-submit-user">Salvar Colaborador</button>
+            </div>
+        </form>
     </div>
-    <div class="modal-foot">
-      <span class="hint">Alterações passam a valer no próximo login do usuário.</span>
-      <div style="display:flex;gap:10px">
-        <button class="act-ghost" id="mCancel">Cancelar</button>
-        <button class="act act-green" id="mSave">✓ Salvar acesso</button>
-      </div>
-    </div>
-  </div>
 </div>
-<div class="toast" id="toast"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL DE SETOR DA FÁBRICA                                                     -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-setor" style="display:none;">
+    <div class="modal" style="max-width:480px;">
+        <div class="modal-header">
+            <div>
+                <span class="modal-title" id="m-setor-title">Novo Setor</span>
+                <p style="font-size:12px;color:#64748b;margin:2px 0 0;">Cadastre um setor ou posto de trabalho operacional.</p>
+            </div>
+            <button type="button" class="modal-close js-close-modal">&times;</button>
+        </div>
+
+        <form id="form-setor">
+            <input type="hidden" name="id" id="s-id" value="0">
+            <div class="modal-body" style="overflow-y:auto;max-height:65vh;">
+                <div id="s-error" class="alert alert-danger" style="display:none;margin-bottom:14px;padding:8px 12px;font-size:12.5px;color:#dc2626;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;"></div>
+                
+                <div class="form-group">
+                    <label for="s-nome">Nome do Setor *</label>
+                    <input type="text" id="s-nome" name="nome" placeholder="Ex.: Inspeção Final" required>
+                </div>
+                <div class="form-grid-2">
+                    <div class="form-group">
+                        <label for="s-cod">Sigla / Código *</label>
+                        <input type="text" id="s-cod" name="cod" placeholder="Ex.: IQF" style="text-transform:uppercase;" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="s-cc">Centro de Custo</label>
+                        <input type="text" id="s-cc" name="cc" placeholder="Ex.: 3120">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="s-resp">Responsável pelo Setor</label>
+                    <input type="text" id="s-resp" name="resp" placeholder="Ex.: Sônia Ribeiro">
+                </div>
+                <div class="form-group">
+                    <label for="s-status">Status</label>
+                    <select id="s-status" name="status">
+                        <option value="ativo">Ativo</option>
+                        <option value="inativo">Inativo</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary js-close-modal">Cancelar</button>
+                <button type="submit" class="btn btn-primary" id="btn-submit-setor">Salvar Setor</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL DE PERFIL / TEMPLATE                                                     -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-perfil" style="display:none;">
+    <div class="admin-modal-card">
+        <div class="admin-modal-head">
+            <div>
+                <h2 style="font-size:16px;font-weight:700;margin:0;color:#0f172a;" id="m-perfil-title">Novo Perfil / Cargo</h2>
+                <p style="font-size:12px;color:#64748b;margin:2px 0 0;">Crie templates de permissões para atribuir a múltiplos colaboradores.</p>
+            </div>
+            <button type="button" class="btn-icon js-close-modal" style="border:none;background:transparent;font-size:18px;line-height:1;">&times;</button>
+        </div>
+
+        <form id="form-perfil">
+            <input type="hidden" name="id" id="p-id" value="0">
+            <div class="admin-modal-body" style="overflow:hidden;">
+                <div id="p-error" class="alert alert-danger" style="display:none;margin-bottom:14px;padding:8px 12px;font-size:12.5px;color:#dc2626;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;flex-shrink:0;"></div>
+
+                <div style="overflow-y:auto;flex:1;padding-right:4px;">
+                    <div class="form-grid-2">
+                        <div class="form-group">
+                            <label for="p-nome">Nome do Perfil *</label>
+                            <input type="text" id="p-nome" name="nome" placeholder="Ex.: Inspetor Final" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="p-cod">Código / Sigla *</label>
+                            <input type="text" id="p-cod" name="cod" placeholder="Ex.: OPE-IQF" style="text-transform:uppercase;" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="p-grupo">Nível / Grupo</label>
+                            <select id="p-grupo" name="grupo">
+                                <option value="OPE">Operador</option>
+                                <option value="SUP">Supervisor</option>
+                                <option value="GES">Gestor</option>
+                                <option value="ADM">Administrador</option>
+                                <option value="VIS">Visualizador</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="p-status">Status</label>
+                            <select id="p-status" name="status">
+                                <option value="ativo">Ativo</option>
+                                <option value="inativo">Inativo</option>
+                            </select>
+                        </div>
+                        <div class="form-group form-full">
+                            <label for="p-desc">Descrição das Funções</label>
+                            <textarea id="p-desc" name="desc" rows="2" placeholder="Descreva as atribuições deste perfil..."></textarea>
+                        </div>
+                    </div>
+
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin:12px 0 8px;flex-wrap:wrap;gap:6px;">
+                        <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#64748b;">Módulos do Perfil:</span>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                            <button type="button" class="btn-row-action js-perfil-expand-all" style="font-size:11px;padding:3px 8px;">Expandir Todos</button>
+                            <button type="button" class="btn-row-action js-perfil-collapse-all" style="font-size:11px;padding:3px 8px;">Recolher Todos</button>
+                            <button type="button" class="btn-row-action js-perfil-quick-all" data-level="total" style="font-size:11px;padding:3px 8px;">Liberar Todos</button>
+                            <button type="button" class="btn-row-action js-perfil-quick-all" data-level="off" style="font-size:11px;padding:3px 8px;">Bloquear Todos</button>
+                        </div>
+                    </div>
+
+                    <div id="perfil-matrix-wrap">
+                        <?php foreach ($SISTEMAS_ESTRUTURA as $sys): 
+                            $isExpanded = !empty($sys['aberto_padrao']);
+                        ?>
+                            <div class="system-accordion-card js-sys-card <?= $isExpanded ? 'is-expanded' : '' ?>" data-sys="<?= $sys['id'] ?>">
+                                
+                                <div class="system-accordion-header js-sys-header">
+                                    <div class="system-header-left">
+                                        <div class="system-icon-box" style="color:<?= $sys['badge_color'] ?>;">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><?= $sys['svg'] ?></svg>
+                                        </div>
+                                        <div>
+                                            <div class="system-header-title">
+                                                <span><?= htmlspecialchars($sys['nome']) ?></span>
+                                                <span class="system-badge-pill"><?= htmlspecialchars($sys['badge']) ?></span>
+                                            </div>
+                                            <div style="font-size:11.5px;color:#64748b;margin-top:1px;"><?= htmlspecialchars($sys['desc']) ?></div>
+                                        </div>
+                                    </div>
+                                    <div class="system-header-right" onclick="event.stopPropagation();">
+                                        <button type="button" class="btn-row-action js-perfil-toggle-sys" data-sys="<?= $sys['id'] ?>" style="font-size:10.5px;padding:2px 7px;">
+                                            Marcar Sistema
+                                        </button>
+                                        <button type="button" class="btn-toggle-accordion js-sys-toggle-btn">
+                                            <span>Expandir</span>
+                                            <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="system-accordion-body">
+                                    <div style="display:flex;flex-direction:column;gap:8px;">
+                                        <?php foreach ($sys['modulos'] as $mod): ?>
+                                            <div class="module-group-box">
+                                                <div class="module-group-head">
+                                                    <span class="module-group-title">
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;color:#E89B1C;"><?= $mod['svg'] ?></svg>
+                                                        <span><?= htmlspecialchars($mod['nome']) ?></span>
+                                                    </span>
+                                                    <button type="button" class="btn-row-action js-perfil-toggle-area" data-area="<?= $mod['id'] ?>" style="font-size:10px;padding:1px 6px;">
+                                                        Marcar Módulo
+                                                    </button>
+                                                </div>
+                                                <div style="display:flex;flex-direction:column;gap:4px;">
+                                                    <?php foreach ($mod['telas'] as $tela): ?>
+                                                        <div class="screen-perm-item">
+                                                            <span><?= htmlspecialchars($tela[1]) ?></span>
+                                                            <select class="js-perfil-perm-select" data-screen="<?= $tela[0] ?>" data-area="<?= $mod['id'] ?>" data-sys="<?= $sys['id'] ?>">
+                                                                <option value="off">Sem Acesso</option>
+                                                                <option value="view">Apenas Consulta</option>
+                                                                <option value="total">Acesso Completo</option>
+                                                            </select>
+                                                        </div>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
+
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
+
+            <div class="admin-modal-foot">
+                <button type="button" class="btn btn-secondary js-close-modal">Cancelar</button>
+                <button type="submit" class="btn btn-primary" id="btn-submit-perfil">Salvar Perfil</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL DE REDEFINIÇÃO RÁPIDA DE SENHA                                           -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-reset-senha" style="display:none;">
+    <div class="modal" style="max-width:440px;">
+        <div class="modal-header">
+            <div>
+                <span class="modal-title">Redefinir Senha</span>
+                <p style="font-size:12px;color:#64748b;margin:2px 0 0;" id="m-reset-user-name">—</p>
+            </div>
+            <button type="button" class="modal-close js-close-modal">&times;</button>
+        </div>
+
+        <form id="form-reset-senha">
+            <input type="hidden" id="reset-id" value="0">
+            <div class="modal-body" style="overflow-y:auto;">
+                <div id="reset-error" class="alert alert-danger" style="display:none;margin-bottom:14px;padding:8px 12px;font-size:12.5px;color:#dc2626;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;"></div>
+                
+                <div class="form-group">
+                    <label for="reset-senha-nova">Nova Senha *</label>
+                    <input type="password" id="reset-senha-nova" placeholder="Digite a nova senha" required minlength="4">
+                </div>
+                <div style="margin-top:8px;">
+                    <button type="button" class="btn btn-secondary" id="btn-gerar-senha" style="font-size:12px;padding:5px 10px;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                        <span>Gerar senha padrão (123456)</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary js-close-modal">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Atualizar Senha</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- MODAL DE CONFIRMAÇÃO DE EXCLUSÃO (PADRÃO SGT)                                   -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-confirm-delete" style="display:none;">
+    <div class="modal" style="max-width:440px;">
+        <div class="modal-header">
+            <span class="modal-title" id="confirm-del-title">Confirmar Exclusão</span>
+            <button type="button" class="modal-close js-close-modal">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size:var(--font-size-base,14px);color:var(--color-text-secondary,#6b7280);margin:0 0 12px;line-height:1.5;" id="confirm-del-msg">
+                Deseja realmente excluir este registro?
+            </p>
+            <div id="confirm-del-error" class="alert alert-danger" style="display:none;margin-top:10px;padding:8px 12px;font-size:12.5px;color:#dc2626;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;"></div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary js-close-modal">Cancelar</button>
+            <button type="button" class="btn btn-danger" id="btn-exec-delete">Excluir Registro</button>
+        </div>
+    </div>
+</div>
 
 <script>
-window.__APP_BASE = '<?= APP_URL ?>';
+    window.ADMIN_API = <?= json_encode($base . '/api/admin-v2-acao.php') ?>;
+    window.PERFIS_MAP = <?= json_encode($perfis, JSON_UNESCAPED_UNICODE) ?>;
+</script>
 
-/* ============ estrutura do sistema ============ */
-const AREAS=[
- {id:'fab',nome:'Fábrica',telas:[['fab.home','Home']]},
- {id:'lab',nome:'Laboratório',telas:[['lab.reg','Registro de Reprova'],['lab.lis','Lista'],['lab.ret','Retornos']]},
- {id:'iqf',nome:'Inspeção Final',telas:[['iqf.reg','Registro de Reprova'],['iqf.lis','Lista'],['iqf.ret','Retornos']]},
- {id:'ret',nome:'Retrabalho',telas:[['ret.dash','Dashboard'],['ret.pan','Retrabalho'],['ret.rel','Relação de Retrabalhos'],['ret.pri','Prioridade']]},
- {id:'qua',nome:'Qualidade',telas:[['qua.tip','Tipos de Reprova']]},
- {id:'pin',nome:'Pintura',telas:[['pin.pai','Paint Check (Robô)'],['pin.ret','Relação de Retrabalhos']]},
- {id:'ana',nome:'Análise',telas:[['ana.aco','Acompanhamento'],['ana.his','Histórico']]},
- {id:'adm',nome:'Administração',telas:[['adm.usu','Usuários'],['adm.per','Perfis de acesso']]}
-];
-const TELAS=AREAS.flatMap(a=>a.telas.map(t=>({id:t[0],nome:t[1],area:a.id})));
-const TOTAL=TELAS.length;
-const NIVEIS={off:'Sem acesso',view:'Consulta',edit:'Edição',total:'Total'};
-const RANK={off:0,view:1,edit:2,total:3};
-const STATUS={ativo:'Ativo',inativo:'Inativo',pendente:'Pendente',bloqueado:'Bloqueado'};
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const API = window.ADMIN_API;
+    const PERFIS = window.PERFIS_MAP || {};
 
-/* ===== Dados do backend ===== */
-const PERFIS = <?= json_encode($PERFIS, JSON_UNESCAPED_UNICODE) ?>;
-const SETORES = <?= json_encode($SETORES, JSON_UNESCAPED_UNICODE) ?>;
-const users = <?= json_encode($users, JSON_UNESCAPED_UNICODE) ?>;
+    // ─── 1. Alternância de Abas Principais ─────────────────────────────────────────
+    const tabButtons = document.querySelectorAll('.admin-switch-btn');
+    const tabPanes = document.querySelectorAll('.js-admin-tab-pane');
 
-/* Mapas de CSS para grupo */
-const GRP_CLS={ADM:'b-ADM',GES:'b-GES',SUP:'b-SUP',OPE:'b-OPE',VIS:'b-VIS'};
+    function switchTab(tabId) {
+        tabButtons.forEach(btn => btn.classList.toggle('is-active', btn.dataset.tab === tabId));
+        tabPanes.forEach(pane => pane.style.display = (pane.id === `pane-${tabId}`) ? 'flex' : 'none');
+        const url = new URL(window.location);
+        url.searchParams.set('aba', tabId);
+        window.history.replaceState({}, '', url);
+    }
 
-/* ============ regras ============ */
-function getPerfil(cod){return PERFIS[cod]||null}
-function perfilPerms(cod){const p=getPerfil(cod);return p&&p.perms?{...p.perms}:{}}
-const eff=u=>{const base=perfilPerms(u.perfil);const exc=u.exc||{};return {...base,...exc}};
-const nExc=u=>{const base=perfilPerms(u.perfil);const exc=u.exc||{};return Object.keys(exc).filter(k=>exc[k]!==base[k]).length};
-function resumoArea(perms,a){
- const on=a.telas.filter(t=>perms[t[0]]!=='off'&&perms[t[0]]!==undefined);
- const top=on.reduce((m,t)=>RANK[perms[t[0]]]>RANK[m]?perms[t[0]]:m,'off');
- return {on:on.length,tot:a.telas.length,nivel:top};
-}
-const liberadas=perms=>TELAS.filter(t=>(perms[t.id]||'off')!=='off').length;
+    tabButtons.forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
 
-/* ============ estado ============ */
-let tab='todos',page=1,perPage=10,expanded=new Set(),editingId=null;
-let dPerfil='',dPerms={},openG=new Set(),findTxt='';
-const $=s=>document.querySelector(s);
-const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2600)}
+    document.querySelectorAll('.js-link-filtra-setor').forEach(link => {
+        link.addEventListener('click', () => {
+            const setor = link.dataset.setorNome;
+            switchTab('usuarios');
+            const sel = document.getElementById('filtro-user-setor');
+            if (sel) {
+                sel.value = setor;
+                sel.dispatchEvent(new Event('change'));
+            }
+        });
+    });
 
-/* ============ filtros ============ */
-function filtered(){
- const q=$('#q').value.trim().toLowerCase(),setor=$('#fSetor').value,perfil=$('#fPerfil').value,area=$('#fArea').value;
- const A=$('#cAtivos').checked,I=$('#cInativos').checked;
- return users.filter(u=>{
-  const P=getPerfil(u.perfil);
-  if(tab==='pendentes'){if(u.status!=='pendente')return false}
-  else if(tab==='exc'){if(!nExc(u))return false}
-  else if(tab!=='todos'&&(!P||P.grupo!==tab))return false;
-  const off=(u.status==='inativo'||u.status==='bloqueado');
-  if(off&&!I)return false; if(!off&&!A)return false;
-  if(setor&&u.setor!==setor)return false;
-  if(perfil&&u.perfil!==perfil)return false;
-  if(area){const p=eff(u);if(!AREAS.find(a=>a.id===area).telas.some(t=>(p[t[0]]||'off')!=='off'))return false}
-  if(q&&![u.nome,u.email,u.setor,P?P.nome:''].join(' ').toLowerCase().includes(q))return false;
-  return true;
- });
-}
+    // ─── 2. Busca e Filtros ───────────────────────────────────────────────────────
+    // Usuários
+    const inputBuscaUser = document.getElementById('filtro-user-busca');
+    const selectSetorUser = document.getElementById('filtro-user-setor');
+    const selectStatusUser = document.getElementById('filtro-user-status');
+    const rowsUser = document.querySelectorAll('.js-row-user');
+    const emptyRowUser = document.querySelector('.js-user-empty-row');
 
-/* ============ tabela ============ */
-function render(){
- const list=filtered(),pages=Math.max(1,Math.ceil(list.length/perPage));
- if(page>pages)page=pages;
- const slice=list.slice((page-1)*perPage,page*perPage),tb=$('#tbody');
+    function filterUsers() {
+        const q = (inputBuscaUser?.value || '').toLowerCase().trim();
+        const sSetor = (selectSetorUser?.value || '').toLowerCase();
+        const sStatus = (selectStatusUser?.value || '').toLowerCase();
 
- if(!list.length){
-  tb.innerHTML='<tr><td colspan="11"><div class="empty"><strong>Nenhum usuário encontrado</strong>Ajuste a busca ou os filtros para ver outros resultados.</div></td></tr>';
- }else{
-  tb.innerHTML=slice.map((u,i)=>{
-   const P=getPerfil(u.perfil),perms=eff(u),lib=liberadas(perms),pct=Math.round(lib/TOTAL*100),ex=nExc(u);
-   const cls=pct>85?'':pct>40?'partial':'low';
-   const open=expanded.has(u.id);
-   const pNome=P?P.nome:'Sem perfil';
-   const pGrupo=P?P.grupo:'VIS';
-   const main=`<tr class="row">
-     <td><button class="expander" data-exp="${u.id}" aria-expanded="${open}" aria-label="Detalhes de ${esc(u.nome)}">${open?'−':'+'}</button></td>
-     <td class="l"><span class="badge ${GRP_CLS[pGrupo]||'b-VIS'}">${pNome}</span></td>
-     <td>${(page-1)*perPage+i+1}º</td>
-     <td class="l"><div class="user-cell"><span class="user-name">${esc(u.nome)}</span><span class="user-role">${esc(u.setor)||'—'} · Administrativo</span></div></td>
-     <td class="l"><span class="email">${esc(u.email)}</span></td>
-     <td>${esc(u.setor)||'—'}</td>
-     <td><span class="badge s-${u.status}">${STATUS[u.status]||u.status}</span></td>
-     <td>${u.acesso}</td>
-     <td><span class="dot d-${u.sinal}" title="${u.sinal==='ok'?'Acesso normal':u.sinal==='warn'?'Requer atenção':'Acesso suspenso'}"></span></td>
-     <td><span class="meter">
-        <span class="meter-top"><b>${lib}</b>/${TOTAL} telas</span>
-        <span class="meter-bar ${cls}"><i style="width:${pct}%"></i></span>
-        <span class="${ex?'exc':'exc none'}">${ex?ex+' exceção'+(ex>1?'es':''):'padrão do perfil'}</span>
-     </span></td>
-     <td class="r">${u.status==='pendente'?`<button class="act act-orange" data-edit="${u.id}">Liberar acesso</button>`
-        :u.status==='bloqueado'?`<button class="act act-orange" data-edit="${u.id}">Desbloquear</button>`
-        :`<button class="act act-green" data-edit="${u.id}">✓ Editar acesso</button>`}</td>
-   </tr>`;
-   if(!open)return main;
-   const areas=AREAS.map(a=>{
-    const r=resumoArea(perms,a);
-    const base=perfilPerms(u.perfil);
-    const exA=a.telas.filter(t=>u.exc&&u.exc[t[0]]!==undefined&&u.exc[t[0]]!==base[t[0]]).length;
-    return `<div class="area-row ${r.on?'':'off'}">
-      <span class="area-name">${a.nome}${exA?` <em>${exA} exc.</em>`:''}</span>
-      <span class="tag t-${r.nivel}">${NIVEIS[r.nivel]}</span>
-      <span class="count">${r.on} de ${r.tot}</span></div>`;
-   }).join('');
-   return main+`<tr class="detail"><td colspan="11"><div class="detail-inner">
-     <div><div class="detail-h">Acesso por área — perfil ${pNome}</div><div class="area-list">${areas}</div></div>
-     <div><div class="detail-h">Dados da conta</div><div class="facts">
-       <div class="fact"><span>Setor</span><span>${esc(u.setor)||'—'}</span></div>
-       <div class="fact"><span>Perfil</span><span>${pNome}</span></div>
-       <div class="fact"><span>Exceções</span><span>${ex||'nenhuma'}</span></div>
-       <div class="fact"><span>Cadastrado em</span><span>${u.criado}</span></div>
-       <div class="fact"><span>Último acesso</span><span>${u.acesso}</span></div>
-     </div></div></div></td></tr>`;
-  }).join('');
- }
+        let visible = 0;
+        rowsUser.forEach(r => {
+            const search = (r.dataset.search || '');
+            const rSetor = (r.dataset.setor || '').toLowerCase();
+            const rStatus = (r.dataset.status || '').toLowerCase();
 
- $('#footInfo').textContent=`por página · ${list.length} usuário${list.length===1?'':'s'} · ${list.filter(u=>nExc(u)).length} com exceções`;
- const pg=[`<button class="pg" data-pg="1" ${page===1?'disabled':''}>«</button>`,`<button class="pg" data-pg="${page-1}" ${page===1?'disabled':''}>‹</button>`];
- for(let p=1;p<=pages;p++)pg.push(`<button class="pg ${p===page?'is-active':''}" data-pg="${p}">${p}</button>`);
- pg.push(`<button class="pg" data-pg="${page+1}" ${page===pages?'disabled':''}>›</button>`,`<button class="pg" data-pg="${pages}" ${page===pages?'disabled':''}>»</button>`);
- $('#pager').innerHTML=pg.join('');
-}
+            const matchQ = !q || search.includes(q);
+            const matchSetor = !sSetor || rSetor === sSetor;
+            const matchStatus = !sStatus || rStatus === sStatus;
 
-/* ============ modal ============ */
-function openModal(u){
- editingId=u?u.id:null;
- $('#mTitle').textContent=u?'Editar usuário':'Novo usuário';
- $('#mSub').textContent=u?u.nome:'Escolha o perfil e ajuste apenas o que for exceção';
- $('#mNome').value=u?u.nome:'';$('#mMat').value=u?u.mat:'';$('#mEmail').value=u?u.email:'';
- $('#mSenha').value='';
- $('#senhaHint').textContent=u?'(Deixe em branco para manter)':'*';
- $('#mSetor').value=u?(u.id_setor||''):'';$('#mStatus').value=u?u.status:'pendente';
- /* Definir perfil padrão */
- const firstPerfil=Object.keys(PERFIS)[0]||'';
- dPerfil=u?u.perfil:firstPerfil;$('#mPerfil').value=dPerfil;
- dPerms=u?eff(u):{...perfilPerms(dPerfil)};
- openG=new Set();findTxt='';$('#mFind').value='';
- renderAccess();$('#overlay').classList.add('open');setTimeout(()=>$('#mNome').focus(),40);
-}
-function renderAccess(){
- const base=perfilPerms(dPerfil);
- const diff=TELAS.filter(t=>(dPerms[t.id]||'off')!==(base[t.id]||'off'));
- const f=findTxt.trim().toLowerCase();
- const html=AREAS.map(a=>{
-  const telas=a.telas.filter(t=>!f||t[1].toLowerCase().includes(f)||a.nome.toLowerCase().includes(f));
-  if(!telas.length)return '';
-  const r=resumoArea(dPerms,a);
-  const exA=a.telas.filter(t=>(dPerms[t[0]]||'off')!==(base[t[0]]||'off')).length;
-  const isOpen=openG.has(a.id)||!!f;
-  const rows=telas.map(t=>{
-   const v=dPerms[t[0]]||'off',ch=v!==(base[t[0]]||'off');
-   return `<div class="tela"><span class="tela-name">${t[1]}${ch?' <em>alterado</em>':''}</span>
-    <select class="lv v-${v}" data-tela="${t[0]}">${Object.keys(NIVEIS).map(k=>`<option value="${k}" ${k===v?'selected':''}>${NIVEIS[k]}</option>`).join('')}</select></div>`;
-  }).join('');
-  return `<div class="group ${isOpen?'open':''}" data-g="${a.id}">
-    <button class="g-head" type="button" data-toggle="${a.id}">
-      <span class="chev">▶</span>
-      <span class="g-name">${a.nome}${exA?` <em style="font-style:normal;font-size:10px;color:#B45309;background:#FEF0DA;padding:1px 5px;border-radius:4px">${exA}</em>`:''}</span>
-      <span class="g-sum">${r.on} de ${r.tot} · ${NIVEIS[r.nivel]}</span>
-      <select class="g-select" data-area="${a.id}"><option value="">Definir área...</option>${Object.keys(NIVEIS).map(k=>`<option value="${k}">${NIVEIS[k]} em tudo</option>`).join('')}</select>
-    </button>
-    <div class="g-body">${rows}</div></div>`;
- }).join('');
- $('#mGroups').innerHTML=html||'<div class="no-hit">Nenhuma tela corresponde à busca.</div>';
- const pNome=getPerfil(dPerfil)?getPerfil(dPerfil).nome:'Sem perfil';
- $('#mExcNote').innerHTML=diff.length?`<b>${diff.length} exceção${diff.length>1?'ões':''}</b> em relação ao perfil ${pNome}`:`Seguindo exatamente o perfil ${pNome}`;
- $('#mReset').style.display=diff.length?'':'none';
- const lib=liberadas(dPerms);
- $('#mCount').innerHTML=`<b>${lib}</b> de ${TOTAL} telas liberadas`;
- $('#mToggleAll').textContent=openG.size===AREAS.length?'Recolher tudo':'Expandir tudo';
-}
-const closeModal=()=>{$('#overlay').classList.remove('open');editingId=null};
+            if (matchQ && matchSetor && matchStatus) {
+                r.style.display = '';
+                visible++;
+            } else {
+                r.style.display = 'none';
+            }
+        });
+        if (emptyRowUser) emptyRowUser.style.display = (visible === 0) ? '' : 'none';
+    }
 
-/* ============ eventos ============ */
-$('#fSetor').innerHTML='<option value="">Setor...</option>'+SETORES.map(s=>`<option value="${esc(s.nome)}">${esc(s.nome)}</option>`).join('');
-$('#mSetor').innerHTML='<option value="">Selecione um setor...</option>'+SETORES.map(s=>`<option value="${s.id}">${esc(s.nome)}</option>`).join('');
-$('#fPerfil').innerHTML='<option value="">Perfil...</option>'+Object.entries(PERFIS).map(([k,p])=>`<option value="${k}">${p.nome}</option>`).join('');
-$('#mPerfil').innerHTML=Object.entries(PERFIS).map(([k,p])=>`<option value="${k}">${p.nome}</option>`).join('');
-$('#fArea').innerHTML='<option value="">Área liberada...</option>'+AREAS.map(a=>`<option value="${a.id}">${a.nome}</option>`).join('');
+    inputBuscaUser?.addEventListener('input', filterUsers);
+    selectSetorUser?.addEventListener('change', filterUsers);
+    selectStatusUser?.addEventListener('change', filterUsers);
 
-$('#pills').addEventListener('click',e=>{const b=e.target.closest('.pill');if(!b)return;
- document.querySelectorAll('.pill').forEach(p=>p.classList.remove('is-active'));b.classList.add('is-active');
- tab=b.dataset.tab;page=1;expanded.clear();render()});
-$('#q').addEventListener('input',()=>{page=1;render()});
-$('#btnFilter').addEventListener('click',()=>{page=1;render();toast('Filtros aplicados')});
-['fSetor','fPerfil','fArea','cAtivos','cInativos'].forEach(id=>$('#'+id).addEventListener('change',()=>{page=1;render()}));
-$('#perPage').addEventListener('change',e=>{perPage=+e.target.value;page=1;render()});
-$('#tbody').addEventListener('click',e=>{
- const x=e.target.closest('[data-exp]');
- if(x){const id=+x.dataset.exp;expanded.has(id)?expanded.delete(id):expanded.add(id);render();return}
- const ed=e.target.closest('[data-edit]');if(ed)openModal(users.find(u=>u.id==ed.dataset.edit))});
-$('#pager').addEventListener('click',e=>{const b=e.target.closest('[data-pg]');if(!b||b.disabled)return;
- page=+b.dataset.pg;render();window.scrollTo({top:0,behavior:'smooth'})});
+    // Setores
+    const inputBuscaSetor = document.getElementById('filtro-setor-busca');
+    inputBuscaSetor?.addEventListener('input', () => {
+        const q = inputBuscaSetor.value.toLowerCase().trim();
+        let visible = 0;
+        document.querySelectorAll('.js-row-setor').forEach(r => {
+            const match = !q || (r.dataset.search || '').includes(q);
+            r.style.display = match ? '' : 'none';
+            if (match) visible++;
+        });
+        const empty = document.querySelector('.js-setor-empty-row');
+        if (empty) empty.style.display = (visible === 0) ? '' : 'none';
+    });
 
-$('#btnNew').addEventListener('click',()=>openModal(null));
-$('#mClose').addEventListener('click',closeModal);$('#mCancel').addEventListener('click',closeModal);
-$('#overlay').addEventListener('click',e=>{if(e.target===$('#overlay'))closeModal()});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#overlay').classList.contains('open'))closeModal()});
+    // Perfis
+    const inputBuscaPerfil = document.getElementById('filtro-perfil-busca');
+    inputBuscaPerfil?.addEventListener('input', () => {
+        const q = inputBuscaPerfil.value.toLowerCase().trim();
+        let visible = 0;
+        document.querySelectorAll('.js-row-perfil').forEach(r => {
+            const match = !q || (r.dataset.search || '').includes(q);
+            r.style.display = match ? '' : 'none';
+            if (match) visible++;
+        });
+        const empty = document.querySelector('.js-perfil-empty-row');
+        if (empty) empty.style.display = (visible === 0) ? '' : 'none';
+    });
 
-$('#mPerfil').addEventListener('change',e=>{dPerfil=e.target.value;dPerms={...perfilPerms(dPerfil)};renderAccess();
- const pn=getPerfil(dPerfil);toast(`Perfil ${pn?pn.nome:dPerfil} aplicado`)});
-$('#mReset').addEventListener('click',()=>{dPerms={...perfilPerms(dPerfil)};renderAccess();toast('Exceções removidas')});
-$('#mFind').addEventListener('input',e=>{findTxt=e.target.value;renderAccess()});
-$('#mToggleAll').addEventListener('click',()=>{openG.size===AREAS.length?openG.clear():AREAS.forEach(a=>openG.add(a.id));renderAccess()});
-$('#mGroups').addEventListener('click',e=>{
- const t=e.target.closest('[data-toggle]');
- if(t&&!e.target.closest('.g-select')){const id=t.dataset.toggle;openG.has(id)?openG.delete(id):openG.add(id);renderAccess()}});
-$('#mGroups').addEventListener('change',e=>{
- const tela=e.target.closest('[data-tela]');
- if(tela){dPerms[tela.dataset.tela]=tela.value;renderAccess();return}
- const area=e.target.closest('[data-area]');
- if(area&&area.value){AREAS.find(a=>a.id===area.dataset.area).telas.forEach(t=>dPerms[t[0]]=area.value);
-  openG.add(area.dataset.area);renderAccess()}});
+    // ─── 3. Funções de Modal ─────────────────────────────────────────────────────
+    function openModal(id) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'flex';
+    }
+    function closeModal(id) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    }
 
-$('#mSave').addEventListener('click',()=>{
- const nome=$('#mNome').value.trim(),email=$('#mEmail').value.trim(),mat=$('#mMat').value.trim(),senha=$('#mSenha').value;
- if(!nome||!email){toast('Informe nome e e-mail para salvar');return}
- if(!editingId&&!senha){toast('Informe a senha para o novo usuário');return}
+    document.querySelectorAll('.js-close-modal').forEach(b => {
+        b.addEventListener('click', () => {
+            const overlay = b.closest('.modal-overlay');
+            if (overlay) overlay.style.display = 'none';
+        });
+    });
+    document.querySelectorAll('.modal-overlay').forEach(ov => {
+        ov.addEventListener('click', (e) => {
+            if (e.target === ov) ov.style.display = 'none';
+        });
+    });
 
- /* Calcular exceções: só o que difere do perfil base */
- const base=perfilPerms(dPerfil);
- const exc={};
- TELAS.forEach(t=>{
-  const cur=dPerms[t.id]||'off', bs=base[t.id]||'off';
-  if(cur!==bs) exc[t.id]=cur;
- });
+    // Subtabs no modal de Usuário
+    document.querySelectorAll('.js-user-subtab').forEach(b => {
+        b.addEventListener('click', () => {
+            const sub = b.dataset.subtab;
+            document.querySelectorAll('.js-user-subtab').forEach(x => {
+                const act = x === b;
+                x.classList.toggle('is-active', act);
+                x.style.color = act ? '#E89B1C' : '#64748b';
+                x.style.borderBottomColor = act ? '#E89B1C' : 'transparent';
+                x.style.fontWeight = act ? '700' : '600';
+            });
+            document.getElementById('user-subtab-dados').style.display = (sub === 'dados') ? '' : 'none';
+            document.getElementById('user-subtab-acessos').style.display = (sub === 'acessos') ? 'flex' : 'none';
+        });
+    });
 
- const pRow=getPerfil(dPerfil);
- const idPerfil=pRow?pRow.id:'';
- const st=$('#mStatus').value;
+    // ─── 4. Accordion Tree dos Sistemas ──────────────────────────────────────────
+    function setupAccordions(container) {
+        container.querySelectorAll('.js-sys-header').forEach(header => {
+            header.addEventListener('click', () => {
+                const card = header.closest('.js-sys-card');
+                card.classList.toggle('is-expanded');
+            });
+        });
+    }
 
- const btn=$('#mSave');
- const oTxt=btn.textContent;
- btn.textContent='Salvando...';btn.disabled=true;
+    setupAccordions(document.getElementById('modal-usuario'));
+    setupAccordions(document.getElementById('modal-perfil'));
 
- const dados={
-   acao:'salvar_usuario', id:editingId||'', nome, email, mat, senha,
-   setor:$('#mSetor').value, perfil:idPerfil, status:st, exc:JSON.stringify(exc)
- };
+    // Expandir / Recolher Todos nos Modais
+    document.querySelector('.js-user-expand-all')?.addEventListener('click', () => {
+        document.querySelectorAll('#user-matrix-wrap .js-sys-card').forEach(c => c.classList.add('is-expanded'));
+    });
+    document.querySelector('.js-user-collapse-all')?.addEventListener('click', () => {
+        document.querySelectorAll('#user-matrix-wrap .js-sys-card').forEach(c => c.classList.remove('is-expanded'));
+    });
+    document.querySelector('.js-perfil-expand-all')?.addEventListener('click', () => {
+        document.querySelectorAll('#perfil-matrix-wrap .js-sys-card').forEach(c => c.classList.add('is-expanded'));
+    });
+    document.querySelector('.js-perfil-collapse-all')?.addEventListener('click', () => {
+        document.querySelectorAll('#perfil-matrix-wrap .js-sys-card').forEach(c => c.classList.remove('is-expanded'));
+    });
 
- fetch(window.__APP_BASE+'/api/admin-v2-acao.php',{
-     method:'POST',
-     headers:{'Content-Type':'application/x-www-form-urlencoded'},
-     body:new URLSearchParams(dados)
- }).then(r=>r.json()).then(res=>{
-     if(res.sucesso){
-         const selSetor = SETORES.find(s=>s.id==$('#mSetor').value);
-         const setorNome = selSetor ? selSetor.nome : '';
-         const idSetor = selSetor ? selSetor.id : 0;
-         const newData={nome,email,mat,perfil:dPerfil,id_setor:idSetor,setor:setorNome,status:st,exc:{...exc},
-           sinal:st==='ativo'?'ok':st==='pendente'?'warn':'bad'};
-         if(editingId){
-             const u=users.find(x=>x.id==editingId);
-             Object.assign(u,newData);
-             toast(`Acesso de ${nome.split(' ')[0]} atualizado`);
-         }else{
-             users.unshift({id:res.id,acesso:'Nunca acessou',criado:res.criado,...newData});
-             toast(`${nome.split(' ')[0]} cadastrado com ${liberadas(dPerms)} telas liberadas`);
-         }
-         closeModal();render();
-     } else {
-         toast(res.erro||'Erro ao salvar usuário');
-     }
- }).catch(()=>toast('Erro de rede')).finally(()=>{btn.textContent=oTxt;btn.disabled=false});
+    // ─── 5. Mapeador de Permissões com Aliases ───────────────────────────────────
+    function getEffectivePermLevel(permsObj, screen) {
+        if (!permsObj) return 'off';
+        let lvl = permsObj[screen];
+        if (!lvl || lvl === 'off') {
+            if (screen === 'pcp.pri' && permsObj['ret.pri']) lvl = permsObj['ret.pri'];
+            else if (screen === 'ret.pri' && permsObj['pcp.pri']) lvl = permsObj['pcp.pri'];
+            else if (screen === 'ana.aco' && permsObj['ana.his']) lvl = permsObj['ana.his'];
+            else if (screen === 'ana.his' && permsObj['ana.aco']) lvl = permsObj['ana.aco'];
+            else if (screen === 'adm.usu' && (permsObj['adm.per'] || permsObj['admin'])) lvl = permsObj['adm.per'] || permsObj['admin'];
+        }
+        return (lvl !== 'off' && lvl !== '' && lvl !== undefined) ? (lvl === 'view' ? 'view' : 'total') : 'off';
+    }
+
+    function setMatrixPerms(selectsList, permsObj) {
+        selectsList.forEach(sel => {
+            const screen = sel.dataset.screen;
+            sel.value = getEffectivePermLevel(permsObj, screen);
+        });
+    }
+
+    // ─── 6. Modal de Confirmação de Exclusão Padrão SGT ─────────────────────────
+    let pendingDeleteAction = null;
+    const deleteTitle = document.getElementById('confirm-del-title');
+    const deleteMsg = document.getElementById('confirm-del-msg');
+    const deleteError = document.getElementById('confirm-del-error');
+    const btnExecDelete = document.getElementById('btn-exec-delete');
+
+    function promptDelete({ title, message, btnText, onConfirm }) {
+        if (deleteTitle) deleteTitle.textContent = title || 'Confirmar Exclusão';
+        if (deleteMsg) deleteMsg.innerHTML = message || 'Deseja realmente excluir este registro?';
+        if (deleteError) deleteError.style.display = 'none';
+        pendingDeleteAction = onConfirm;
+        btnExecDelete.disabled = false;
+        btnExecDelete.textContent = btnText || 'Excluir Registro';
+        openModal('modal-confirm-delete');
+    }
+
+    btnExecDelete?.addEventListener('click', async () => {
+        if (!pendingDeleteAction) return;
+        btnExecDelete.disabled = true;
+        btnExecDelete.textContent = 'Excluindo...';
+        try {
+            await pendingDeleteAction((errMsg) => {
+                if (deleteError) {
+                    deleteError.textContent = errMsg;
+                    deleteError.style.display = '';
+                }
+                btnExecDelete.disabled = false;
+                btnExecDelete.textContent = 'Excluir Registro';
+            });
+        } catch (err) {
+            if (deleteError) {
+                deleteError.textContent = 'Erro de comunicação com o servidor.';
+                deleteError.style.display = '';
+            }
+            btnExecDelete.disabled = false;
+            btnExecDelete.textContent = 'Excluir Registro';
+        }
+    });
+
+    // ─── 7. Gerenciamento de Usuários (Novo / Editar / Excluir) ─────────────────
+    const formUser = document.getElementById('form-usuario');
+    const uId = document.getElementById('u-id');
+    const uNome = document.getElementById('u-nome');
+    const uEmail = document.getElementById('u-email');
+    const uCpf = document.getElementById('u-cpf');
+    const uMat = document.getElementById('u-mat');
+    const uSenha = document.getElementById('u-senha');
+    const uSenhaHint = document.getElementById('u-senha-hint');
+    const uSetor = document.getElementById('u-setor');
+    const uStatus = document.getElementById('u-status');
+    const uPerfil = document.getElementById('u-perfil');
+    const uError = document.getElementById('u-error');
+    const userPermSelects = document.querySelectorAll('.js-user-perm-select');
+
+    // Máscara de CPF
+    uCpf?.addEventListener('input', (e) => {
+        let v = e.target.value.replace(/\D/g, '');
+        if (v.length > 11) v = v.slice(0, 11);
+        if (v.length > 9) v = v.replace(/(\d{3})(\d{3})(\d{3})(\d{1,2})/, '$1.$2.$3-$4');
+        else if (v.length > 6) v = v.replace(/(\d{3})(\d{3})(\d{1,3})/, '$1.$2.$3');
+        else if (v.length > 3) v = v.replace(/(\d{3})(\d{1,3})/, '$1.$2');
+        e.target.value = v;
+    });
+
+    uPerfil?.addEventListener('change', () => {
+        const pId = uPerfil.value;
+        if (pId && PERFIS[pId]) {
+            setMatrixPerms(userPermSelects, PERFIS[pId].perms || {});
+        }
+    });
+
+    document.querySelectorAll('.js-user-quick-all').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const lvl = btn.dataset.level || 'off';
+            userPermSelects.forEach(sel => sel.value = lvl);
+        });
+    });
+
+    document.querySelectorAll('.js-user-toggle-area').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const areaId = btn.dataset.area;
+            const selects = document.querySelectorAll(`.js-user-perm-select[data-area="${areaId}"]`);
+            const allTotal = Array.from(selects).every(s => s.value === 'total');
+            selects.forEach(s => s.value = allTotal ? 'off' : 'total');
+        });
+    });
+
+    document.querySelectorAll('.js-sys-toggle-all').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const sysId = btn.dataset.sys;
+            const selects = document.querySelectorAll(`.js-user-perm-select[data-sys="${sysId}"]`);
+            const allTotal = Array.from(selects).every(s => s.value === 'total');
+            selects.forEach(s => s.value = allTotal ? 'off' : 'total');
+        });
+    });
+
+    document.querySelector('.js-btn-novo-usuario')?.addEventListener('click', () => {
+        uId.value = '0';
+        uNome.value = '';
+        uEmail.value = '';
+        uCpf.value = '';
+        uMat.value = '';
+        uSenha.value = '';
+        uSenha.required = true;
+        if (uSenhaHint) uSenhaHint.textContent = '(Obrigatória)';
+        uSetor.value = '';
+        uStatus.value = 'ativo';
+        uPerfil.value = '';
+        setMatrixPerms(userPermSelects, {});
+        if (uError) uError.style.display = 'none';
+
+        document.getElementById('m-user-title').textContent = 'Novo Colaborador';
+        document.querySelector('.js-user-subtab[data-subtab="dados"]')?.click();
+        openModal('modal-usuario');
+    });
+
+    document.querySelectorAll('.js-btn-editar-usuario').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const u = JSON.parse(btn.dataset.user || '{}');
+            uId.value = u.id || '0';
+            uNome.value = u.nome || '';
+            uEmail.value = u.email || '';
+            uCpf.value = u.cpf || '';
+            uMat.value = u.matricula || '';
+            uSenha.value = '';
+            uSenha.required = false;
+            if (uSenhaHint) uSenhaHint.textContent = '(Deixe em branco para manter a atual)';
+            uSetor.value = u.id_setor || '';
+            uStatus.value = u.status || 'ativo';
+            uPerfil.value = u.id_perfil || '';
+            setMatrixPerms(userPermSelects, u.perms_efetivas || {});
+            if (uError) uError.style.display = 'none';
+
+            document.getElementById('m-user-title').textContent = 'Editar Colaborador';
+            document.querySelector('.js-user-subtab[data-subtab="dados"]')?.click();
+            openModal('modal-usuario');
+        });
+    });
+
+    formUser?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btnSave = document.getElementById('btn-submit-user');
+        btnSave.disabled = true;
+        btnSave.textContent = 'Salvando...';
+        if (uError) uError.style.display = 'none';
+
+        const permsObj = {};
+        userPermSelects.forEach(sel => {
+            const scr = sel.dataset.screen;
+            const lvl = sel.value;
+            if (lvl !== 'off') {
+                permsObj[scr] = lvl;
+                if (scr === 'pcp.pri') permsObj['ret.pri'] = lvl;
+                if (scr === 'ana.aco') permsObj['ana.his'] = lvl;
+                if (scr === 'adm.usu') permsObj['adm.per'] = lvl;
+            }
+        });
+
+        const formData = new FormData(formUser);
+        formData.append('acao', 'salvar_usuario');
+        formData.append('exc', JSON.stringify(permsObj));
+
+        try {
+            const res = await fetch(API, { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.sucesso) {
+                window.location.search = '?aba=usuarios';
+            } else {
+                if (uError) {
+                    uError.textContent = data.erro || 'Erro ao salvar usuário.';
+                    uError.style.display = '';
+                }
+            }
+        } catch (err) {
+            if (uError) {
+                uError.textContent = 'Erro de conexão ao salvar usuário.';
+                uError.style.display = '';
+            }
+        } finally {
+            btnSave.disabled = false;
+            btnSave.textContent = 'Salvar Colaborador';
+        }
+    });
+
+    document.querySelectorAll('.js-btn-excluir-usuario').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const id = btn.dataset.id;
+            const nome = btn.dataset.nome;
+            promptDelete({
+                title: 'Excluir Colaborador',
+                message: `Deseja realmente excluir o colaborador <strong style="color:var(--color-text-primary);">${nome}</strong>?`,
+                btnText: 'Excluir Colaborador',
+                onConfirm: async (showError) => {
+                    const formData = new FormData();
+                    formData.append('acao', 'excluir_usuario');
+                    formData.append('id', id);
+                    const res = await fetch(API, { method: 'POST', body: formData });
+                    const data = await res.json();
+                    if (data.sucesso) {
+                        window.location.search = '?aba=usuarios';
+                    } else {
+                        showError(data.erro || 'Não foi possível excluir o colaborador.');
+                    }
+                }
+            });
+        });
+    });
+
+    // ─── 8. Redefinição Rápida de Senha ──────────────────────────────────────────
+    const formReset = document.getElementById('form-reset-senha');
+    const resetIdInput = document.getElementById('reset-id');
+    const resetSenhaInput = document.getElementById('reset-senha-nova');
+    const resetNameLabel = document.getElementById('m-reset-user-name');
+    const resetError = document.getElementById('reset-error');
+
+    document.querySelectorAll('.js-btn-reset-senha').forEach(btn => {
+        btn.addEventListener('click', () => {
+            resetIdInput.value = btn.dataset.id || '0';
+            resetNameLabel.textContent = `Colaborador: ${btn.dataset.nome || '—'}`;
+            resetSenhaInput.value = '';
+            if (resetError) resetError.style.display = 'none';
+            openModal('modal-reset-senha');
+        });
+    });
+
+    document.getElementById('btn-gerar-senha')?.addEventListener('click', () => {
+        resetSenhaInput.value = '123456';
+    });
+
+    formReset?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = resetIdInput.value;
+        const nova_senha = resetSenhaInput.value;
+        if (!nova_senha) return;
+
+        const formData = new FormData();
+        formData.append('acao', 'redefinir_senha');
+        formData.append('id', id);
+        formData.append('nova_senha', nova_senha);
+
+        try {
+            const res = await fetch(API, { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.sucesso) {
+                alert('Senha redefinida com sucesso!');
+                closeModal('modal-reset-senha');
+            } else {
+                if (resetError) {
+                    resetError.textContent = data.erro || 'Erro ao redefinir senha.';
+                    resetError.style.display = '';
+                }
+            }
+        } catch (err) {
+            if (resetError) {
+                resetError.textContent = 'Erro de conexão com o servidor.';
+                resetError.style.display = '';
+            }
+        }
+    });
+
+    // ─── 9. Gerenciamento de Setores (Novo / Editar / Excluir) ───────────────────
+    const formSetor = document.getElementById('form-setor');
+    const sId = document.getElementById('s-id');
+    const sNome = document.getElementById('s-nome');
+    const sCod = document.getElementById('s-cod');
+    const sCc = document.getElementById('s-cc');
+    const sResp = document.getElementById('s-resp');
+    const sStatus = document.getElementById('s-status');
+    const sError = document.getElementById('s-error');
+
+    document.querySelector('.js-btn-novo-setor')?.addEventListener('click', () => {
+        sId.value = '0';
+        sNome.value = '';
+        sCod.value = '';
+        sCc.value = '';
+        sResp.value = '';
+        sStatus.value = 'ativo';
+        if (sError) sError.style.display = 'none';
+        document.getElementById('m-setor-title').textContent = 'Novo Setor';
+        openModal('modal-setor');
+    });
+
+    document.querySelectorAll('.js-btn-editar-setor').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const s = JSON.parse(btn.dataset.setor || '{}');
+            sId.value = s.id || '0';
+            sNome.value = s.nome || '';
+            sCod.value = s.cod || '';
+            sCc.value = s.cc || '';
+            sResp.value = s.resp || '';
+            sStatus.value = s.status || 'ativo';
+            if (sError) sError.style.display = 'none';
+            document.getElementById('m-setor-title').textContent = 'Editar Setor';
+            openModal('modal-setor');
+        });
+    });
+
+    formSetor?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btnSave = document.getElementById('btn-submit-setor');
+        btnSave.disabled = true;
+        btnSave.textContent = 'Salvando...';
+
+        const formData = new FormData(formSetor);
+        formData.append('acao', 'salvar_setor');
+
+        try {
+            const res = await fetch(API, { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.sucesso) {
+                window.location.search = '?aba=setores';
+            } else {
+                if (sError) {
+                    sError.textContent = data.erro || 'Erro ao salvar setor.';
+                    sError.style.display = '';
+                }
+            }
+        } catch (err) {
+            if (sError) {
+                sError.textContent = 'Erro de conexão com o servidor.';
+                sError.style.display = '';
+            }
+        } finally {
+            btnSave.disabled = false;
+            btnSave.textContent = 'Salvar Setor';
+        }
+    });
+
+    document.querySelectorAll('.js-btn-excluir-setor').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const id = btn.dataset.id;
+            const nome = btn.dataset.nome;
+            promptDelete({
+                title: 'Excluir Setor',
+                message: `Deseja realmente excluir o setor <strong style="color:var(--color-text-primary);">${nome}</strong>?`,
+                btnText: 'Excluir Setor',
+                onConfirm: async (showError) => {
+                    const formData = new FormData();
+                    formData.append('acao', 'excluir_setor');
+                    formData.append('id', id);
+                    const res = await fetch(API, { method: 'POST', body: formData });
+                    const data = await res.json();
+                    if (data.sucesso) {
+                        window.location.search = '?aba=setores';
+                    } else {
+                        showError(data.erro || 'Não foi possível excluir o setor.');
+                    }
+                }
+            });
+        });
+    });
+
+    // ─── 10. Gerenciamento de Perfis (Novo / Editar / Excluir) ───────────────────
+    const formPerfil = document.getElementById('form-perfil');
+    const pId = document.getElementById('p-id');
+    const pNome = document.getElementById('p-nome');
+    const pCod = document.getElementById('p-cod');
+    const pGrupo = document.getElementById('p-grupo');
+    const pStatus = document.getElementById('p-status');
+    const pDesc = document.getElementById('p-desc');
+    const pError = document.getElementById('p-error');
+    const perfilPermSelects = document.querySelectorAll('.js-perfil-perm-select');
+
+    document.querySelectorAll('.js-perfil-quick-all').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const lvl = btn.dataset.level || 'off';
+            perfilPermSelects.forEach(sel => sel.value = lvl);
+        });
+    });
+
+    document.querySelectorAll('.js-perfil-toggle-area').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const areaId = btn.dataset.area;
+            const selects = document.querySelectorAll(`.js-perfil-perm-select[data-area="${areaId}"]`);
+            const allTotal = Array.from(selects).every(s => s.value === 'total');
+            selects.forEach(s => s.value = allTotal ? 'off' : 'total');
+        });
+    });
+
+    document.querySelectorAll('.js-perfil-toggle-sys').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const sysId = btn.dataset.sys;
+            const selects = document.querySelectorAll(`.js-perfil-perm-select[data-sys="${sysId}"]`);
+            const allTotal = Array.from(selects).every(s => s.value === 'total');
+            selects.forEach(s => s.value = allTotal ? 'off' : 'total');
+        });
+    });
+
+    document.querySelector('.js-btn-novo-perfil')?.addEventListener('click', () => {
+        pId.value = '0';
+        pNome.value = '';
+        pCod.value = '';
+        pGrupo.value = 'OPE';
+        pStatus.value = 'ativo';
+        pDesc.value = '';
+        setMatrixPerms(perfilPermSelects, {});
+        if (pError) pError.style.display = 'none';
+
+        document.getElementById('m-perfil-title').textContent = 'Novo Perfil / Cargo';
+        openModal('modal-perfil');
+    });
+
+    document.querySelectorAll('.js-btn-editar-perfil').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const p = JSON.parse(btn.dataset.perfil || '{}');
+            pId.value = p.id || '0';
+            pNome.value = p.nome || '';
+            pCod.value = p.cod || '';
+            pGrupo.value = p.grupo || 'OPE';
+            pStatus.value = p.status || 'ativo';
+            pDesc.value = p.descricao || '';
+            setMatrixPerms(perfilPermSelects, p.perms || {});
+            if (pError) pError.style.display = 'none';
+
+            document.getElementById('m-perfil-title').textContent = 'Editar Perfil';
+            openModal('modal-perfil');
+        });
+    });
+
+    formPerfil?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btnSave = document.getElementById('btn-submit-perfil');
+        btnSave.disabled = true;
+        btnSave.textContent = 'Salvando...';
+
+        const permsObj = {};
+        perfilPermSelects.forEach(sel => {
+            const scr = sel.dataset.screen;
+            const lvl = sel.value;
+            if (lvl !== 'off') {
+                permsObj[scr] = lvl;
+                if (scr === 'pcp.pri') permsObj['ret.pri'] = lvl;
+                if (scr === 'ana.aco') permsObj['ana.his'] = lvl;
+                if (scr === 'adm.usu') permsObj['adm.per'] = lvl;
+            }
+        });
+
+        const formData = new FormData(formPerfil);
+        formData.append('acao', 'salvar_perfil');
+        formData.append('perms', JSON.stringify(permsObj));
+
+        try {
+            const res = await fetch(API, { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.sucesso) {
+                window.location.search = '?aba=perfis';
+            } else {
+                if (pError) {
+                    pError.textContent = data.erro || 'Erro ao salvar perfil.';
+                    pError.style.display = '';
+                }
+            }
+        } catch (err) {
+            if (pError) {
+                pError.textContent = 'Erro de conexão com o servidor.';
+                pError.style.display = '';
+            }
+        } finally {
+            btnSave.disabled = false;
+            btnSave.textContent = 'Salvar Perfil';
+        }
+    });
+
+    document.querySelectorAll('.js-btn-excluir-perfil').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const id = btn.dataset.id;
+            const nome = btn.dataset.nome;
+            promptDelete({
+                title: 'Excluir Perfil',
+                message: `Deseja realmente excluir o perfil <strong style="color:var(--color-text-primary);">${nome}</strong>?`,
+                btnText: 'Excluir Perfil',
+                onConfirm: async (showError) => {
+                    const formData = new FormData();
+                    formData.append('acao', 'excluir_perfil');
+                    formData.append('id', id);
+                    const res = await fetch(API, { method: 'POST', body: formData });
+                    const data = await res.json();
+                    if (data.sucesso) {
+                        window.location.search = '?aba=perfis';
+                    } else {
+                        showError(data.erro || 'Não foi possível excluir o perfil.');
+                    }
+                }
+            });
+        });
+    });
+
 });
-
-render();
 </script>
 
 <?php layoutFooter(); ?>

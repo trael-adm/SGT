@@ -105,7 +105,7 @@ if (!function_exists('lerMateriaisUsados')) {
      * — ver gravarMateriaisUsados(). `codigo`/`unidade` vazios viram NULL (linha
      * "adicionado manualmente", fora do catálogo).
      */
-    function lerMateriaisUsados(): array
+    function lerMateriaisUsados(?PDO $pdo = null): array
     {
         $codigos    = (array) ($_POST['material_codigo'] ?? []);
         $descricoes = (array) ($_POST['material_descricao'] ?? []);
@@ -128,6 +128,17 @@ if (!function_exists('lerMateriaisUsados')) {
                 if (is_numeric($limpo)) {
                     $preco = (float) $limpo;
                 }
+            }
+
+            if (($preco === null || $preco <= 0) && $codigo !== '' && $pdo !== null) {
+                try {
+                    $stmtP = $pdo->prepare("SELECT preco_medio FROM itens_catalogo WHERE codigo = ? LIMIT 1");
+                    $stmtP->execute([$codigo]);
+                    $pVal = $stmtP->fetchColumn();
+                    if ($pVal !== false && $pVal !== null && is_numeric($pVal)) {
+                        $preco = (float) $pVal;
+                    }
+                } catch (\Throwable $e) {}
             }
 
             $itens[] = [
@@ -558,7 +569,7 @@ try {
                 ")->execute($todosIds);
             }
 
-            gravarMateriaisUsados($pdo, (int) $idLote, lerMateriaisUsados(), $userId);
+            gravarMateriaisUsados($pdo, (int) $idLote, lerMateriaisUsados($pdo), $userId);
 
             if (!$vaiAoRetrabalho) {
                 // Remove a etapa ativa em_andamento e insere/garante o status aguardando_retorno na estação atual

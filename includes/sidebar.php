@@ -20,6 +20,7 @@ $isRetrabalhoContext = str_starts_with($_sRelSelf, '/pages/retrabalho/') || str_
 $_hideProducao = !hasAcesso('tab:laboratorio') || $isAdminContext;
 $_hideInspecaoFinal = !hasAcesso('tab:inspecao_final') || $isAdminContext;
 $_hidePintura = !hasAcesso('tab:pintura') || $isAdminContext;
+$_hidePcp = (!hasAcesso('tab:pcp') && !hasAcesso('pcp.pri') && !hasAcesso('ret.pri')) || $isAdminContext;
 $_hideRetrabalho = !hasAcesso('tab:retrabalho') || $isAdminContext;
 $_hideAnalise = !hasAcesso('tab:analise') || $isAdminContext;
 $_hideAdmin = !hasAcesso('admin') || !$isAdminContext;
@@ -28,7 +29,7 @@ $_hideAdmin = !hasAcesso('admin') || !$isAdminContext;
 // não imprime cabeçalho — segue direto após o grupo anterior.
 $_sGrupos = [
     [
-        'rotulo' => 'Fábrica',
+        'rotulo' => null,
         'esconder' => false,
         'itens'  => [
             [
@@ -44,15 +45,21 @@ $_sGrupos = [
         'itens'  => [
             [
                 'href'  => '/pages/admin/usuarios.php',
-                'label' => 'Usuários e Permissões',
-                'icon'  => '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>',
+                'label' => 'Usuários & Setores',
+                'icon'  => '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>',
                 'permissao' => 'adm.usu'
             ],
+        ],
+    ],
+    [
+        'rotulo' => 'PCP',
+        'esconder' => $_hidePcp,
+        'itens'  => [
             [
-                'href'  => '/pages/admin/perfis.php',
-                'label' => 'Perfis e Setores',
-                'icon'  => '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
-                'permissao' => 'adm.per'
+                'href'  => '/pages/pedidos/prioridade.php',
+                'label' => 'Prioridades',
+                'icon'  => '<circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>',
+                'permissao' => 'pcp.pri'
             ],
         ],
     ],
@@ -125,12 +132,6 @@ $_sGrupos = [
                 'label' => 'Relação de Retrabalhos',
                 'icon'  => '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
                 'permissao' => 'ret.rel'
-            ],
-            [
-                'href'  => '/pages/pedidos/prioridade.php',
-                'label' => 'Prioridade',
-                'icon'  => '<circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>',
-                'permissao' => 'ret.pri'
             ],
         ],
     ],

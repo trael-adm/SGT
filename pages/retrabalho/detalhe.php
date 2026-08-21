@@ -129,17 +129,31 @@ if (!$dataInicio) {
 $materiaisExistentes = [];
 if ($idLote) {
     try {
-        $stmtMat = $pdo->prepare("SELECT codigo, descricao, unidade, quantidade, preco_medio FROM retrabalho_material_uso WHERE id_lote = ? ORDER BY id");
+        $stmtMat = $pdo->prepare("
+            SELECT rmu.codigo, rmu.descricao, rmu.unidade, rmu.quantidade,
+                   COALESCE(rmu.preco_medio, ic.preco_medio) AS preco_medio
+            FROM retrabalho_material_uso rmu
+            LEFT JOIN itens_catalogo ic ON ic.codigo = rmu.codigo
+            WHERE rmu.id_lote = ?
+            ORDER BY rmu.id
+        ");
         $stmtMat->execute([$idLote]);
         $materiaisExistentes = $stmtMat->fetchAll();
     } catch (\Throwable $e) {
         try {
             $pdo->exec("ALTER TABLE retrabalho_material_uso ADD COLUMN preco_medio DECIMAL(14,4) NULL DEFAULT NULL AFTER quantidade");
-            $stmtMat = $pdo->prepare("SELECT codigo, descricao, unidade, quantidade, preco_medio FROM retrabalho_material_uso WHERE id_lote = ? ORDER BY id");
+            $stmtMat = $pdo->prepare("
+                SELECT rmu.codigo, rmu.descricao, rmu.unidade, rmu.quantidade,
+                       COALESCE(rmu.preco_medio, ic.preco_medio) AS preco_medio
+                FROM retrabalho_material_uso rmu
+                LEFT JOIN itens_catalogo ic ON ic.codigo = rmu.codigo
+                WHERE rmu.id_lote = ?
+                ORDER BY rmu.id
+            ");
             $stmtMat->execute([$idLote]);
             $materiaisExistentes = $stmtMat->fetchAll();
         } catch (\Throwable $e2) {
-            $stmtMat = $pdo->prepare("SELECT codigo, descricao, unidade, quantidade FROM retrabalho_material_uso WHERE id_lote = ? ORDER BY id");
+            $stmtMat = $pdo->prepare("SELECT codigo, descricao, unidade, quantidade, NULL AS preco_medio FROM retrabalho_material_uso WHERE id_lote = ? ORDER BY id");
             $stmtMat->execute([$idLote]);
             $materiaisExistentes = $stmtMat->fetchAll();
         }

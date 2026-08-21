@@ -215,6 +215,18 @@ Especificação de UX completa (1ª atividade) em `PROJETO-SGT/producao-tela-spe
 | **Estação** | Ponto do chão de fábrica no módulo Produção: **IQF** (Inspeção final), **LAB** (Laboratório), **GER** (Geral) |
 | **OF / cd_of** | Ordem de Fabricação — código impresso na etiqueta do transformador (prefixo(5) + `cd_of` + sufixo(1) concatenados, sem separador), usado para resolver N° de série/projeto/pedido via a planilha `NS.OF.xlsx` |
 
+### Painel de Gestão de Usuários, Setores & Perfis (`pages/admin/usuarios.php`)
+Central administrativa unificada em 3 abas (Usuários, Setores da Fábrica, Perfis/Templates):
+- **Hierarquia em 3 Níveis:** Sistemas do HUB (SGE, SOMA, Produção, 5S, Ausências, Incidentes, Perdas, Paradas) ➔ Módulos Operacionais ➔ Telas Individuais, com navegação por accordions expansíveis e topo travado (sticky header para perfil base e ações em lote: Expandir/Recolher/Liberar/Bloquear Todos).
+- **Segurança & Soft Delete:** Exclusão lógica com confirmação modal padrão SGT (`deleted_at TIMESTAMP NULL DEFAULT NULL`) com trava de autoexclusão e auditoria.
+- **Concordância Visual:** Botões padronizados com o design system (`btn-icon`, `btn-icon-edit`, `btn-icon-danger`) e modais integrados (`modal`, `btn-secondary`, `btn-danger`).
+
+### Paint Check — Visão Computacional & OCR Industrial Híbrido (`pages/qualidade/paint-check.php` & `paint-check-robo/server.py`)
+Módulo de inspeção visual e validação de montagem de transformadores por inteligência artificial:
+- **Pipeline Híbrido:** Detecção e correção angular com YOLO-OBB (`cv2.warpAffine`), square padding e pré-processamento morfológico para metais (CLAHE + TopHat).
+- **Inferência Dupla (0° e 180°):** Dupla rotação da imagem com eliminação de sobreposição via IoU ($>50\%$).
+- **Inversão Semântica Bidirecional:** Transposição e mapeamento de caracteres ambíguos a 180° (`6 ↔ 9`, `2 ↔ 5`, `0 ↔ 0`, etc.) no Python e PHP, com validação cruzada de hipóteses contra o índice oficial de Ordens de Fabricação da Trael (`includes/planilha-ns-of.php`).
+
 ---
 
 ## Roteiro de sprints
@@ -225,7 +237,8 @@ Especificação de UX completa (1ª atividade) em `PROJETO-SGT/producao-tela-spe
 | **2 — Hub** | Tela inicial "Selecione um sistema" (cards dos módulos) + navegação | ✅ |
 | **3 — Retrabalho** | 1º módulo de lançamentos: formulário + painel (KPIs/gráficos) + tabela + Relação de Retrabalhos (listagem, flags de urgência, reincidências) | ✅ |
 | **4 — Produção (1ª atividade + Lista)** | Card da estação Laboratório + leitura de QR/imagem/manual + confirmação de entrada (ver `PROJETO-SGT/producao-tela-spec.md`) + Lista de Registros com filtros/ordenação/paginação e Reprovar (ponte para Retrabalho) | ✅ (parcial — IQF/GER e painel gerencial pendentes) |
-| **5+ — Demais módulos** | Um por vez, mesma stack: Perdas → Paradas → Incidentes → 5S → Ausências → SOMA → resto de Produção (IQF/GER, painel gerencial) — escopo definido antes de começar | 🗓 Planejada |
+| **5 — Central Admin & Paint Check** | Gestão unificada de usuários/setores/perfis com hierarquia de sistemas em accordion + OCR industrial com inversão semântica | ✅ |
+| **6+ — Demais módulos** | Um por vez, mesma stack: Perdas → Paradas → Incidentes → 5S → Ausências → SOMA → resto de Produção (IQF/GER, painel gerencial) — escopo definido antes de começar | 🗓 Planejada |
 
 **Regra:** cada sprint só começa após validação e confirmação da anterior.
 
