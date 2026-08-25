@@ -61,6 +61,12 @@ $_sGrupos = [
                 'icon'  => '<circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>',
                 'permissao' => 'pcp.pri'
             ],
+        ],
+    ],
+    [
+        'rotulo' => 'Produção',
+        'esconder' => $isAdminContext,
+        'itens'  => [
             [
                 'href'  => '/pages/distribuicao/index.php',
                 'label' => 'Indicador Distribuição',
@@ -97,12 +103,6 @@ $_sGrupos = [
                 'icon'  => '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>',
                 'permissao' => 'prod.aco'
             ],
-        ],
-    ],
-    [
-        'rotulo' => 'Cronoanálise',
-        'esconder' => $isAdminContext,
-        'itens'  => [
             [
                 'href'  => '/pages/soma/index.php',
                 'label' => 'SOMA',
@@ -264,7 +264,12 @@ $_sGrupos = [
         <?php foreach ($_sItensVisiveis as $_sItem):
             $isActive = ($_sRelSelf === $_sItem['href'])
                 || (str_starts_with($_sItem['href'], '/pages/soma/') && str_starts_with($_sRelSelf, '/pages/soma/'))
-                || (str_starts_with($_sItem['href'], '/pages/fluxo-pedidos/') && str_starts_with($_sRelSelf, '/pages/fluxo-pedidos/'));
+                || (str_starts_with($_sItem['href'], '/pages/fluxo-pedidos/') && str_starts_with($_sRelSelf, '/pages/fluxo-pedidos/'))
+                || (str_starts_with($_sItem['href'], '/pages/distribuicao/') && (str_starts_with($_sRelSelf, '/pages/distribuicao/') || str_starts_with($_sRelSelf, '/pages/producao/distribuicao.php')))
+                || (str_starts_with($_sItem['href'], '/pages/atraso-distribuicao/') && (str_starts_with($_sRelSelf, '/pages/atraso-distribuicao/') || str_starts_with($_sRelSelf, '/pages/producao/atraso-distribuicao.php')))
+                || (str_starts_with($_sItem['href'], '/pages/forca-seco/') && (str_starts_with($_sRelSelf, '/pages/forca-seco/') || str_starts_with($_sRelSelf, '/pages/producao/forca-seco.php')))
+                || (str_starts_with($_sItem['href'], '/pages/painel-setor/') && (str_starts_with($_sRelSelf, '/pages/painel-setor/') || str_starts_with($_sRelSelf, '/pages/producao/painel-setor.php')))
+                || (str_starts_with($_sItem['href'], '/pages/acompanhamento/') && (str_starts_with($_sRelSelf, '/pages/acompanhamento/') || str_starts_with($_sRelSelf, '/pages/producao/acompanhamento.php')));
         ?>
         <a class="nav-item<?= $isActive ? ' active' : '' ?>"
            href="<?= htmlspecialchars($_sBaseUrl . $_sItem['href']) ?>">
