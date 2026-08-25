@@ -5,8 +5,6 @@
 -- USO: mysql -u root boletim_db < _inicial/migrar-boletim-distribuicao.sql
 -- =============================================================================
 
-USE boletim_db;
-
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 

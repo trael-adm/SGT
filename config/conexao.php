@@ -241,6 +241,23 @@ function getDB(): PDO
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             ");
         } catch (\Throwable $e) {}
+
+        try {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS boletim_potencia_diaria (
+                    id             INT           AUTO_INCREMENT PRIMARY KEY,
+                    `date`         DATE          NOT NULL,
+                    `area`         ENUM('distrib','forca') NOT NULL,
+                    potencia_media DECIMAL(10,2) NOT NULL,
+                    id_criador     INT           NOT NULL,
+                    created_at     TIMESTAMP     NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at     TIMESTAMP     NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    deleted_at     TIMESTAMP     NULL DEFAULT NULL,
+                    KEY idx_potencia_dia_area (`date`, `area`),
+                    KEY idx_potencia_deleted (deleted_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+        } catch (\Throwable $e) {}
     }
 
     return $pdo;

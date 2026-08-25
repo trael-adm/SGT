@@ -12,18 +12,49 @@ if ($_sRelSelf === '') $_sRelSelf = '/';
 
 // Contexto da URL para menus dinâmicos
 $isAdminContext = str_starts_with($_sRelSelf, '/pages/admin/');
-$isProducaoContext = str_starts_with($_sRelSelf, '/pages/producao/');
-$isRetrabalhoContext = str_starts_with($_sRelSelf, '/pages/retrabalho/') || str_starts_with($_sRelSelf, '/pages/pedidos/') || str_starts_with($_sRelSelf, '/pages/projetos/') || str_starts_with($_sRelSelf, '/pages/qualidade/');
 
-// Restrição de visualização de módulos no menu
-// Se estiver no painel Admin, esconde Laboratório e Retrabalho para manter a tela limpa
-$_hideProducao = !hasAcesso('tab:laboratorio') || $isAdminContext;
-$_hideInspecaoFinal = !hasAcesso('tab:inspecao_final') || $isAdminContext;
-$_hidePintura = !hasAcesso('tab:pintura') || $isAdminContext;
-$_hidePcp = (!hasAcesso('tab:pcp') && !hasAcesso('pcp.pri') && !hasAcesso('ret.pri')) || $isAdminContext;
-$_hideRetrabalho = !hasAcesso('tab:retrabalho') || $isAdminContext;
-$_hideAnalise = !hasAcesso('tab:analise') || $isAdminContext;
-$_hideAdmin = !hasAcesso('admin') || !$isAdminContext;
+$isProducaoContext = str_starts_with($_sRelSelf, '/pages/distribuicao/')
+    || str_starts_with($_sRelSelf, '/pages/atraso-distribuicao/')
+    || str_starts_with($_sRelSelf, '/pages/forca-seco/')
+    || str_starts_with($_sRelSelf, '/pages/painel-setor/')
+    || str_starts_with($_sRelSelf, '/pages/fluxo-pedidos/')
+    || str_starts_with($_sRelSelf, '/pages/acompanhamento/')
+    || str_starts_with($_sRelSelf, '/pages/soma/')
+    || str_starts_with($_sRelSelf, '/pages/producao/distribuicao.php')
+    || str_starts_with($_sRelSelf, '/pages/producao/atraso-distribuicao.php')
+    || str_starts_with($_sRelSelf, '/pages/producao/forca-seco.php')
+    || str_starts_with($_sRelSelf, '/pages/producao/painel-setor.php')
+    || str_starts_with($_sRelSelf, '/pages/producao/fluxo-pedidos.php')
+    || str_starts_with($_sRelSelf, '/pages/producao/acompanhamento.php')
+    || str_starts_with($_sRelSelf, '/pages/producao/settings.php');
+
+$isRetrabalhoContext = str_starts_with($_sRelSelf, '/pages/retrabalho/')
+    || str_starts_with($_sRelSelf, '/pages/pedidos/')
+    || str_starts_with($_sRelSelf, '/pages/projetos/')
+    || str_starts_with($_sRelSelf, '/pages/qualidade/')
+    || str_starts_with($_sRelSelf, '/pages/inspecao_final/')
+    || str_starts_with($_sRelSelf, '/pages/pintura/')
+    || (str_starts_with($_sRelSelf, '/pages/producao/') && !$isProducaoContext);
+
+$isSpecificContext = $isAdminContext || $isProducaoContext || $isRetrabalhoContext;
+
+// Regras de visibilidade por contexto de módulo:
+// 1. Módulo Administração
+$_hideAdmin = !$isAdminContext || !hasAcesso('admin');
+
+// 2. Módulo Produção (visível apenas dentro do sistema de Produção)
+$_hideModuloProducao = ($isSpecificContext && !$isProducaoContext) || $isAdminContext;
+
+// 3. Módulo Retrabalho & Fábrica (visível apenas dentro do sistema de Retrabalho)
+$_hideRetrabalhoContext = ($isSpecificContext && !$isRetrabalhoContext) || $isAdminContext;
+
+$_hidePcp           = $_hideRetrabalhoContext || (!hasAcesso('tab:pcp') && !hasAcesso('pcp.pri') && !hasAcesso('ret.pri'));
+$_hideLaboratorio   = $_hideRetrabalhoContext || !hasAcesso('tab:laboratorio');
+$_hideInspecaoFinal = $_hideRetrabalhoContext || !hasAcesso('tab:inspecao_final');
+$_hideRetrabalho    = $_hideRetrabalhoContext || !hasAcesso('tab:retrabalho');
+$_hideQualidade     = $_hideRetrabalhoContext || !hasAcesso('qua.tip');
+$_hidePintura       = $_hideRetrabalhoContext || !hasAcesso('tab:pintura');
+$_hideAnalise       = $_hideRetrabalhoContext || !hasAcesso('tab:analise');
 
 // Itens do menu, agrupados por subtítulo (nav-group-label). Um grupo com 'rotulo' null
 // não imprime cabeçalho — segue direto após o grupo anterior.
@@ -52,20 +83,8 @@ $_sGrupos = [
         ],
     ],
     [
-        'rotulo' => 'PCP & Planejamento',
-        'esconder' => $_hidePcp,
-        'itens'  => [
-            [
-                'href'  => '/pages/pedidos/prioridade.php',
-                'label' => 'Prioridades',
-                'icon'  => '<circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>',
-                'permissao' => 'pcp.pri'
-            ],
-        ],
-    ],
-    [
         'rotulo' => 'Produção',
-        'esconder' => $isAdminContext,
+        'esconder' => $_hideModuloProducao,
         'itens'  => [
             [
                 'href'  => '/pages/distribuicao/index.php',
@@ -112,8 +131,20 @@ $_sGrupos = [
         ],
     ],
     [
+        'rotulo' => 'PCP & Planejamento',
+        'esconder' => $_hidePcp,
+        'itens'  => [
+            [
+                'href'  => '/pages/pedidos/prioridade.php',
+                'label' => 'Prioridades',
+                'icon'  => '<circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>',
+                'permissao' => 'pcp.pri'
+            ],
+        ],
+    ],
+    [
         'rotulo' => 'Laboratório',
-        'esconder' => $_hideProducao,
+        'esconder' => $_hideLaboratorio,
         'itens'  => [
             [
                 'href'  => '/pages/producao/index.php',

@@ -3,8 +3,6 @@
 -- Script de Migração e Estrutura Inicial do Módulo SOMA
 -- =============================================================================
 
-USE `boletim_db`;
-
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
