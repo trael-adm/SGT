@@ -58,10 +58,10 @@ if (isLoggedIn()) {
 $erro = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = trim($_POST['email'] ?? '');
-    $senha = $_POST['senha'] ?? '';
-    $ip    = $_SERVER['REMOTE_ADDR'] ?? '';
-    $ua    = $_SERVER['HTTP_USER_AGENT'] ?? '';
+    $loginInput = trim((string)($_POST['login'] ?? $_POST['email'] ?? ''));
+    $senha      = (string)($_POST['senha'] ?? '');
+    $ip         = $_SERVER['REMOTE_ADDR'] ?? '';
+    $ua         = $_SERVER['HTTP_USER_AGENT'] ?? '';
 
     try {
         $pdo = getDB();
@@ -87,15 +87,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if (!$erro) {
-            if ($email === '' || $senha === '') {
-                $erro = 'Preencha e-mail e senha.';
+            if ($loginInput === '' || $senha === '') {
+                $erro = 'Preencha seu e-mail ou CPF e a senha.';
             } else {
+                // Prepara variações de CPF e e-mail para busca flexível
+                $cpfLimpo = preg_replace('/\D/', '', $loginInput);
+                $cpfFmt   = '';
+                if (strlen($cpfLimpo) === 11) {
+                    $cpfFmt = substr($cpfLimpo, 0, 3) . '.' . substr($cpfLimpo, 3, 3) . '.' . substr($cpfLimpo, 6, 3) . '-' . substr($cpfLimpo, 9, 2);
+                }
+
                 $stmt = $pdo->prepare("
                     SELECT * FROM usuarios
-                    WHERE email = ? AND deleted_at IS NULL
+                    WHERE (
+                        LOWER(email) = LOWER(?)
+                        OR cpf = ?
+                        OR ( ? != '' AND cpf = ? )
+                        OR ( ? != '' AND REPLACE(REPLACE(REPLACE(cpf, '.', ''), '-', ''), ' ', '') = ? )
+                    )
+                    AND deleted_at IS NULL
                     LIMIT 1
                 ");
-                $stmt->execute([$email]);
+                $stmt->execute([
+                    $loginInput,
+                    $loginInput,
+                    $cpfFmt, $cpfFmt,
+                    $cpfLimpo, $cpfLimpo
+                ]);
                 $usuario = $stmt->fetch();
 
                 $isAtivo = $usuario && (($usuario['status'] ?? '') === 'ativo' || (!isset($usuario['status']) && !empty($usuario['ativo'])));
@@ -105,6 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'id'          => $usuario['id'],
                         'nome'        => $usuario['nome'] ?? '',
                         'email'       => $usuario['email'] ?? '',
+                        'cpf'         => $usuario['cpf'] ?? '',
                         'id_perfil'   => $usuario['id_perfil'] ?? null,
                         'id_alocacao' => $usuario['id_alocacao'] ?? $usuario['id_setor'] ?? null,
                         'e_executor'  => (bool)($usuario['e_executor'] ?? false),
@@ -127,11 +146,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     $log = $pdo->prepare("
                         INSERT INTO logs_atividade (id_usuario, tipo, descricao, ip, user_agent)
-                        VALUES (?, 'login_erro', 'E-mail ou senha incorretos', ?, ?)
+                        VALUES (?, 'login_erro', 'E-mail/CPF ou senha incorretos', ?, ?)
                     ");
                     $log->execute([$idUsuario, $ip, $ua]);
 
-                    $erro = 'E-mail ou senha incorretos.';
+                    $erro = 'E-mail/CPF ou senha incorretos.';
                 }
             }
         }
@@ -195,17 +214,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <form method="POST" novalidate>
 
                 <div class="mb-5">
-                    <label class="block text-sm font-bold mb-2" style="color:#0e3b25;" for="email">
-                        E-mail
+                    <label class="block text-sm font-bold mb-2" style="color:#0e3b25;" for="login">
+                        E-mail ou CPF
                     </label>
                     <input
-                        type="email"
-                        name="email"
-                        id="email"
-                        value="<?= htmlspecialchars($_POST['email'] ?? '') ?>"
+                        type="text"
+                        name="login"
+                        id="login"
+                        value="<?= htmlspecialchars($_POST['login'] ?? $_POST['email'] ?? '') ?>"
                         class="field w-full px-4 py-3 rounded-xl text-sm text-gray-800 placeholder-gray-400"
-                        placeholder="seu@email.com"
-                        autocomplete="email"
+                        placeholder="seu@email.com ou 000.000.000-00"
+                        autocomplete="username"
                         required
                     >
                 </div>
