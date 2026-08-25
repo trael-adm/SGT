@@ -577,10 +577,10 @@
             <body>
                 <div class="print-card">
                     <div class="card-header">
-                        <span class="card-title">Produção — Quantidade</span>
+                        <span class="card-title">Produção - Laboratório</span>
                     </div>
                     <div class="chart-box">
-                        <img src="${prodImg}" alt="Produção - Quantidade">
+                        <img src="${prodImg}" alt="Produção - Laboratório">
                     </div>
                     <div class="table-section">
                         <div class="table-header">

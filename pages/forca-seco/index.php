@@ -600,7 +600,7 @@ layoutHeader($pageTitle);
 <div class="bo-charts-grid">
     <div class="card bo-chart-card" id="card-producao-quantidade" style="margin-bottom:8px;">
         <div class="card-header" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;">
-            <span class="card-title" style="font-size:var(--font-size-lg);font-weight:700;">Produção — Quantidade</span>
+            <span class="card-title" style="font-size:var(--font-size-lg);font-weight:700;">Produção - Laboratório</span>
             <button type="button" class="btn btn-secondary btn-sm" onclick="imprimirProducaoQuantidade()" title="Imprimir Gráfico" aria-label="Imprimir Gráfico" style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border-radius:var(--radius-md);">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
             </button>

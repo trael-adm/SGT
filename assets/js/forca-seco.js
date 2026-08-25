@@ -484,8 +484,8 @@
             </head>
             <body>
                 <div class="print-card">
-                    <div class="card-header"><span class="card-title">Produção — Quantidade (Média Força / Seco)</span></div>
-                    <div class="chart-box"><img src="${prodImg}" alt="Produção - Quantidade"></div>
+                    <div class="card-header"><span class="card-title">Produção - Laboratório (Média Força / Seco)</span></div>
+                    <div class="chart-box"><img src="${prodImg}" alt="Produção - Laboratório"></div>
                     <div class="table-section">
                         <div class="table-header"><span class="table-title">Produção por Linha — ${mesTxt}</span></div>
                         <div class="bo-table-wrap">${tabelaHtml}</div>
