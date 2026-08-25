@@ -12,15 +12,31 @@ require_once __DIR__ . '/../config/conexao.php';
 require_once __DIR__ . '/boletim-planilha.php';
 require_once __DIR__ . '/helpers.php';
 
-define('BOLETIM_SNAPSHOT_DIR', __DIR__ . '/../PLANILHA Q ATUALIZA');
+define('BOLETIM_SNAPSHOT_DIR', is_dir(__DIR__ . '/../PLANILHA QUE ATUALIZA') ? __DIR__ . '/../PLANILHA QUE ATUALIZA' : __DIR__ . '/../PLANILHA Q ATUALIZA');
 
 /**
- * Retorna a lista de snapshots disponíveis na pasta PLANILHA Q ATUALIZA/.
+ * Retorna a lista de snapshots disponíveis nas pastas de planilhas.
  */
 function boletimListarSnapshotsDisponiveis(): array
 {
-    $arquivos = glob(BOLETIM_SNAPSHOT_DIR . '/snapshot_*.csv');
-    if (!$arquivos) {
+    $dirs = [
+        __DIR__ . '/../PLANILHA QUE ATUALIZA',
+        __DIR__ . '/../PLANILHA Q ATUALIZA',
+        __DIR__ . '/../planilhas',
+        __DIR__ . '/../storage/snapshots',
+    ];
+
+    $arquivos = [];
+    foreach ($dirs as $dir) {
+        if (is_dir($dir)) {
+            $encontrados = glob($dir . '/snapshot_*.csv') ?: [];
+            foreach ($encontrados as $e) {
+                $arquivos[] = $e;
+            }
+        }
+    }
+
+    if (empty($arquivos)) {
         return [];
     }
 
@@ -29,13 +45,15 @@ function boletimListarSnapshotsDisponiveis(): array
         $basename = basename($arq);
         if (preg_match('/snapshot_(\d{4}-\d{2}-\d{2})\.csv$/i', $basename, $m)) {
             $dataSnap = $m[1];
-            $snapshots[$dataSnap] = [
-                'data'     => $dataSnap,
-                'arquivo'  => $arq,
-                'basename' => $basename,
-                'mtime'    => filemtime($arq),
-                'tamanho'  => filesize($arq),
-            ];
+            if (!isset($snapshots[$dataSnap]) || filemtime($arq) > ($snapshots[$dataSnap]['mtime'] ?? 0)) {
+                $snapshots[$dataSnap] = [
+                    'data'     => $dataSnap,
+                    'arquivo'  => $arq,
+                    'basename' => $basename,
+                    'mtime'    => filemtime($arq),
+                    'tamanho'  => filesize($arq),
+                ];
+            }
         }
     }
     krsort($snapshots);
@@ -343,7 +361,7 @@ function boletimCalcularMetricasAtraso(string $dataCorte, array $mesesFiltro = [
         ];
     }
 
-    return [
+    return boletimUtf8Safe([
         'sucesso'               => true,
         'data_corte'            => $dataCorte,
         'data_corte_formatada'  => boletimFormatarDataPorExtenso($dataCorte),
@@ -374,7 +392,7 @@ function boletimCalcularMetricasAtraso(string $dataCorte, array $mesesFiltro = [
         'serie_evolucao'        => $serieEvolucao,
         'total_ordens'          => count($itensAtrasados),
         'itens_detalhados'      => $itensAtrasados,
-    ];
+    ]);
 }
 
 /**
