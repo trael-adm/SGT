@@ -19,6 +19,27 @@ define('BOLETIM_KARDEX_CACHE_DIR', __DIR__ . '/../storage/cache');
 define('BOLETIM_KARDEX_ARQUIVO', __DIR__ . '/../PLANILHA Q ATUALIZA/Relação Kardex.xlsx');
 
 /**
+ * Garante que strings ou arrays aninhados estejam em UTF-8 válido.
+ * Converte automaticamente ISO-8859-1/Windows-1252 para UTF-8.
+ */
+function boletimUtf8Safe(mixed $data): mixed
+{
+    if (is_array($data)) {
+        foreach ($data as $k => $v) {
+            $data[$k] = boletimUtf8Safe($v);
+        }
+        return $data;
+    }
+    if (is_string($data)) {
+        if (!mb_check_encoding($data, 'UTF-8')) {
+            return mb_convert_encoding($data, 'UTF-8', 'ISO-8859-1');
+        }
+        return $data;
+    }
+    return $data;
+}
+
+/**
  * Ajusta data de fim de semana (sábado/domingo) para a sexta-feira anterior.
  * Conforme regra da fábrica: produções de sábado/domingo compõem a sexta-feira.
  */
@@ -868,7 +889,7 @@ function boletimBuscarLinhasAnaliticasMes(string $mes, string $filtroArea = 'tod
         ];
     }
 
-    return $linhas;
+    return boletimUtf8Safe($linhas);
 }
 
 /**
@@ -1000,7 +1021,7 @@ function boletimBuscarDetalhesProducao(string $mes, ?string $dataDia = null, ?st
         }
     }
 
-    return $filtradas;
+    return boletimUtf8Safe($filtradas);
 }
 
 /**

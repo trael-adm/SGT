@@ -567,7 +567,7 @@ try {
 
             $itens = boletimBuscarDetalhesProducao($mes, $dataDia ?: null, $tipo ?: null, $area, $refresh);
 
-            echo json_encode([
+            $payload = [
                 'sucesso' => true,
                 'mes'     => $mes,
                 'data'    => $dataDia,
@@ -575,7 +575,8 @@ try {
                 'area'    => $area,
                 'total'   => count($itens),
                 'itens'   => $itens,
-            ]);
+            ];
+            echo json_encode(boletimUtf8Safe($payload), JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE);
             break;
         }
 
