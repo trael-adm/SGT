@@ -15,10 +15,101 @@ require_once __DIR__ . '/helpers.php';
 define('BOLETIM_SNAPSHOT_DIR', is_dir(__DIR__ . '/../PLANILHA QUE ATUALIZA') ? __DIR__ . '/../PLANILHA QUE ATUALIZA' : __DIR__ . '/../PLANILHA Q ATUALIZA');
 
 /**
- * Retorna a lista de snapshots disponíveis nas pastas de planilhas.
+ * Sincroniza e extrai os snapshots contidos em Historico_Atraso.csv para o cache.
+ */
+function boletimSincronizarHistoricoAtraso(): void
+{
+    $dirs = [
+        __DIR__ . '/../PLANILHA QUE ATUALIZA',
+        __DIR__ . '/../PLANILHA Q ATUALIZA',
+    ];
+    $historicoFile = null;
+    foreach ($dirs as $d) {
+        $candidate = $d . '/Historico_Atraso.csv';
+        if (is_file($candidate)) {
+            $historicoFile = $candidate;
+            break;
+        }
+    }
+    if (!$historicoFile) {
+        return;
+    }
+
+    $cacheDir = __DIR__ . '/../storage/snapshots';
+    if (!is_dir($cacheDir)) {
+        @mkdir($cacheDir, 0777, true);
+    }
+
+    $mtime = filemtime($historicoFile);
+    $markerFile = $cacheDir . '/.historico_mtime';
+    $lastMtime = is_file($markerFile) ? (int) @file_get_contents($markerFile) : 0;
+    if ($lastMtime >= $mtime && glob($cacheDir . '/snapshot_*.csv')) {
+        return; // Já sincronizado
+    }
+
+    $fp = @fopen($historicoFile, 'r');
+    if (!$fp) return;
+
+    $firstLine = fgets($fp);
+    $delim = strpos($firstLine, ';') !== false ? ';' : ',';
+    rewind($fp);
+
+    $header = fgetcsv($fp, 0, $delim, '"', '\\');
+    if (!$header) {
+        fclose($fp);
+        return;
+    }
+    $header[0] = preg_replace('/^\xEF\xBB\xBF/', '', $header[0]);
+    $header = array_map('trim', $header);
+    $headerLine = implode(';', array_map(fn($h) => '"' . str_replace('"', '""', $h) . '"', $header)) . "\r\n";
+
+    $buffers = [];
+    while (($row = fgetcsv($fp, 0, $delim, '"', '\\')) !== false) {
+        if (count($row) !== count($header)) continue;
+        $r = array_combine($header, $row);
+        $snapRaw = trim((string) ($r['Data_Snapshot'] ?? ''));
+
+        $snapIso = null;
+        if (preg_match('/^(\d{2})\/(\d{2})\/(\d{4})$/', $snapRaw, $m)) {
+            $snapIso = "{$m[3]}-{$m[2]}-{$m[1]}";
+        } elseif (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $snapRaw, $m)) {
+            $snapIso = $snapRaw;
+        }
+
+        if (!$snapIso) continue;
+
+        if (!isset($buffers[$snapIso])) {
+            $buffers[$snapIso] = '';
+            file_put_contents($cacheDir . "/snapshot_{$snapIso}.csv", $headerLine);
+        }
+
+        $line = implode(';', array_map(fn($v) => '"' . str_replace('"', '""', (string) $v) . '"', $row)) . "\r\n";
+        $buffers[$snapIso] .= $line;
+
+        if (strlen($buffers[$snapIso]) > 524288) {
+            file_put_contents($cacheDir . "/snapshot_{$snapIso}.csv", $buffers[$snapIso], FILE_APPEND);
+            $buffers[$snapIso] = '';
+        }
+    }
+
+    foreach ($buffers as $snapIso => $content) {
+        if ($content !== '') {
+            file_put_contents($cacheDir . "/snapshot_{$snapIso}.csv", $content, FILE_APPEND);
+        }
+    }
+
+    fclose($fp);
+    @file_put_contents($markerFile, (string) $mtime);
+}
+
+/**
+ * Retorna a lista de snapshots disponíveis nas pastas de planilhas e histórico.
  */
 function boletimListarSnapshotsDisponiveis(): array
 {
+    // Auto-sincroniza snapshots do Historico_Atraso.csv quando houver alterações
+    boletimSincronizarHistoricoAtraso();
+
     $dirs = [
         __DIR__ . '/../PLANILHA QUE ATUALIZA',
         __DIR__ . '/../PLANILHA Q ATUALIZA',
