@@ -61,6 +61,7 @@
     document.addEventListener('click', function (e) {
         var trigger = e.target.closest('.js-prio-trigger');
         if (trigger) {
+            if (window.CAN_EDIT === false) return;
             e.stopPropagation();
             if (currentTrigger === trigger && popover.classList.contains('is-open')) {
                 closePopover();

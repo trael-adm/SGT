@@ -6,9 +6,15 @@ require_once __DIR__ . '/../config/session.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
-if (!hasAcesso('admin')) {
+if (!hasAcesso('admin') && !hasAcesso('adm.usu') && !hasAcesso('adm.per')) {
     http_response_code(403);
     echo json_encode(['sucesso' => false, 'erro' => 'Acesso negado.']);
+    exit;
+}
+
+if (!podeEditar('admin') && !podeEditar('adm.usu') && !podeEditar('adm.per') && !isAdmin()) {
+    http_response_code(403);
+    echo json_encode(['sucesso' => false, 'erro' => 'Apenas consulta: você não tem permissão para realizar alterações administrativas.']);
     exit;
 }
 

@@ -30,6 +30,15 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $acao   = trim((string) ($_POST['acao'] ?? ''));
 $userId = (int) (currentUser()['id'] ?? 0);
 
+// Verificação de permissão de escrita para ações de modificação
+if (in_array($acao, ['confirmar', 'remover_etapa'], true)) {
+    if (!podeEditar('lab.reg') && !podeEditar('iqf.reg') && !podeEditar('lab.lis') && !podeEditar('iqf.lis') && !podeEditar('tab:laboratorio') && !podeEditar('tab:inspecao_final') && !isAdmin()) {
+        http_response_code(403);
+        echo json_encode(['sucesso' => false, 'erro' => 'Apenas consulta: você não tem permissão para confirmar ou remover etapas de produção.']);
+        exit;
+    }
+}
+
 $ESTACOES_VALIDAS = ['IQF', 'LAB', 'GER'];
 
 /** Item em_andamento (qualquer estação) para um N° de série, se houver. */

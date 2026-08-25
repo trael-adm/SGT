@@ -7,6 +7,8 @@ require_once __DIR__ . '/../../includes/helpers.php';
 
 requireAcessoModulo('qualidade');
 
+$canEdit = podeEditar('qua.tip') || isAdmin();
+
 $pdo = getDB();
 
 $sql = "SELECT * FROM reprovas WHERE ativo = 1 ORDER BY 
@@ -256,9 +258,11 @@ layoutHeader($pageTitle);
                 Gerencie os tipos de reprovas, setores causadores, locais de seleção e destino de retrabalho ou retorno.
             </p>
         </div>
-        <button type="button" onclick="abrirModalNovaReprova()" class="btn-nova-reprova">
-            + Nova Reprova
-        </button>
+        <?php if ($canEdit): ?>
+            <button type="button" onclick="abrirModalNovaReprova()" class="btn-nova-reprova">
+                + Nova Reprova
+            </button>
+        <?php endif; ?>
     </div>
 
     <!-- Filtros Superiores -->
@@ -365,66 +369,81 @@ layoutHeader($pageTitle);
 
                             <td style="padding:12px 16px;">
                                 <div style="display:inline-flex;gap:4px;align-items:center;flex-wrap:nowrap;">
-                                    <button type="button" 
-                                            class="row-pill <?= $hasLab ? 'active-lab' : 'inactive' ?>" 
-                                            onclick="toggleSetorLinha(<?= (int)$r['id'] ?>, 'LAB', this)"
-                                            title="Clique para alternar LAB">
-                                        LAB
-                                    </button>
-                                    <button type="button" 
-                                            class="row-pill <?= $hasRet ? 'active-ret' : 'inactive' ?>" 
-                                            onclick="toggleSetorLinha(<?= (int)$r['id'] ?>, 'RET', this)"
-                                            title="Clique para alternar RET">
-                                        RET
-                                    </button>
-                                    <button type="button" 
-                                            class="row-pill <?= $hasIqf ? 'active-iqf' : 'inactive' ?>" 
-                                            onclick="toggleSetorLinha(<?= (int)$r['id'] ?>, 'IQF', this)"
-                                            title="Clique para alternar IQF">
-                                        IQF
-                                    </button>
+                                    <?php if ($canEdit): ?>
+                                        <button type="button" 
+                                                class="row-pill <?= $hasLab ? 'active-lab' : 'inactive' ?>" 
+                                                onclick="toggleSetorLinha(<?= (int)$r['id'] ?>, 'LAB', this)"
+                                                title="Clique para alternar LAB">
+                                            LAB
+                                        </button>
+                                        <button type="button" 
+                                                class="row-pill <?= $hasRet ? 'active-ret' : 'inactive' ?>" 
+                                                onclick="toggleSetorLinha(<?= (int)$r['id'] ?>, 'RET', this)"
+                                                title="Clique para alternar RET">
+                                            RET
+                                        </button>
+                                        <button type="button" 
+                                                class="row-pill <?= $hasIqf ? 'active-iqf' : 'inactive' ?>" 
+                                                onclick="toggleSetorLinha(<?= (int)$r['id'] ?>, 'IQF', this)"
+                                                title="Clique para alternar IQF">
+                                            IQF
+                                        </button>
+                                    <?php else: ?>
+                                        <span class="row-pill <?= $hasLab ? 'active-lab' : 'inactive' ?>" style="cursor:default;">LAB</span>
+                                        <span class="row-pill <?= $hasRet ? 'active-ret' : 'inactive' ?>" style="cursor:default;">RET</span>
+                                        <span class="row-pill <?= $hasIqf ? 'active-iqf' : 'inactive' ?>" style="cursor:default;">IQF</span>
+                                    <?php endif; ?>
                                 </div>
                             </td>
 
                             <td style="padding:12px 16px;">
                                 <div style="display:inline-flex;gap:4px;align-items:center;flex-wrap:nowrap;">
-                                    <button type="button" 
-                                            class="row-pill <?= $vaiRet ? 'pill-vai-sim' : 'inactive' ?>" 
-                                            onclick="setVaiRetrabalhoLinha(<?= (int)$r['id'] ?>, 1, this)"
-                                            title="Definir para ir ao Retrabalho (Sim)">
-                                        Sim
-                                    </button>
-                                    <button type="button" 
-                                            class="row-pill <?= !$vaiRet ? 'pill-vai-nao' : 'inactive' ?>" 
-                                            onclick="setVaiRetrabalhoLinha(<?= (int)$r['id'] ?>, 0, this)"
-                                            title="Definir para correção interna no setor (Não)">
-                                        Não
-                                    </button>
+                                    <?php if ($canEdit): ?>
+                                        <button type="button" 
+                                                class="row-pill <?= $vaiRet ? 'pill-vai-sim' : 'inactive' ?>" 
+                                                onclick="setVaiRetrabalhoLinha(<?= (int)$r['id'] ?>, 1, this)"
+                                                title="Definir para ir ao Retrabalho (Sim)">
+                                            Sim
+                                        </button>
+                                        <button type="button" 
+                                                class="row-pill <?= !$vaiRet ? 'pill-vai-nao' : 'inactive' ?>" 
+                                                onclick="setVaiRetrabalhoLinha(<?= (int)$r['id'] ?>, 0, this)"
+                                                title="Definir para correção interna no setor (Não)">
+                                            Não
+                                        </button>
+                                    <?php else: ?>
+                                        <span class="row-pill <?= $vaiRet ? 'pill-vai-sim' : 'inactive' ?>" style="cursor:default;">Sim</span>
+                                        <span class="row-pill <?= !$vaiRet ? 'pill-vai-nao' : 'inactive' ?>" style="cursor:default;">Não</span>
+                                    <?php endif; ?>
                                 </div>
                             </td>
 
                             <td style="padding:12px 16px;text-align:right;">
-                                <div style="display:inline-flex;gap:4px;align-items:center;justify-content:flex-end;">
-                                    <button type="button" onclick="abrirModalEdicao(<?= htmlspecialchars(json_encode([
-                                        'id' => $r['id'],
-                                        'codigo' => $r['codigo'],
-                                        'setor_causador' => $setorCausador,
-                                        'familia' => $r['familia'],
-                                        'descricao' => $r['descricao'],
-                                        'local' => $r['local'],
-                                        'vai_retrabalho' => $r['vai_retrabalho'] ?? 1
-                                    ])) ?>)" 
-                                            class="btn-icon btn-icon-edit"
-                                            title="Editar dados da reprova">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                                    </button>
-                                    
-                                    <button type="button" onclick="confirmarExclusaoReprova(<?= $r['id'] ?>, '<?= htmlspecialchars($r['codigo'], ENT_QUOTES) ?>')" 
-                                            class="btn-icon btn-icon-danger"
-                                            title="Excluir tipo de reprova">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                                    </button>
-                                </div>
+                                <?php if ($canEdit): ?>
+                                    <div style="display:inline-flex;gap:4px;align-items:center;justify-content:flex-end;">
+                                        <button type="button" onclick="abrirModalEdicao(<?= htmlspecialchars(json_encode([
+                                            'id' => $r['id'],
+                                            'codigo' => $r['codigo'],
+                                            'setor_causador' => $setorCausador,
+                                            'familia' => $r['familia'],
+                                            'descricao' => $r['descricao'],
+                                            'local' => $r['local'],
+                                            'vai_retrabalho' => $r['vai_retrabalho'] ?? 1
+                                        ])) ?>)" 
+                                                class="btn-icon btn-icon-edit"
+                                                title="Editar dados da reprova">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                        </button>
+                                        
+                                        <button type="button" onclick="confirmarExclusaoReprova(<?= $r['id'] ?>, '<?= htmlspecialchars($r['codigo'], ENT_QUOTES) ?>')" 
+                                                class="btn-icon btn-icon-danger"
+                                                title="Excluir tipo de reprova">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                        </button>
+                                    </div>
+                                <?php else: ?>
+                                    <span style="color:#94a3b8;font-size:12px;">—</span>
+                                <?php endif; ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>

@@ -30,6 +30,16 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $acao   = trim((string) ($_POST['acao'] ?? ''));
 $userId = (int) (currentUser()['id'] ?? 0);
 
+// Verificação de permissão de escrita para ações de modificação
+$isReadAction = in_array($acao, ['buscar_material', 'detalhes', 'historico', 'obter_lote', 'reprovas_disponiveis', 'buscar_projetos'], true);
+if (!$isReadAction) {
+    if (!podeEditar('tab:retrabalho') && !podeEditar('ret.pan') && !podeEditar('ret.rel') && !podeEditar('lab.lis') && !podeEditar('iqf.lis') && !isAdmin()) {
+        http_response_code(403);
+        echo json_encode(['sucesso' => false, 'erro' => 'Apenas consulta: você não tem permissão para realizar lançamentos ou alterações no retrabalho.']);
+        exit;
+    }
+}
+
 if (!function_exists('lerData')) {
     /** Converte uma string 'YYYY-MM-DD' em data válida ou null. */
     function lerData(string $d): ?string

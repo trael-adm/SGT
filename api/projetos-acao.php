@@ -13,7 +13,7 @@ if (!isLoggedIn()) {
     exit;
 }
 
-if (!hasAcesso('tab:retrabalho') && !hasAcesso('tab:laboratorio') && !hasAcesso('admin')) {
+if (!hasAcesso('tab:retrabalho') && !hasAcesso('tab:laboratorio') && !hasAcesso('tab:pcp') && !hasAcesso('pcp.pri') && !hasAcesso('ret.pri') && !hasAcesso('admin')) {
     http_response_code(403);
     echo json_encode(['sucesso' => false, 'erro' => 'Sem permissão de acesso aos cadastros de projetos']);
     exit;
@@ -26,6 +26,21 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $acao = trim((string) ($_POST['acao'] ?? ''));
+
+// Verificação granular de escrita (view vs total)
+if (in_array($acao, ['pedido_prioridade', 'projeto_prioridade', 'ns_prioridade'], true)) {
+    if (!podeEditar('pcp.pri') && !podeEditar('ret.pri') && !podeEditar('tab:pcp') && !podeEditar('tab:retrabalho') && !isAdmin()) {
+        http_response_code(403);
+        echo json_encode(['sucesso' => false, 'erro' => 'Apenas consulta: você não tem permissão para alterar prioridades.']);
+        exit;
+    }
+} elseif (in_array($acao, ['pedido_salvar', 'pedido_excluir', 'projeto_salvar', 'projeto_excluir'], true)) {
+    if (!podeEditar('tab:retrabalho') && !podeEditar('ret.pan') && !podeEditar('ret.rel') && !isAdmin()) {
+        http_response_code(403);
+        echo json_encode(['sucesso' => false, 'erro' => 'Apenas consulta: você não tem permissão para cadastrar ou editar projetos e pedidos.']);
+        exit;
+    }
+}
 
 try {
     $pdo = getDB();

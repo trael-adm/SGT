@@ -29,6 +29,15 @@ if (!hasAcesso('qua.tip') && !hasAcesso('tab:retrabalho') && !hasAcesso('admin')
 $acao = trim((string)($_POST['acao'] ?? ''));
 $pdo = getDB();
 
+// Verificação de permissão de escrita para ações de modificação
+if (in_array($acao, ['salvar', 'excluir', 'salvar_campo_rapido'], true)) {
+    if (!podeEditar('qua.tip') && !isAdmin()) {
+        http_response_code(403);
+        echo json_encode(['sucesso' => false, 'erro' => 'Apenas consulta: você não tem permissão para cadastrar ou editar tipos de reprova.']);
+        exit;
+    }
+}
+
 function gerarProximoCodigoReprova(string $setorCausador, PDO $pdo): string {
     $setorNorm = mb_strtoupper(trim($setorCausador));
     $prefixMap = [

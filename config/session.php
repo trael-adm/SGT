@@ -131,19 +131,17 @@ function requirePerfil(array $perfis): void
     }
 }
 
-function hasAcesso(string $recurso): bool
+function getPermissoesUsuario(): array
 {
-    if (!isLoggedIn()) return false;
+    if (!isLoggedIn()) return [];
     $user = currentUser();
-    // Administrador tem acesso irrestrito (ID 1, 201 ou 202 dependendo do banco)
-    if (in_array((int) ($user['id_perfil'] ?? 0), [1, 201, 202], true)) return true;
 
     static $perms = null;
     if ($perms === null) {
         $perms = [];
         try {
             $pdo = getDB();
-            // 1. Carrega permissões do perfil
+            // 1. Carrega permissões do perfil base
             if (!empty($user['id_perfil'])) {
                 $stmt = $pdo->prepare('SELECT perms FROM perfis WHERE id = ? AND status = "ativo"');
                 $stmt->execute([$user['id_perfil']]);
@@ -160,51 +158,117 @@ function hasAcesso(string $recurso): bool
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
                 $perms[$row['tela']] = $row['nivel'];
             }
-            
-            // Retrocompatibilidade: mapear os novos IDs para os antigos
-            if (($perms['lab.reg'] ?? 'off') !== 'off' || ($perms['lab.lis'] ?? 'off') !== 'off' || ($perms['lab.ret'] ?? 'off') !== 'off') {
-                $perms['tab:laboratorio'] = 'total';
+
+            // Sincronização de Aliases
+            if (isset($perms['ret.pri']) && !array_key_exists('pcp.pri', $perms)) {
+                $perms['pcp.pri'] = $perms['ret.pri'];
             }
-            if (($perms['iqf.reg'] ?? 'off') !== 'off' || ($perms['iqf.lis'] ?? 'off') !== 'off' || ($perms['iqf.ret'] ?? 'off') !== 'off') {
-                $perms['tab:inspecao_final'] = 'total';
+            if (isset($perms['pcp.pri']) && !array_key_exists('ret.pri', $perms)) {
+                $perms['ret.pri'] = $perms['pcp.pri'];
             }
-            if (($perms['pin.pai'] ?? 'off') !== 'off' || ($perms['pin.ret'] ?? 'off') !== 'off') {
-                $perms['tab:pintura'] = 'total';
-            }
-            if (($perms['pcp.pri'] ?? 'off') !== 'off' || ($perms['ret.pri'] ?? 'off') !== 'off') {
-                $perms['tab:pcp'] = 'total';
-                $pVal = ($perms['pcp.pri'] ?? 'off') !== 'off' ? $perms['pcp.pri'] : ($perms['ret.pri'] ?? 'total');
-                $perms['pcp.pri'] = $pVal;
-                $perms['ret.pri'] = $pVal;
-            }
-            if (($perms['ret.pan'] ?? 'off') !== 'off' || ($perms['ret.rel'] ?? 'off') !== 'off' || ($perms['ret.dash'] ?? 'off') !== 'off' || ($perms['ret.pri'] ?? 'off') !== 'off') {
-                $perms['tab:retrabalho'] = 'total';
-            }
-            if (($perms['adm.usu'] ?? 'off') !== 'off' || ($perms['adm.per'] ?? 'off') !== 'off') {
-                $perms['admin'] = 'total';
-            }
-            if (!isset($perms['ana.aco']) && isset($perms['ana.his'])) {
+            if (isset($perms['ana.his']) && !array_key_exists('ana.aco', $perms)) {
                 $perms['ana.aco'] = $perms['ana.his'];
             }
-            if (($perms['ana.aco'] ?? 'off') !== 'off' || ($perms['ana.his'] ?? 'off') !== 'off') {
-                $perms['tab:analise'] = 'total';
-            }
-            
-            // Como bônus, permitir que exceções legadas salvas puramente como "admin" funcionem
-            $stmtLegado = $pdo->prepare('SELECT tela FROM usuario_acessos WHERE id_usuario = ? AND nivel = "view"');
-            $stmtLegado->execute([$user['id']]);
-            foreach ($stmtLegado->fetchAll(PDO::FETCH_COLUMN) as $t) {
-                if (!isset($perms[$t])) $perms[$t] = 'view';
+            if (isset($perms['adm.per']) && !array_key_exists('adm.usu', $perms)) {
+                $perms['adm.usu'] = $perms['adm.per'];
             }
 
         } catch (\Throwable $e) {
             // fallback silencioso
         }
     }
-    
-    // Considera aprovado se o nível for diferente de 'off' ou se estiver listado em um array sequencial (legado)
+
+    return $perms;
+}
+
+function getNivelAcesso(string $recurso): string
+{
+    if (!isLoggedIn()) return 'off';
+    $user = currentUser();
+    // Administrador tem acesso total irrestrito (ID 1, 201 ou 202 dependendo do banco)
+    if (in_array((int) ($user['id_perfil'] ?? 0), [1, 201, 202], true)) return 'total';
+
+    $perms = getPermissoesUsuario();
+
+    // Mapeamento de abas / grupos legados para suas telas
+    if ($recurso === 'tab:pcp') {
+        $lvl = $perms['pcp.pri'] ?? ($perms['ret.pri'] ?? 'off');
+        return ($lvl === 'total' || $lvl === 'view') ? $lvl : 'off';
+    }
+    if ($recurso === 'tab:laboratorio') {
+        $lvls = [$perms['lab.reg'] ?? 'off', $perms['lab.lis'] ?? 'off', $perms['lab.ret'] ?? 'off'];
+        if (in_array('total', $lvls, true)) return 'total';
+        if (in_array('view', $lvls, true)) return 'view';
+        return 'off';
+    }
+    if ($recurso === 'tab:inspecao_final') {
+        $lvls = [$perms['iqf.reg'] ?? 'off', $perms['iqf.lis'] ?? 'off', $perms['iqf.ret'] ?? 'off'];
+        if (in_array('total', $lvls, true)) return 'total';
+        if (in_array('view', $lvls, true)) return 'view';
+        return 'off';
+    }
+    if ($recurso === 'tab:pintura') {
+        $lvls = [$perms['pin.pai'] ?? 'off', $perms['pin.ret'] ?? 'off'];
+        if (in_array('total', $lvls, true)) return 'total';
+        if (in_array('view', $lvls, true)) return 'view';
+        return 'off';
+    }
+    if ($recurso === 'tab:retrabalho') {
+        $lvls = [$perms['ret.pan'] ?? 'off', $perms['ret.rel'] ?? 'off', $perms['ret.dash'] ?? 'off', $perms['ret.pri'] ?? 'off'];
+        if (in_array('total', $lvls, true)) return 'total';
+        if (in_array('view', $lvls, true)) return 'view';
+        return 'off';
+    }
+    if ($recurso === 'tab:analise') {
+        $lvls = [$perms['ana.aco'] ?? 'off', $perms['ana.his'] ?? 'off'];
+        if (in_array('total', $lvls, true)) return 'total';
+        if (in_array('view', $lvls, true)) return 'view';
+        return 'off';
+    }
+    if ($recurso === 'admin') {
+        $lvl = $perms['adm.usu'] ?? ($perms['adm.per'] ?? ($perms['admin'] ?? 'off'));
+        return ($lvl === 'total' || $lvl === 'view') ? $lvl : 'off';
+    }
+
     $lvl = $perms[$recurso] ?? 'off';
-    return $lvl !== 'off' || in_array($recurso, $perms, true);
+    if ($lvl === 'off' || $lvl === '' || $lvl === null) {
+        if ($recurso === 'pcp.pri') $lvl = $perms['ret.pri'] ?? 'off';
+        elseif ($recurso === 'ret.pri') $lvl = $perms['pcp.pri'] ?? 'off';
+        elseif ($recurso === 'ana.aco') $lvl = $perms['ana.his'] ?? 'off';
+        elseif ($recurso === 'ana.his') $lvl = $perms['ana.aco'] ?? 'off';
+        elseif ($recurso === 'adm.usu') $lvl = $perms['adm.per'] ?? 'off';
+        elseif ($recurso === 'adm.per') $lvl = $perms['adm.usu'] ?? 'off';
+    }
+
+    return ($lvl === 'total' || $lvl === 'view') ? $lvl : 'off';
+}
+
+function hasAcesso(string $recurso): bool
+{
+    return getNivelAcesso($recurso) !== 'off';
+}
+
+function podeEditar(string $recurso): bool
+{
+    return getNivelAcesso($recurso) === 'total';
+}
+
+function requirePodeEditar(string $recurso, string $msg = 'Apenas consulta. Você não tem permissão para realizar alterações.'): void
+{
+    if (!podeEditar($recurso)) {
+        http_response_code(403);
+        $isJson = isset($_SERVER['HTTP_ACCEPT']) && str_contains($_SERVER['HTTP_ACCEPT'], 'application/json')
+            || (isset($_SERVER['CONTENT_TYPE']) && str_contains($_SERVER['CONTENT_TYPE'], 'application/json'))
+            || str_ends_with($_SERVER['SCRIPT_NAME'] ?? '', '-acao.php')
+            || str_ends_with($_SERVER['SCRIPT_NAME'] ?? '', '-api.php');
+        if ($isJson) {
+            echo json_encode(['sucesso' => false, 'erro' => $msg]);
+        } else {
+            $base = defined('APP_URL') ? APP_URL : '';
+            echo '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Acesso Negado — SGT</title></head><body><h1>403 — Apenas Consulta</h1><p>' . htmlspecialchars($msg) . '</p><a href="' . htmlspecialchars($base) . '/index.php">Voltar</a></body></html>';
+        }
+        exit;
+    }
 }
 
 function requireAcessoModulo(string $modulo): void

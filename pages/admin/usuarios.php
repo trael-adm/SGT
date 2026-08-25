@@ -8,6 +8,8 @@ require_once __DIR__ . '/../../includes/layout.php';
 
 requireAcessoModulo('admin');
 
+$canEdit = podeEditar('adm.usu') || podeEditar('adm.per') || podeEditar('admin') || isAdmin();
+
 $pdo = getDB();
 $base = defined('APP_URL') ? APP_URL : '';
 $curUser = currentUser();
@@ -878,10 +880,12 @@ layoutHeader($pageTitle);
                 </select>
             </div>
             <div class="admin-toolbar-right">
-                <button type="button" class="btn-action-primary js-btn-novo-usuario">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                    <span>Novo Usuário</span>
-                </button>
+                <?php if ($canEdit): ?>
+                    <button type="button" class="btn-action-primary js-btn-novo-usuario">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        <span>Novo Usuário</span>
+                    </button>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -964,19 +968,23 @@ layoutHeader($pageTitle);
                                 </span>
                             </td>
                             <td style="text-align:center;">
-                                <div style="display:flex;gap:6px;justify-content:center;align-items:center;">
-                                    <button type="button" class="btn-icon btn-icon-edit js-btn-editar-usuario" data-user='<?= htmlspecialchars(json_encode($u, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>' title="Editar Colaborador">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                                    </button>
-                                    <button type="button" class="btn-icon js-btn-reset-senha" data-id="<?= $u['id'] ?>" data-nome="<?= htmlspecialchars($u['nome']) ?>" title="Redefinir Senha">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                                    </button>
-                                    <?php if ((int)$u['id'] !== $curUserId): ?>
-                                        <button type="button" class="btn-icon btn-icon-danger js-btn-excluir-usuario" data-id="<?= $u['id'] ?>" data-nome="<?= htmlspecialchars($u['nome']) ?>" title="Excluir Colaborador">
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                <?php if ($canEdit): ?>
+                                    <div style="display:flex;gap:6px;justify-content:center;align-items:center;">
+                                        <button type="button" class="btn-icon btn-icon-edit js-btn-editar-usuario" data-user='<?= htmlspecialchars(json_encode($u, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>' title="Editar Colaborador">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                                         </button>
-                                    <?php endif; ?>
-                                </div>
+                                        <button type="button" class="btn-icon js-btn-reset-senha" data-id="<?= $u['id'] ?>" data-nome="<?= htmlspecialchars($u['nome']) ?>" title="Redefinir Senha">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                                        </button>
+                                        <?php if ((int)$u['id'] !== $curUserId): ?>
+                                            <button type="button" class="btn-icon btn-icon-danger js-btn-excluir-usuario" data-id="<?= $u['id'] ?>" data-nome="<?= htmlspecialchars($u['nome']) ?>" title="Excluir Colaborador">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                            </button>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php else: ?>
+                                    <span style="color:#94a3b8;font-size:12px;">—</span>
+                                <?php endif; ?>
                             </td>
                         </tr>
                     <?php endforeach; endif; ?>
@@ -996,10 +1004,12 @@ layoutHeader($pageTitle);
                 <input type="search" id="filtro-setor-busca" placeholder="Buscar setor por nome, sigla ou responsável..." style="min-width:280px;">
             </div>
             <div class="admin-toolbar-right">
-                <button type="button" class="btn-action-primary js-btn-novo-setor">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                    <span>Novo Setor</span>
-                </button>
+                <?php if ($canEdit): ?>
+                    <button type="button" class="btn-action-primary js-btn-novo-setor">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        <span>Novo Setor</span>
+                    </button>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -1039,16 +1049,20 @@ layoutHeader($pageTitle);
                                 </span>
                             </td>
                             <td style="text-align:center;">
-                                <div style="display:flex;gap:6px;justify-content:center;align-items:center;">
-                                    <button type="button" class="btn-icon btn-icon-edit js-btn-editar-setor" data-setor='<?= htmlspecialchars(json_encode($s, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>' title="Editar Setor">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                                    </button>
-                                    <?php if ($s['usuarios'] === 0): ?>
-                                        <button type="button" class="btn-icon btn-icon-danger js-btn-excluir-setor" data-id="<?= $s['id'] ?>" data-nome="<?= htmlspecialchars($s['nome']) ?>" title="Excluir Setor">
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                <?php if ($canEdit): ?>
+                                    <div style="display:flex;gap:6px;justify-content:center;align-items:center;">
+                                        <button type="button" class="btn-icon btn-icon-edit js-btn-editar-setor" data-setor='<?= htmlspecialchars(json_encode($s, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>' title="Editar Setor">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                                         </button>
-                                    <?php endif; ?>
-                                </div>
+                                        <?php if ($s['usuarios'] === 0): ?>
+                                            <button type="button" class="btn-icon btn-icon-danger js-btn-excluir-setor" data-id="<?= $s['id'] ?>" data-nome="<?= htmlspecialchars($s['nome']) ?>" title="Excluir Setor">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                            </button>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php else: ?>
+                                    <span style="color:#94a3b8;font-size:12px;">—</span>
+                                <?php endif; ?>
                             </td>
                         </tr>
                     <?php endforeach; endif; ?>
@@ -1068,10 +1082,12 @@ layoutHeader($pageTitle);
                 <input type="search" id="filtro-perfil-busca" placeholder="Buscar perfil ou descrição..." style="min-width:280px;">
             </div>
             <div class="admin-toolbar-right">
-                <button type="button" class="btn-action-primary js-btn-novo-perfil">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                    <span>Novo Perfil</span>
-                </button>
+                <?php if ($canEdit): ?>
+                    <button type="button" class="btn-action-primary js-btn-novo-perfil">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        <span>Novo Perfil</span>
+                    </button>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -1137,16 +1153,20 @@ layoutHeader($pageTitle);
                                 </span>
                             </td>
                             <td style="text-align:center;">
-                                <div style="display:flex;gap:6px;justify-content:center;align-items:center;">
-                                    <button type="button" class="btn-icon btn-icon-edit js-btn-editar-perfil" data-perfil='<?= htmlspecialchars(json_encode($p, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>' title="Editar Perfil">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                                    </button>
-                                    <?php if (!$p['sistema'] && $p['usuarios'] === 0): ?>
-                                        <button type="button" class="btn-icon btn-icon-danger js-btn-excluir-perfil" data-id="<?= $p['id'] ?>" data-nome="<?= htmlspecialchars($p['nome']) ?>" title="Excluir Perfil">
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                <?php if ($canEdit): ?>
+                                    <div style="display:flex;gap:6px;justify-content:center;align-items:center;">
+                                        <button type="button" class="btn-icon btn-icon-edit js-btn-editar-perfil" data-perfil='<?= htmlspecialchars(json_encode($p, JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>' title="Editar Perfil">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                                         </button>
-                                    <?php endif; ?>
-                                </div>
+                                        <?php if (!$p['sistema'] && $p['usuarios'] === 0): ?>
+                                            <button type="button" class="btn-icon btn-icon-danger js-btn-excluir-perfil" data-id="<?= $p['id'] ?>" data-nome="<?= htmlspecialchars($p['nome']) ?>" title="Excluir Perfil">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                            </button>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php else: ?>
+                                    <span style="color:#94a3b8;font-size:12px;">—</span>
+                                <?php endif; ?>
                             </td>
                         </tr>
                     <?php endforeach; endif; ?>

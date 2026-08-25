@@ -10,6 +10,8 @@ if (!hasAcesso('tab:pcp') && !hasAcesso('pcp.pri') && !hasAcesso('ret.pri') && !
     requireAcessoModulo('pcp');
 }
 
+$canEdit = podeEditar('pcp.pri') || podeEditar('ret.pri') || podeEditar('tab:pcp') || podeEditar('tab:retrabalho') || isAdmin();
+
 $pdo  = getDB();
 $base = defined('APP_URL') ? APP_URL : '';
 
@@ -670,16 +672,23 @@ layoutHeader($pageTitle);
                                 <td style="color:var(--color-text-muted,#6b7280);">—</td>
                                 <td style="text-align:center;color:var(--color-text-muted,#6b7280);">—</td>
                                 <td style="text-align:right;">
-                                    <button type="button"
-                                            class="prio-badge-btn prio-style-<?= htmlspecialchars($pedPrio) ?> js-prio-trigger"
-                                            data-tipo="pedido"
-                                            data-id="<?= $pedId ?>"
-                                            data-prioridade="<?= htmlspecialchars($pedPrio) ?>"
-                                            title="Clique para alterar a prioridade do Pedido">
-                                        <span class="badge-dot"></span>
-                                        <span class="badge-label"><?= htmlspecialchars($prioridadesDef[$pedPrio]['label']) ?></span>
-                                        <span class="badge-arrow">▼</span>
-                                    </button>
+                                    <?php if ($canEdit): ?>
+                                        <button type="button"
+                                                class="prio-badge-btn prio-style-<?= htmlspecialchars($pedPrio) ?> js-prio-trigger"
+                                                data-tipo="pedido"
+                                                data-id="<?= $pedId ?>"
+                                                data-prioridade="<?= htmlspecialchars($pedPrio) ?>"
+                                                title="Clique para alterar a prioridade do Pedido">
+                                            <span class="badge-dot"></span>
+                                            <span class="badge-label"><?= htmlspecialchars($prioridadesDef[$pedPrio]['label']) ?></span>
+                                            <span class="badge-arrow">▼</span>
+                                        </button>
+                                    <?php else: ?>
+                                        <span class="prio-badge-btn prio-style-<?= htmlspecialchars($pedPrio) ?>" style="cursor:default;" title="Apenas Consulta (Sem permissão para alterar prioridade)">
+                                            <span class="badge-dot"></span>
+                                            <span class="badge-label"><?= htmlspecialchars($prioridadesDef[$pedPrio]['label']) ?></span>
+                                        </span>
+                                    <?php endif; ?>
                                 </td>
                             </tr>
 
@@ -719,18 +728,25 @@ layoutHeader($pageTitle);
                                     <td style="color:var(--color-text-muted,#6b7280);">—</td>
                                     <td style="text-align:center;color:var(--color-text-muted,#6b7280);">—</td>
                                     <td style="text-align:right;">
-                                        <button type="button"
-                                                class="prio-badge-btn prio-style-<?= htmlspecialchars($projPrioEfetiva) ?><?= $proj['herdada'] ? ' is-inherited' : '' ?> js-prio-trigger"
-                                                data-tipo="projeto"
-                                                data-id="<?= $projId ?>"
-                                                data-pedido-id="<?= $pedId ?>"
-                                                data-prioridade="<?= htmlspecialchars($projPrio) ?>"
-                                                data-prioridade-efetiva="<?= htmlspecialchars($projPrioEfetiva) ?>"
-                                                title="Clique para alterar prioridade do Projeto">
-                                            <span class="badge-dot"></span>
-                                            <span class="badge-label"><?= $proj['herdada'] ? '↳ ' . htmlspecialchars($prioridadesDef[$projPrioEfetiva]['label']) : htmlspecialchars($prioridadesDef[$projPrio]['label']) ?></span>
-                                            <span class="badge-arrow">▼</span>
-                                        </button>
+                                        <?php if ($canEdit): ?>
+                                            <button type="button"
+                                                    class="prio-badge-btn prio-style-<?= htmlspecialchars($projPrioEfetiva) ?><?= $proj['herdada'] ? ' is-inherited' : '' ?> js-prio-trigger"
+                                                    data-tipo="projeto"
+                                                    data-id="<?= $projId ?>"
+                                                    data-pedido-id="<?= $pedId ?>"
+                                                    data-prioridade="<?= htmlspecialchars($projPrio) ?>"
+                                                    data-prioridade-efetiva="<?= htmlspecialchars($projPrioEfetiva) ?>"
+                                                    title="Clique para alterar prioridade do Projeto">
+                                                <span class="badge-dot"></span>
+                                                <span class="badge-label"><?= $proj['herdada'] ? '↳ ' . htmlspecialchars($prioridadesDef[$projPrioEfetiva]['label']) : htmlspecialchars($prioridadesDef[$projPrio]['label']) ?></span>
+                                                <span class="badge-arrow">▼</span>
+                                            </button>
+                                        <?php else: ?>
+                                            <span class="prio-badge-btn prio-style-<?= htmlspecialchars($projPrioEfetiva) ?><?= $proj['herdada'] ? ' is-inherited' : '' ?>" style="cursor:default;" title="Apenas Consulta (Sem permissão para alterar prioridade)">
+                                                <span class="badge-dot"></span>
+                                                <span class="badge-label"><?= $proj['herdada'] ? '↳ ' . htmlspecialchars($prioridadesDef[$projPrioEfetiva]['label']) : htmlspecialchars($prioridadesDef[$projPrio]['label']) ?></span>
+                                            </span>
+                                        <?php endif; ?>
                                     </td>
                                 </tr>
 
@@ -781,19 +797,26 @@ layoutHeader($pageTitle);
                                             </span>
                                         </td>
                                         <td style="text-align:right;">
-                                            <button type="button"
-                                                    class="prio-badge-btn prio-style-<?= htmlspecialchars($nsPrioEfetiva) ?><?= $nsItem['herdada'] ? ' is-inherited' : '' ?> js-prio-trigger"
-                                                    data-tipo="ns"
-                                                    data-ns="<?= htmlspecialchars($nsItem['ns_transformador']) ?>"
-                                                    data-projeto-id="<?= $projId ?>"
-                                                    data-pedido-id="<?= $pedId ?>"
-                                                    data-prioridade="<?= htmlspecialchars($nsPrio) ?>"
-                                                    data-prioridade-efetiva="<?= htmlspecialchars($nsPrioEfetiva) ?>"
-                                                    title="Clique para alterar prioridade do Transformador">
-                                                <span class="badge-dot"></span>
-                                                <span class="badge-label"><?= $nsItem['herdada'] ? '↳ ' . htmlspecialchars($prioridadesDef[$nsPrioEfetiva]['label']) : htmlspecialchars($prioridadesDef[$nsPrio]['label']) ?></span>
-                                                <span class="badge-arrow">▼</span>
-                                            </button>
+                                            <?php if ($canEdit): ?>
+                                                <button type="button"
+                                                        class="prio-badge-btn prio-style-<?= htmlspecialchars($nsPrioEfetiva) ?><?= $nsItem['herdada'] ? ' is-inherited' : '' ?> js-prio-trigger"
+                                                        data-tipo="ns"
+                                                        data-ns="<?= htmlspecialchars($nsItem['ns_transformador']) ?>"
+                                                        data-projeto-id="<?= $projId ?>"
+                                                        data-pedido-id="<?= $pedId ?>"
+                                                        data-prioridade="<?= htmlspecialchars($nsPrio) ?>"
+                                                        data-prioridade-efetiva="<?= htmlspecialchars($nsPrioEfetiva) ?>"
+                                                        title="Clique para alterar prioridade do Transformador">
+                                                    <span class="badge-dot"></span>
+                                                    <span class="badge-label"><?= $nsItem['herdada'] ? '↳ ' . htmlspecialchars($prioridadesDef[$nsPrioEfetiva]['label']) : htmlspecialchars($prioridadesDef[$nsPrio]['label']) ?></span>
+                                                    <span class="badge-arrow">▼</span>
+                                                </button>
+                                            <?php else: ?>
+                                                <span class="prio-badge-btn prio-style-<?= htmlspecialchars($nsPrioEfetiva) ?><?= $nsItem['herdada'] ? ' is-inherited' : '' ?>" style="cursor:default;" title="Apenas Consulta (Sem permissão para alterar prioridade)">
+                                                    <span class="badge-dot"></span>
+                                                    <span class="badge-label"><?= $nsItem['herdada'] ? '↳ ' . htmlspecialchars($prioridadesDef[$nsPrioEfetiva]['label']) : htmlspecialchars($prioridadesDef[$nsPrio]['label']) ?></span>
+                                                </span>
+                                            <?php endif; ?>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -834,19 +857,26 @@ layoutHeader($pageTitle);
                                 data-search="<?= htmlspecialchars($searchFlat) ?>"
                                 data-prioridade="<?= htmlspecialchars($nsPrioEfetiva) ?>">
                                 <td>
-                                    <button type="button"
-                                            class="prio-badge-btn prio-style-<?= htmlspecialchars($nsPrioEfetiva) ?><?= $nsItem['herdada'] ? ' is-inherited' : '' ?> js-prio-trigger"
-                                            data-tipo="ns"
-                                            data-ns="<?= htmlspecialchars($nsItem['ns_transformador']) ?>"
-                                            data-projeto-id="<?= (int)$nsItem['projeto_id'] ?>"
-                                            data-pedido-id="<?= (int)$nsItem['pedido_id'] ?>"
-                                            data-prioridade="<?= htmlspecialchars($nsPrio) ?>"
-                                            data-prioridade-efetiva="<?= htmlspecialchars($nsPrioEfetiva) ?>"
-                                            title="Clique para alterar prioridade">
-                                        <span class="badge-dot"></span>
-                                        <span class="badge-label"><?= $nsItem['herdada'] ? '↳ ' . htmlspecialchars($prioridadesDef[$nsPrioEfetiva]['label']) : htmlspecialchars($prioridadesDef[$nsPrio]['label']) ?></span>
-                                        <span class="badge-arrow">▼</span>
-                                    </button>
+                                    <?php if ($canEdit): ?>
+                                        <button type="button"
+                                                class="prio-badge-btn prio-style-<?= htmlspecialchars($nsPrioEfetiva) ?><?= $nsItem['herdada'] ? ' is-inherited' : '' ?> js-prio-trigger"
+                                                data-tipo="ns"
+                                                data-ns="<?= htmlspecialchars($nsItem['ns_transformador']) ?>"
+                                                data-projeto-id="<?= (int)$nsItem['projeto_id'] ?>"
+                                                data-pedido-id="<?= (int)$nsItem['pedido_id'] ?>"
+                                                data-prioridade="<?= htmlspecialchars($nsPrio) ?>"
+                                                data-prioridade-efetiva="<?= htmlspecialchars($nsPrioEfetiva) ?>"
+                                                title="Clique para alterar prioridade">
+                                            <span class="badge-dot"></span>
+                                            <span class="badge-label"><?= $nsItem['herdada'] ? '↳ ' . htmlspecialchars($prioridadesDef[$nsPrioEfetiva]['label']) : htmlspecialchars($prioridadesDef[$nsPrio]['label']) ?></span>
+                                            <span class="badge-arrow">▼</span>
+                                        </button>
+                                    <?php else: ?>
+                                        <span class="prio-badge-btn prio-style-<?= htmlspecialchars($nsPrioEfetiva) ?><?= $nsItem['herdada'] ? ' is-inherited' : '' ?>" style="cursor:default;" title="Apenas Consulta (Sem permissão para alterar prioridade)">
+                                            <span class="badge-dot"></span>
+                                            <span class="badge-label"><?= $nsItem['herdada'] ? '↳ ' . htmlspecialchars($prioridadesDef[$nsPrioEfetiva]['label']) : htmlspecialchars($prioridadesDef[$nsPrio]['label']) ?></span>
+                                        </span>
+                                    <?php endif; ?>
                                 </td>
                                 <td><span class="rt-code"><?= htmlspecialchars($nsItem['ns_transformador']) ?></span></td>
                                 <td><span class="rt-code"><?= htmlspecialchars($nsItem['pedido_numero']) ?></span></td>
@@ -919,6 +949,7 @@ layoutHeader($pageTitle);
 <script>
     window.PROJETOS_API = <?= json_encode($base . '/api/projetos-acao.php') ?>;
     window.PRIORIDADES_INFO = <?= json_encode($prioridadesDef, JSON_UNESCAPED_UNICODE) ?>;
+    window.CAN_EDIT = <?= json_encode($canEdit) ?>;
 </script>
 <?php $ppJsVer = @filemtime(__DIR__ . '/../../assets/js/pedidos-prioridade.js') ?: (defined('APP_VERSION') ? APP_VERSION : '1'); ?>
 <script src="<?= htmlspecialchars($base) ?>/assets/js/pedidos-prioridade.js?v=<?= htmlspecialchars((string) $ppJsVer) ?>"></script>
