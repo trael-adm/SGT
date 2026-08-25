@@ -15,16 +15,16 @@ $curUserId = (int)($curUser['id'] ?? 0);
 
 // ─── Sincronizador de Permissões e Telas ──────────────────────────────────────
 function sincronizarPermissoes(array $perms): array {
-    if (isset($perms['ret.pri']) && !isset($perms['pcp.pri'])) {
+    if (isset($perms['ret.pri']) && !array_key_exists('pcp.pri', $perms)) {
         $perms['pcp.pri'] = $perms['ret.pri'];
     }
-    if (isset($perms['pcp.pri']) && !isset($perms['ret.pri'])) {
+    if (isset($perms['pcp.pri']) && !array_key_exists('ret.pri', $perms)) {
         $perms['ret.pri'] = $perms['pcp.pri'];
     }
-    if (isset($perms['ana.his']) && !isset($perms['ana.aco'])) {
+    if (isset($perms['ana.his']) && !array_key_exists('ana.aco', $perms)) {
         $perms['ana.aco'] = $perms['ana.his'];
     }
-    if (isset($perms['adm.per']) && !isset($perms['adm.usu'])) {
+    if (isset($perms['adm.per']) && !array_key_exists('adm.usu', $perms)) {
         $perms['adm.usu'] = $perms['adm.per'];
     }
     return $perms;
@@ -1285,12 +1285,12 @@ layoutHeader($pageTitle);
                                             <div style="font-size:11.5px;color:#64748b;margin-top:1px;"><?= htmlspecialchars($sys['desc']) ?></div>
                                         </div>
                                     </div>
-                                    <div class="system-header-right" onclick="event.stopPropagation();">
-                                        <button type="button" class="btn-row-action js-sys-toggle-all" data-sys="<?= $sys['id'] ?>" style="font-size:10.5px;padding:2px 7px;">
+                                    <div class="system-header-right">
+                                        <button type="button" class="btn-row-action js-sys-toggle-all" data-sys="<?= $sys['id'] ?>" onclick="event.stopPropagation();" style="font-size:10.5px;padding:2px 7px;">
                                             Marcar Sistema
                                         </button>
                                         <button type="button" class="btn-toggle-accordion js-sys-toggle-btn">
-                                            <span>Expandir</span>
+                                            <span><?= $isExpanded ? 'Recolher' : 'Expandir' ?></span>
                                             <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
                                         </button>
                                     </div>
@@ -1476,12 +1476,12 @@ layoutHeader($pageTitle);
                                             <div style="font-size:11.5px;color:#64748b;margin-top:1px;"><?= htmlspecialchars($sys['desc']) ?></div>
                                         </div>
                                     </div>
-                                    <div class="system-header-right" onclick="event.stopPropagation();">
-                                        <button type="button" class="btn-row-action js-perfil-toggle-sys" data-sys="<?= $sys['id'] ?>" style="font-size:10.5px;padding:2px 7px;">
+                                    <div class="system-header-right">
+                                        <button type="button" class="btn-row-action js-perfil-toggle-sys" data-sys="<?= $sys['id'] ?>" onclick="event.stopPropagation();" style="font-size:10.5px;padding:2px 7px;">
                                             Marcar Sistema
                                         </button>
                                         <button type="button" class="btn-toggle-accordion js-sys-toggle-btn">
-                                            <span>Expandir</span>
+                                            <span><?= $isExpanded ? 'Recolher' : 'Expandir' ?></span>
                                             <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
                                         </button>
                                     </div>
@@ -1731,12 +1731,35 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ─── 4. Accordion Tree dos Sistemas ──────────────────────────────────────────
+    function updateAccordionCard(card, expand) {
+        if (!card) return;
+        if (expand === undefined) {
+            card.classList.toggle('is-expanded');
+        } else if (expand) {
+            card.classList.add('is-expanded');
+        } else {
+            card.classList.remove('is-expanded');
+        }
+        const isExp = card.classList.contains('is-expanded');
+        const label = card.querySelector('.js-sys-toggle-btn span');
+        if (label) label.textContent = isExp ? 'Recolher' : 'Expandir';
+    }
+
     function setupAccordions(container) {
-        container.querySelectorAll('.js-sys-header').forEach(header => {
-            header.addEventListener('click', () => {
-                const card = header.closest('.js-sys-card');
-                card.classList.toggle('is-expanded');
-            });
+        if (!container) return;
+        container.querySelectorAll('.js-sys-card').forEach(card => {
+            const header = card.querySelector('.js-sys-header');
+            if (header) {
+                header.addEventListener('click', (e) => {
+                    if (e.target.closest('.js-sys-toggle-all') || e.target.closest('.js-perfil-toggle-sys') || e.target.closest('select') || e.target.closest('input')) {
+                        return;
+                    }
+                    updateAccordionCard(card);
+                });
+            }
+            const isExp = card.classList.contains('is-expanded');
+            const label = card.querySelector('.js-sys-toggle-btn span');
+            if (label) label.textContent = isExp ? 'Recolher' : 'Expandir';
         });
     }
 
@@ -1745,28 +1768,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Expandir / Recolher Todos nos Modais
     document.querySelector('.js-user-expand-all')?.addEventListener('click', () => {
-        document.querySelectorAll('#user-matrix-wrap .js-sys-card').forEach(c => c.classList.add('is-expanded'));
+        document.querySelectorAll('#user-matrix-wrap .js-sys-card').forEach(c => updateAccordionCard(c, true));
     });
     document.querySelector('.js-user-collapse-all')?.addEventListener('click', () => {
-        document.querySelectorAll('#user-matrix-wrap .js-sys-card').forEach(c => c.classList.remove('is-expanded'));
+        document.querySelectorAll('#user-matrix-wrap .js-sys-card').forEach(c => updateAccordionCard(c, false));
     });
     document.querySelector('.js-perfil-expand-all')?.addEventListener('click', () => {
-        document.querySelectorAll('#perfil-matrix-wrap .js-sys-card').forEach(c => c.classList.add('is-expanded'));
+        document.querySelectorAll('#perfil-matrix-wrap .js-sys-card').forEach(c => updateAccordionCard(c, true));
     });
     document.querySelector('.js-perfil-collapse-all')?.addEventListener('click', () => {
-        document.querySelectorAll('#perfil-matrix-wrap .js-sys-card').forEach(c => c.classList.remove('is-expanded'));
+        document.querySelectorAll('#perfil-matrix-wrap .js-sys-card').forEach(c => updateAccordionCard(c, false));
     });
 
     // ─── 5. Mapeador de Permissões com Aliases ───────────────────────────────────
     function getEffectivePermLevel(permsObj, screen) {
         if (!permsObj) return 'off';
         let lvl = permsObj[screen];
-        if (!lvl || lvl === 'off') {
-            if (screen === 'pcp.pri' && permsObj['ret.pri']) lvl = permsObj['ret.pri'];
-            else if (screen === 'ret.pri' && permsObj['pcp.pri']) lvl = permsObj['pcp.pri'];
-            else if (screen === 'ana.aco' && permsObj['ana.his']) lvl = permsObj['ana.his'];
-            else if (screen === 'ana.his' && permsObj['ana.aco']) lvl = permsObj['ana.aco'];
-            else if (screen === 'adm.usu' && (permsObj['adm.per'] || permsObj['admin'])) lvl = permsObj['adm.per'] || permsObj['admin'];
+        if (lvl === undefined) {
+            if (screen === 'pcp.pri' && permsObj['ret.pri'] !== undefined) lvl = permsObj['ret.pri'];
+            else if (screen === 'ret.pri' && permsObj['pcp.pri'] !== undefined) lvl = permsObj['pcp.pri'];
+            else if (screen === 'ana.aco' && permsObj['ana.his'] !== undefined) lvl = permsObj['ana.his'];
+            else if (screen === 'ana.his' && permsObj['ana.aco'] !== undefined) lvl = permsObj['ana.aco'];
+            else if (screen === 'adm.usu' && (permsObj['adm.per'] !== undefined || permsObj['admin'] !== undefined)) lvl = permsObj['adm.per'] ?? permsObj['admin'];
         }
         return (lvl !== 'off' && lvl !== '' && lvl !== undefined) ? (lvl === 'view' ? 'view' : 'total') : 'off';
     }
@@ -1925,15 +1948,31 @@ document.addEventListener('DOMContentLoaded', () => {
         btnSave.textContent = 'Salvando...';
         if (uError) uError.style.display = 'none';
 
+        const pId = uPerfil ? uPerfil.value : '';
+        const basePerms = (pId && PERFIS[pId]) ? (PERFIS[pId].perms || {}) : null;
         const permsObj = {};
+
         userPermSelects.forEach(sel => {
             const scr = sel.dataset.screen;
             const lvl = sel.value;
-            if (lvl !== 'off') {
-                permsObj[scr] = lvl;
-                if (scr === 'pcp.pri') permsObj['ret.pri'] = lvl;
-                if (scr === 'ana.aco') permsObj['ana.his'] = lvl;
-                if (scr === 'adm.usu') permsObj['adm.per'] = lvl;
+
+            if (basePerms !== null) {
+                // Com perfil base: grava como exceção se for diferente do perfil base
+                const baseLvl = getEffectivePermLevel(basePerms, scr);
+                if (lvl !== baseLvl) {
+                    permsObj[scr] = lvl;
+                    if (scr === 'pcp.pri') permsObj['ret.pri'] = lvl;
+                    if (scr === 'ana.aco') permsObj['ana.his'] = lvl;
+                    if (scr === 'adm.usu') permsObj['adm.per'] = lvl;
+                }
+            } else {
+                // Sem perfil fixo (alocação direta): grava todas as permissões ativas
+                if (lvl !== 'off') {
+                    permsObj[scr] = lvl;
+                    if (scr === 'pcp.pri') permsObj['ret.pri'] = lvl;
+                    if (scr === 'ana.aco') permsObj['ana.his'] = lvl;
+                    if (scr === 'adm.usu') permsObj['adm.per'] = lvl;
+                }
             }
         });
 

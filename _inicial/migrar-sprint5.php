@@ -67,6 +67,8 @@ try {
         FOREIGN KEY (id_usuario) REFERENCES usuarios(id) ON DELETE CASCADE,
         UNIQUE KEY uk_usuario_tela (id_usuario, tela)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    addColumnIfNotExists($pdo, 'usuario_acessos', 'tela', "VARCHAR(50) NOT NULL DEFAULT '' AFTER id_usuario");
+    addColumnIfNotExists($pdo, 'usuario_acessos', 'nivel', "VARCHAR(20) NOT NULL DEFAULT 'total' AFTER tela");
     echo "  [OK] Tabela usuario_acessos verificada/criada.\n";
 
     // 5. Ajustes de Reprovas GER / Revitalização

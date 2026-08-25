@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS usuario_acessos (
     UNIQUE KEY uk_usuario_tela (id_usuario, tela)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+ALTER TABLE usuario_acessos ADD COLUMN IF NOT EXISTS tela VARCHAR(50) NOT NULL DEFAULT '' AFTER id_usuario;
+ALTER TABLE usuario_acessos ADD COLUMN IF NOT EXISTS nivel VARCHAR(20) NOT NULL DEFAULT 'total' AFTER tela;
+
 -- 5. Restrição de GER para Revitalizações
 UPDATE reprovas SET local = 'IQF' WHERE local = 'GER' AND codigo NOT LIKE 'R%';
 UPDATE reprovas SET local = 'GER', setor_causador = 'REVITALIZAÇÃO' WHERE codigo LIKE 'R%';
