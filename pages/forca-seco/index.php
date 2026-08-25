@@ -610,10 +610,7 @@ layoutHeader($pageTitle);
         </div>
 
         <!-- Tabela Produção por Linha embutida juntamente abaixo do gráfico -->
-        <div style="border-top:1px solid var(--color-border);padding-top:16px;margin-top:12px;">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-                <span class="card-title" style="font-size:var(--font-size-md);font-weight:700;">Produção por Linha — <?= htmlspecialchars($mesTxt) ?></span>
-            </div>
+        <div style="border-top:1px solid var(--color-border);padding-top:12px;margin-top:8px;">
             <div class="bo-table-wrap">
                 <table class="bo-nucleo-table">
                     <thead>
