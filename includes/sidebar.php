@@ -20,6 +20,7 @@ $isProducaoContext = str_starts_with($_sRelSelf, '/pages/distribuicao/')
     || str_starts_with($_sRelSelf, '/pages/fluxo-pedidos/')
     || str_starts_with($_sRelSelf, '/pages/acompanhamento/')
     || str_starts_with($_sRelSelf, '/pages/soma/')
+    || str_starts_with($_sRelSelf, '/pages/settings/')
     || str_starts_with($_sRelSelf, '/pages/producao/distribuicao.php')
     || str_starts_with($_sRelSelf, '/pages/producao/atraso-distribuicao.php')
     || str_starts_with($_sRelSelf, '/pages/producao/forca-seco.php')
@@ -83,50 +84,80 @@ $_sGrupos = [
         ],
     ],
     [
-        'rotulo' => 'Produção',
+        'rotulo' => 'Distribuição',
         'esconder' => $_hideModuloProducao,
         'itens'  => [
             [
                 'href'  => '/pages/distribuicao/index.php',
                 'label' => 'Indicador Distribuição',
-                'icon'  => '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 16V10M12 16V7M17 16V13"/>',
+                'icon'  => '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
                 'permissao' => 'prod.dis'
             ],
             [
                 'href'  => '/pages/atraso-distribuicao/index.php',
                 'label' => 'Atraso Distribuição',
-                'icon'  => '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+                'icon'  => '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/><path d="M19 19l2 2"/>',
                 'permissao' => 'prod.atr'
             ],
+        ],
+    ],
+    [
+        'rotulo' => 'Média Força',
+        'esconder' => $_hideModuloProducao,
+        'itens'  => [
             [
                 'href'  => '/pages/forca-seco/index.php',
                 'label' => 'Indicador Média Força',
-                'icon'  => '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+                'icon'  => '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
                 'permissao' => 'prod.for'
             ],
+        ],
+    ],
+    [
+        'rotulo' => 'Produção',
+        'esconder' => $_hideModuloProducao,
+        'itens'  => [
             [
                 'href'  => '/pages/painel-setor/index.php',
                 'label' => 'Painel por Setor',
-                'icon'  => '<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
+                'icon'  => '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
                 'permissao' => 'prod.set'
             ],
             [
                 'href'  => '/pages/fluxo-pedidos/index.php',
                 'label' => 'Fluxo de Pedidos',
-                'icon'  => '<line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+                'icon'  => '<circle cx="5" cy="6" r="3"/><circle cx="19" cy="18" r="3"/><path d="M8 6h5a4 4 0 0 1 4 4v2a4 4 0 0 0 4 4h-2"/>',
                 'permissao' => 'prod.flu'
             ],
             [
                 'href'  => '/pages/acompanhamento/index.php',
                 'label' => 'Acompanhamento',
-                'icon'  => '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>',
+                'icon'  => '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
                 'permissao' => 'prod.aco'
             ],
+        ],
+    ],
+    [
+        'rotulo' => 'Cronoanálise',
+        'esconder' => $_hideModuloProducao,
+        'itens'  => [
             [
                 'href'  => '/pages/soma/index.php',
                 'label' => 'SOMA',
-                'icon'  => '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/>',
+                'icon'  => '<circle cx="12" cy="12" r="9"/><polyline points="12 6 12 12 16 14"/><path d="M10 2h4"/>',
                 'permissao' => 'soma.hub'
+            ],
+        ],
+    ],
+    [
+        'rotulo' => 'Gestão',
+        'esconder' => $_hideModuloProducao,
+        'itens'  => [
+            [
+                'href'  => '/pages/settings/index.php',
+                'label' => 'Configurações',
+                'icon'  => '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>',
+                'permissao' => 'prod.met'
             ],
         ],
     ],
@@ -300,7 +331,8 @@ $_sGrupos = [
                 || (str_starts_with($_sItem['href'], '/pages/atraso-distribuicao/') && (str_starts_with($_sRelSelf, '/pages/atraso-distribuicao/') || str_starts_with($_sRelSelf, '/pages/producao/atraso-distribuicao.php')))
                 || (str_starts_with($_sItem['href'], '/pages/forca-seco/') && (str_starts_with($_sRelSelf, '/pages/forca-seco/') || str_starts_with($_sRelSelf, '/pages/producao/forca-seco.php')))
                 || (str_starts_with($_sItem['href'], '/pages/painel-setor/') && (str_starts_with($_sRelSelf, '/pages/painel-setor/') || str_starts_with($_sRelSelf, '/pages/producao/painel-setor.php')))
-                || (str_starts_with($_sItem['href'], '/pages/acompanhamento/') && (str_starts_with($_sRelSelf, '/pages/acompanhamento/') || str_starts_with($_sRelSelf, '/pages/producao/acompanhamento.php')));
+                || (str_starts_with($_sItem['href'], '/pages/acompanhamento/') && (str_starts_with($_sRelSelf, '/pages/acompanhamento/') || str_starts_with($_sRelSelf, '/pages/producao/acompanhamento.php')))
+                || (str_starts_with($_sItem['href'], '/pages/settings/') && (str_starts_with($_sRelSelf, '/pages/settings/') || str_starts_with($_sRelSelf, '/pages/producao/settings.php')));
         ?>
         <a class="nav-item<?= $isActive ? ' active' : '' ?>"
            href="<?= htmlspecialchars($_sBaseUrl . $_sItem['href']) ?>">
