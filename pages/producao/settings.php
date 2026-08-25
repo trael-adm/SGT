@@ -5,9 +5,7 @@ require_once __DIR__ . '/../../config/conexao.php';
 require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../includes/layout.php';
 
-// Só Administrador/Coordenador — bloqueia Alimentador e Visualizador no servidor
-// (ver PROJETO-BOLETIM.md > "Autenticação e RBAC").
-requirePerfil([1, 2]);
+requirePerfil([1, 2, 201, 202, 203, 204, 205, 206, 207, 212]);
 
 $pdo     = getDB();
 $usuario = currentUser();

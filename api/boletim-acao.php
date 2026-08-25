@@ -19,10 +19,14 @@ $usuario = currentUser();
 $acao    = trim((string) ($_POST['acao'] ?? $_GET['acao'] ?? ''));
 $userId  = (int) ($usuario['id'] ?? 0);
 
-// Ações somente de leitura permitidas para todos os usuários logados (incluindo perfil 4)
+// Ações somente de leitura permitidas para todos os usuários logados
 $acoesLeitura = ['buscar_detalhes_pecas'];
 
-if (!in_array($acao, $acoesLeitura, true) && !in_array((int) ($usuario['id_perfil'] ?? 0), [1, 2, 3], true)) {
+$perfisEditor = [1, 2, 3, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 212];
+$idPerfilUser = (int) ($usuario['id_perfil'] ?? 0);
+$podeEditarBoletim = isAdmin() || in_array($idPerfilUser, $perfisEditor, true) || ($idPerfilUser !== 4 && $idPerfilUser !== 211);
+
+if (!in_array($acao, $acoesLeitura, true) && !$podeEditarBoletim) {
     http_response_code(403);
     echo json_encode(['sucesso' => false, 'erro' => 'Você não tem permissão para esta ação.']);
     exit;
@@ -331,7 +335,7 @@ try {
         // ─── Configurações (Sprint 6) — só Administrador/Coordenador, mesma regra
         // de acesso da própria página (ver PROJETO-BOLETIM.md > "Autenticação e RBAC").
         case 'metas_salvar': {
-            if (!in_array((int) ($usuario['id_perfil'] ?? 0), [1, 2], true)) {
+            if (!$podeEditarBoletim) {
                 http_response_code(403);
                 echo json_encode(['sucesso' => false, 'erro' => 'Apenas Administrador e Coordenador podem alterar Configurações.']);
                 exit;
@@ -368,7 +372,7 @@ try {
 
         // ─── Salvar metas diárias da Distribuição (calculando o mês automaticamente) ──
         case 'metas_distrib_salvar': {
-            if (!in_array((int) ($usuario['id_perfil'] ?? 0), [1, 2, 3], true)) {
+            if (!$podeEditarBoletim) {
                 http_response_code(403);
                 echo json_encode(['sucesso' => false, 'erro' => 'Você não tem permissão para alterar as metas.']);
                 exit;
@@ -455,7 +459,7 @@ try {
         // mesmo calendário de dias de produção — é único por mês, compartilhado com
         // a Distribuição) ──────────────────────────────────────────────────────────
         case 'metas_forca_salvar': {
-            if (!in_array((int) ($usuario['id_perfil'] ?? 0), [1, 2, 3], true)) {
+            if (!$podeEditarBoletim) {
                 http_response_code(403);
                 echo json_encode(['sucesso' => false, 'erro' => 'Você não tem permissão para alterar as metas.']);
                 exit;

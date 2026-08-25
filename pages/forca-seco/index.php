@@ -10,8 +10,7 @@ requireLogin();
 
 $pdo        = getDB();
 $usuario    = currentUser();
-$base       = defined('APP_URL') ? APP_URL : '';
-$podeEditar = in_array((int) ($usuario['id_perfil'] ?? 0), [1, 2, 3], true);
+$podeEditar = isAdmin() || !in_array((int) ($usuario['id_perfil'] ?? 0), [4, 211], true);
 
 // ─── Linhas de Produção da Média Força ───────────────────────────────────────
 // TPD: Transformadores até 300 kVA (corresponde ao ENR na Distribuição)

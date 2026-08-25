@@ -11,9 +11,7 @@ requireLogin();
 $pdo        = getDB();
 $usuario    = currentUser();
 $base       = defined('APP_URL') ? APP_URL : '';
-// Visualizador (id_perfil 4) só acompanha os dashboards — nunca registra/edita/exclui
-// (checagem real fica em api/boletim-acao.php; aqui só evita mostrar o formulário à toa).
-$podeEditar = in_array((int) ($usuario['id_perfil'] ?? 0), [1, 2, 3], true);
+$podeEditar = isAdmin() || !in_array((int) ($usuario['id_perfil'] ?? 0), [4, 211], true);
 
 // ─── Mês e Intervalo de Datas do relatório ──────────────────────────────────
 $modoData   = trim((string) ($_GET['modo_data'] ?? ''));
