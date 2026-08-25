@@ -90,9 +90,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($loginInput === '' || $senha === '') {
                 $erro = 'Preencha seu e-mail ou CPF e a senha.';
             } else {
-                // Prepara variações de CPF e e-mail para busca flexível
-                $cpfLimpo = preg_replace('/\D/', '', $loginInput);
-                $cpfFmt   = '';
+                // Prepara variações de CPF (removendo prefixo 'T' ou 't' se informado) e e-mail para busca flexível
+                $inputSemT = preg_replace('/^[Tt]/', '', $loginInput);
+                $cpfLimpo  = preg_replace('/\D/', '', $inputSemT);
+                $cpfFmt    = '';
                 if (strlen($cpfLimpo) === 11) {
                     $cpfFmt = substr($cpfLimpo, 0, 3) . '.' . substr($cpfLimpo, 3, 3) . '.' . substr($cpfLimpo, 6, 3) . '-' . substr($cpfLimpo, 9, 2);
                 }
@@ -101,6 +102,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     SELECT * FROM usuarios
                     WHERE (
                         LOWER(email) = LOWER(?)
+                        OR cpf = ?
                         OR cpf = ?
                         OR ( ? != '' AND cpf = ? )
                         OR ( ? != '' AND REPLACE(REPLACE(REPLACE(cpf, '.', ''), '-', ''), ' ', '') = ? )
@@ -111,6 +113,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([
                     $loginInput,
                     $loginInput,
+                    $inputSemT,
                     $cpfFmt, $cpfFmt,
                     $cpfLimpo, $cpfLimpo
                 ]);
@@ -223,10 +226,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         id="login"
                         value="<?= htmlspecialchars($_POST['login'] ?? $_POST['email'] ?? '') ?>"
                         class="field w-full px-4 py-3 rounded-xl text-sm text-gray-800 placeholder-gray-400"
-                        placeholder="seu@email.com ou 000.000.000-00"
+                        placeholder="seu@email.com ou T + CPF (ex: T12345678900)"
                         autocomplete="username"
                         required
                     >
+                    <p class="text-xs text-gray-400 mt-1.5">
+                        Para entrar com CPF, digite <span class="font-bold text-gray-600">T</span> seguido dos números (ex.: <span class="font-mono text-gray-600">T12345678900</span>).
+                    </p>
                 </div>
 
                 <div class="mb-7">
