@@ -29,7 +29,7 @@ $acao = trim((string) ($_POST['acao'] ?? ''));
 
 // Verificação granular de escrita (view vs total)
 if (in_array($acao, ['pedido_prioridade', 'projeto_prioridade', 'ns_prioridade'], true)) {
-    if (!podeEditar('pcp.pri') && !podeEditar('ret.pri') && !podeEditar('tab:pcp') && !podeEditar('tab:retrabalho') && !isAdmin()) {
+    if (!podeEditar('pcp.pri') && !podeEditar('ret.pri') && !isAdmin()) {
         http_response_code(403);
         echo json_encode(['sucesso' => false, 'erro' => 'Apenas consulta: você não tem permissão para alterar prioridades.']);
         exit;

@@ -7,7 +7,7 @@ require_once __DIR__ . '/../../includes/helpers.php';
 
 requireAcessoModulo('producao');
 
-$canEdit = podeEditar('lab.lis') || podeEditar('iqf.lis') || podeEditar('tab:laboratorio') || podeEditar('tab:inspecao_final') || isAdmin();
+$canEdit = podeEditar('lab.lis') || podeEditar('iqf.lis') || isAdmin();
 
 $pdo  = getDB();
 $base = defined('APP_URL') ? APP_URL : '';

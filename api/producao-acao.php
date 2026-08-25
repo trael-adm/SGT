@@ -32,7 +32,7 @@ $userId = (int) (currentUser()['id'] ?? 0);
 
 // Verificação de permissão de escrita para ações de modificação
 if (in_array($acao, ['confirmar', 'remover_etapa'], true)) {
-    if (!podeEditar('lab.reg') && !podeEditar('iqf.reg') && !podeEditar('lab.lis') && !podeEditar('iqf.lis') && !podeEditar('tab:laboratorio') && !podeEditar('tab:inspecao_final') && !isAdmin()) {
+    if (!podeEditar('lab.reg') && !podeEditar('iqf.reg') && !podeEditar('lab.lis') && !podeEditar('iqf.lis') && !isAdmin()) {
         http_response_code(403);
         echo json_encode(['sucesso' => false, 'erro' => 'Apenas consulta: você não tem permissão para confirmar ou remover etapas de produção.']);
         exit;

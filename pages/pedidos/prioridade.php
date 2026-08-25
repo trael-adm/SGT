@@ -10,7 +10,7 @@ if (!hasAcesso('tab:pcp') && !hasAcesso('pcp.pri') && !hasAcesso('ret.pri') && !
     requireAcessoModulo('pcp');
 }
 
-$canEdit = podeEditar('pcp.pri') || podeEditar('ret.pri') || podeEditar('tab:pcp') || podeEditar('tab:retrabalho') || isAdmin();
+$canEdit = podeEditar('pcp.pri') || podeEditar('ret.pri') || isAdmin();
 
 $pdo  = getDB();
 $base = defined('APP_URL') ? APP_URL : '';
