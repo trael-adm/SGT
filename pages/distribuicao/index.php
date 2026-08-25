@@ -569,6 +569,12 @@ layoutHeader($pageTitle);
                 <?= htmlspecialchars($labelFiltroData) ?>
             </span>
         </button>
+        <!-- Chip Auto-Refresh 30s (Padrão Retrabalho) -->
+        <div class="bo-ref-chip" id="chipAutoRefresh" onclick="alternarAutoRefresh()" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;" title="Clique para pausar/retomar auto-refresh">
+            <span class="pulse-dot" style="width:8px;height:8px;background:#22c55e;border-radius:50%;display:inline-block;"></span>
+            <span class="bo-ref-label">Auto-refresh:</span>
+            <span class="bo-ref-value font-mono" id="labelTimerRefresh">30s</span>
+        </div>
         <div style="display:flex;gap:8px;">
             <button type="button" class="btn btn-secondary btn-sm" id="btn-sync-banco" onclick="atualizarDoBanco('<?= htmlspecialchars($mes) ?>')" style="display:inline-flex;align-items:center;gap:6px;padding:8px 12px;font-weight:600;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
@@ -1264,6 +1270,49 @@ layoutHeader($pageTitle);
                 btn.disabled = false;
                 btn.innerHTML = origText;
             }
+        }
+    }
+
+    // ─── Auto-Refresh 30 Segundos (Padrão Retrabalho) ───────────────────────────
+    let autoRefreshSegundos = 30;
+    let autoRefreshPausado = false;
+
+    const intervalAutoRefresh = setInterval(() => {
+        const modalAberto = document.querySelector('.date-filter-overlay.open, .bo-modal-overlay.open, .bo-modal-backdrop.open');
+        const inputFocado = document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
+
+        if (!autoRefreshPausado && !modalAberto && !inputFocado) {
+            autoRefreshSegundos--;
+            const lbl = document.getElementById('labelTimerRefresh');
+            if (lbl) {
+                lbl.textContent = autoRefreshSegundos + 's';
+            }
+
+            if (autoRefreshSegundos <= 0) {
+                window.location.reload();
+            }
+        }
+    }, 1000);
+
+    function alternarAutoRefresh() {
+        autoRefreshPausado = !autoRefreshPausado;
+        const lbl = document.getElementById('labelTimerRefresh');
+        const chip = document.getElementById('chipAutoRefresh');
+        const dot = chip?.querySelector('.pulse-dot');
+
+        if (autoRefreshPausado) {
+            if (lbl) {
+                lbl.textContent = 'Pausado';
+                lbl.style.color = '#64748b';
+            }
+            if (dot) dot.style.background = '#94a3b8';
+        } else {
+            autoRefreshSegundos = 30;
+            if (lbl) {
+                lbl.textContent = '30s';
+                lbl.style.color = '';
+            }
+            if (dot) dot.style.background = '#22c55e';
         }
     }
 </script>

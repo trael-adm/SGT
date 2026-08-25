@@ -497,8 +497,14 @@ layoutHeader($pageTitle);
                 <p class="bo-subtitle">
                     Fluxo de Montagem: Tanque (PIN) × Parte Ativa (ME) → Montagem Final (MF)
                 </p>
-            </div>
-            <div class="ac-action-btns">
+            <div class="ac-action-btns" style="display:flex;align-items:center;gap:8px;">
+                <!-- Chip Auto-Refresh 30s (Padrão Retrabalho) -->
+                <div id="chipAutoRefresh" onclick="alternarAutoRefresh()" class="ac-btn" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;font-size:12px;" title="Clique para pausar/retomar auto-refresh">
+                    <span class="pulse-dot" style="width:8px;height:8px;background:#22c55e;border-radius:50%;display:inline-block;"></span>
+                    <span style="color:#64748b;">Auto-refresh:</span>
+                    <strong id="labelTimerRefresh" style="font-family:monospace;color:#0f172a;">30s</strong>
+                </div>
+
                 <button type="button" class="ac-btn" id="btnImprimirRelatorio" title="Imprimir relatório completo formatado em folha A4 Paisagem">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
                     Imprimir
@@ -631,6 +637,48 @@ layoutHeader($pageTitle);
 
 <script>
     window.BOLETIM_ACOMPANHAMENTO_DATA = <?= json_encode($itens, JSON_UNESCAPED_UNICODE) ?>;
+
+    // ─── Auto-Refresh 30 Segundos (Padrão Retrabalho) ───────────────────────────
+    let autoRefreshSegundos = 30;
+    let autoRefreshPausado = false;
+
+    const intervalAutoRefresh = setInterval(() => {
+        const inputFocado = document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
+
+        if (!autoRefreshPausado && !inputFocado) {
+            autoRefreshSegundos--;
+            const lbl = document.getElementById('labelTimerRefresh');
+            if (lbl) {
+                lbl.textContent = autoRefreshSegundos + 's';
+            }
+
+            if (autoRefreshSegundos <= 0) {
+                window.location.reload();
+            }
+        }
+    }, 1000);
+
+    function alternarAutoRefresh() {
+        autoRefreshPausado = !autoRefreshPausado;
+        const lbl = document.getElementById('labelTimerRefresh');
+        const chip = document.getElementById('chipAutoRefresh');
+        const dot = chip?.querySelector('.pulse-dot');
+
+        if (autoRefreshPausado) {
+            if (lbl) {
+                lbl.textContent = 'Pausado';
+                lbl.style.color = '#64748b';
+            }
+            if (dot) dot.style.background = '#94a3b8';
+        } else {
+            autoRefreshSegundos = 30;
+            if (lbl) {
+                lbl.textContent = '30s';
+                lbl.style.color = '';
+            }
+            if (dot) dot.style.background = '#22c55e';
+        }
+    }
 </script>
 <?php $acompanhamentoJsVer = @filemtime(__DIR__ . '/../../assets/js/acompanhamento.js') ?: (defined('APP_VERSION') ? APP_VERSION : '1'); ?>
 <script src="<?= htmlspecialchars($base) ?>/assets/js/acompanhamento.js?v=<?= htmlspecialchars((string) $acompanhamentoJsVer) ?>"></script>

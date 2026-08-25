@@ -106,6 +106,53 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // ─── Auto-Refresh 30s Bloco a Bloco (Padrão Retrabalho) ─────────────────
+    let autoRefreshSegundos = 30;
+    let autoRefreshPausado = false;
+
+    setInterval(async () => {
+        const inputFocado = document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
+
+        if (!autoRefreshPausado && !inputFocado) {
+            autoRefreshSegundos--;
+            const lbl = document.getElementById('labelTimerRefresh');
+            if (lbl) {
+                lbl.textContent = autoRefreshSegundos + 's';
+            }
+
+            if (autoRefreshSegundos <= 0) {
+                autoRefreshSegundos = 30;
+                await carregarMapa();
+                const lastUp = document.getElementById('labelLastUpdate');
+                if (lastUp) {
+                    lastUp.textContent = new Date().toLocaleTimeString('pt-BR');
+                }
+            }
+        }
+    }, 1000);
+
+    window.alternarAutoRefreshFluxo = function () {
+        autoRefreshPausado = !autoRefreshPausado;
+        const lbl = document.getElementById('labelTimerRefresh');
+        const chip = document.getElementById('chipAutoRefresh');
+        const dot = chip?.querySelector('.pulse-dot');
+
+        if (autoRefreshPausado) {
+            if (lbl) {
+                lbl.textContent = 'Pausado';
+                lbl.style.color = '#94a3b8';
+            }
+            if (dot) dot.style.background = '#94a3b8';
+        } else {
+            autoRefreshSegundos = 30;
+            if (lbl) {
+                lbl.textContent = '30s';
+                lbl.style.color = '';
+            }
+            if (dot) dot.style.background = '#22c55e';
+        }
+    };
 });
 
 // Ação de Clique para Abrir a Tela Dedicada do Setor

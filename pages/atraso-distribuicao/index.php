@@ -259,6 +259,13 @@ layoutHeader('Atraso Distribuição');
             </span>
             <?php endif; ?>
 
+            <!-- Chip Auto-Refresh 30s (Padrão Retrabalho) -->
+            <div id="chipAutoRefresh" onclick="alternarAutoRefresh()" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#1e2433] hover:bg-[#283044] text-xs font-semibold text-white rounded-md border border-[#334155] transition-colors cursor-pointer" title="Clique para pausar/retomar auto-refresh">
+                <span class="pulse-dot" style="width:8px;height:8px;background:#22c55e;border-radius:50%;display:inline-block;"></span>
+                <span class="text-[#94a3b8]">Auto-refresh:</span>
+                <strong id="labelTimerRefresh" class="font-mono text-white">30s</strong>
+            </div>
+
             <button type="button" onclick="window.location.reload();" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#1e2433] hover:bg-[#283044] text-xs font-semibold text-white rounded-md border border-[#334155] transition-colors" title="Recarregar Dados">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                 Atualizar
@@ -855,6 +862,48 @@ function exportarTabelaCSV() {
     link.href = URL.createObjectURL(blob);
     link.download = 'atraso_distribuicao_' + new Date().toISOString().slice(0, 10) + '.csv';
     link.click();
+}
+
+// ─── Auto-Refresh 30 Segundos (Padrão Retrabalho) ───────────────────────────
+let autoRefreshSegundos = 30;
+let autoRefreshPausado = false;
+
+const intervalAutoRefresh = setInterval(() => {
+    const inputFocado = document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
+
+    if (!autoRefreshPausado && !inputFocado) {
+        autoRefreshSegundos--;
+        const lbl = document.getElementById('labelTimerRefresh');
+        if (lbl) {
+            lbl.textContent = autoRefreshSegundos + 's';
+        }
+
+        if (autoRefreshSegundos <= 0) {
+            window.location.reload();
+        }
+    }
+}, 1000);
+
+function alternarAutoRefresh() {
+    autoRefreshPausado = !autoRefreshPausado;
+    const lbl = document.getElementById('labelTimerRefresh');
+    const chip = document.getElementById('chipAutoRefresh');
+    const dot = chip?.querySelector('.pulse-dot');
+
+    if (autoRefreshPausado) {
+        if (lbl) {
+            lbl.textContent = 'Pausado';
+            lbl.style.color = '#64748b';
+        }
+        if (dot) dot.style.background = '#94a3b8';
+    } else {
+        autoRefreshSegundos = 30;
+        if (lbl) {
+            lbl.textContent = '30s';
+            lbl.style.color = '';
+        }
+        if (dot) dot.style.background = '#22c55e';
+    }
 }
 </script>
 
