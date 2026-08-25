@@ -10,6 +10,7 @@ requireLogin();
 
 $pdo        = getDB();
 $usuario    = currentUser();
+$base       = defined('APP_URL') ? APP_URL : '';
 $podeEditar = isAdmin() || !in_array((int) ($usuario['id_perfil'] ?? 0), [4, 211], true);
 
 // ─── Linhas de Produção da Média Força ───────────────────────────────────────
