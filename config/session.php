@@ -143,7 +143,7 @@ function getPermissoesUsuario(): array
             $pdo = getDB();
             // 1. Carrega permissões do perfil base
             if (!empty($user['id_perfil'])) {
-                $stmt = $pdo->prepare('SELECT perms FROM perfis WHERE id = ? AND status = "ativo"');
+                $stmt = $pdo->prepare('SELECT perms FROM perfis WHERE id = ? AND `status` = "ativo"');
                 $stmt->execute([$user['id_perfil']]);
                 if ($json = $stmt->fetchColumn()) {
                     $p = json_decode($json, true);
