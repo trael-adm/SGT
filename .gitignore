@@ -17,6 +17,11 @@ scratch/
 node_modules/
 .claude/
 .gemini/
+.agent/
+.impeccable/
+.opencode/
+__pycache__/
+*.pyc
 _inicial/dump_*.sql
 _inicial/dados_producao.sql
 _inicial/backup_*.sql

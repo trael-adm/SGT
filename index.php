@@ -67,6 +67,48 @@ if (hasAcesso('ret.rel')) {
     $urlRetrabalho = 'pages/producao/index.php';
 }
 
+// URL dinâmica para o card "Produção" baseada nas permissões
+if (hasAcesso('prod.dis')) {
+    $urlProducao = 'pages/distribuicao/index.php';
+} elseif (hasAcesso('prod.atr')) {
+    $urlProducao = 'pages/atraso-distribuicao/index.php';
+} elseif (hasAcesso('prod.for')) {
+    $urlProducao = 'pages/forca-seco/index.php';
+} elseif (hasAcesso('prod.set')) {
+    $urlProducao = 'pages/painel-setor/index.php';
+} elseif (hasAcesso('prod.flu')) {
+    $urlProducao = 'pages/fluxo-pedidos/index.php';
+} elseif (hasAcesso('prod.aco')) {
+    $urlProducao = 'pages/acompanhamento/index.php';
+} elseif (hasAcesso('prod.reg') || hasAcesso('lab.reg')) {
+    $urlProducao = 'pages/producao/index.php';
+} elseif (hasAcesso('prod.lis') || hasAcesso('lab.lis')) {
+    $urlProducao = 'pages/producao/lista.php';
+} elseif (hasAcesso('prod.ret') || hasAcesso('lab.ret')) {
+    $urlProducao = 'pages/producao/retornos.php';
+} else {
+    $urlProducao = 'pages/distribuicao/index.php';
+}
+
+// URL dinâmica para o card "SOMA" baseada nas permissões
+if (hasAcesso('soma.hub')) {
+    $urlSoma = 'pages/soma/index.php';
+} elseif (hasAcesso('soma.dig')) {
+    $urlSoma = 'pages/soma/digitador.php';
+} elseif (hasAcesso('soma.ope')) {
+    $urlSoma = 'pages/soma/operador.php';
+} elseif (hasAcesso('soma.par')) {
+    $urlSoma = 'pages/soma/paradas.php';
+} elseif (hasAcesso('soma.rel')) {
+    $urlSoma = 'pages/soma/relatorios.php';
+} elseif (hasAcesso('soma.aud')) {
+    $urlSoma = 'pages/soma/auditoria.php';
+} elseif (hasAcesso('soma.cfg')) {
+    $urlSoma = 'pages/soma/settings.php';
+} else {
+    $urlSoma = 'pages/soma/index.php';
+}
+
 // ─── Módulos da fábrica (HUB) ─────────────────────────────────────────────────
 $sistemas = [];
 $todosSistemas = [
@@ -80,19 +122,19 @@ $todosSistemas = [
     ],
     [
         'nome' => 'SOMA', 'cat' => 'PCP',
-        'desc' => 'Análise de tempos: peça/hora e dados de produção.',
+        'desc' => 'Análise de tempos: peça/hora, paradas e dados de produção.',
         'dot' => '#2E6CB8', 'iconBg' => '#E3EDF9', 'iconColor' => '#2E6CB8',
         'icone' => '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/>',
-        'url' => 'em-breve.php?s=SOMA',
-        'req' => 'hub:soma',
+        'url' => $urlSoma,
+        'req' => ['hub:soma', 'soma.hub', 'soma.dig', 'soma.ope', 'soma.par', 'soma.reg', 'soma.rel', 'soma.aud', 'soma.cfg'],
     ],
     [
         'nome' => 'Produção', 'cat' => 'Fábrica',
-        'desc' => 'Acompanhamento e registro de etapas no chão de fábrica.',
+        'desc' => 'Planejamento e controle de produção (PCP) e acompanhamento em tempo real.',
         'dot' => '#0F766E', 'iconBg' => '#CCFBF1', 'iconColor' => '#0F766E',
         'icone' => '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>',
-        'url' => 'em-breve.php?s=Produção',
-        'req' => 'hub:producao',
+        'url' => $urlProducao,
+        'req' => ['hub:producao', 'prod.dis', 'prod.atr', 'prod.for', 'prod.set', 'prod.flu', 'prod.aco', 'prod.met', 'prod.reg', 'prod.lis', 'prod.ret', 'lab.reg', 'lab.lis', 'lab.ret'],
     ],
     [
         'nome' => 'Retrabalho', 'cat' => 'Fábrica',

@@ -567,3 +567,111 @@ function gftEngenhariaFiltroSql(string $valor, string $aliasD = 'd', string $ali
     }
     return ['conds' => $conds, 'params' => $params];
 }
+
+/**
+ * Dias úteis (segunda a sexta) de um mês "YYYY-MM" — não considera feriados
+ */
+function boletimDiasUteisDoMes(string $mes): int
+{
+    [$ano, $m] = array_map('intval', explode('-', $mes));
+    $diasNoMes = (int) date('t', mktime(0, 0, 0, $m, 1, $ano));
+    $uteis = 0;
+    for ($d = 1; $d <= $diasNoMes; $d++) {
+        if ((int) date('N', mktime(0, 0, 0, $m, $d, $ano)) <= 5) $uteis++;
+    }
+    return $uteis;
+}
+
+/**
+ * Dias úteis já decorridos num mês "YYYY-MM": do dia 1 até hoje (mês atual),
+ * até o último dia do mês (mês passado), ou zero (mês futuro).
+ */
+function boletimDiasUteisTrabalhados(string $mes): int
+{
+    $hoje = new DateTime('today');
+    [$ano, $m] = array_map('intval', explode('-', $mes));
+    $primeiroDia = new DateTime(sprintf('%04d-%02d-01', $ano, $m));
+    if ($primeiroDia > $hoje) return 0;
+
+    $ultimoDiaMes = (int) $primeiroDia->format('t');
+    $ultimoDia = new DateTime(sprintf('%04d-%02d-%02d', $ano, $m, $ultimoDiaMes));
+    $fim = $ultimoDia < $hoje ? $ultimoDia : $hoje;
+
+    $uteis = 0;
+    $cursor = clone $primeiroDia;
+    while ($cursor <= $fim) {
+        if ((int) $cursor->format('N') <= 5) $uteis++;
+        $cursor->modify('+1 day');
+    }
+    return $uteis;
+}
+
+/**
+ * Escape seguro contra XSS
+ */
+function e(?string $str): string
+{
+    return htmlspecialchars((string) $str, ENT_QUOTES, 'UTF-8');
+}
+
+/**
+ * Formata data padrão pt-BR (DD/MM/AAAA)
+ */
+function formatarDataBr(?string $data): string
+{
+    if (!$data) return '—';
+    $timestamp = strtotime($data);
+    return $timestamp ? date('d/m/Y', $timestamp) : '—';
+}
+
+/**
+ * Formata minutos em formato amigável (ex.: 125 min -> 2h 05min)
+ */
+function formatarMinutosHoras(int|float|string|null $minutos): string
+{
+    if ($minutos === null || $minutos === '') return '0 min';
+    $min = (int) round((float) $minutos);
+    if ($min <= 0) return '0 min';
+    $h = intdiv($min, 60);
+    $m = $min % 60;
+    if ($h === 0) return "{$m} min";
+    return sprintf('%dh %02dmin', $h, $m);
+}
+
+/**
+ * Formata percentual com 1 casa decimal
+ */
+function formatarPercentual(float|int|string|null $valor): string
+{
+    if ($valor === null || $valor === '') return '—';
+    return number_format((float) $valor, 1, ',', '.') . '%';
+}
+
+/**
+ * Renderiza badge de status com base nas regras de cronoanálise industrial
+ */
+function renderBadgeStatus(?string $status): string
+{
+    if ($status === null || $status === '') return '<span class="badge badge-neutral">—</span>';
+    $statusNorm = trim(strtoupper($status));
+    return match ($statusNorm) {
+        'DENTRO DO PADRÃO', '[DENTRO DO PADRÃO]', 'DENTRO DO PADRAO', '[DENTRO DO PADRAO]' => '<span class="badge badge-success">[DENTRO DO PADRÃO]</span>',
+        'DESVIO MODERADO', '[DESVIO MODERADO]'                                               => '<span class="badge badge-warning">[DESVIO MODERADO]</span>',
+        'GARGALO CRÍTICO', '[GARGALO CRÍTICO]', 'GARGALO CRITICO', '[GARGALO CRITICO]'       => '<span class="badge badge-danger">[GARGALO CRÍTICO]</span>',
+        default                                                                             => '<span class="badge badge-neutral">' . e($status) . '</span>',
+    };
+}
+
+/**
+ * Verifica se o usuário atual possui um dos perfis informados
+ */
+function temPerfil(array|int $perfis): bool
+{
+    $user = currentUser();
+    $idPerfil = (int) ($user['id_perfil'] ?? 0);
+    if (is_int($perfis)) {
+        return $idPerfil === $perfis;
+    }
+    return in_array($idPerfil, $perfis, true);
+}
+

@@ -1,251 +1,441 @@
-# SGT — Sistema de Gestão Trael
-## Referência viva do projeto — leia antes de qualquer tarefa
+# PROJETO SGT — Sistema de Gestão Trael (com PCP & SOMA Integrados)
+
+> **Documento vivo e oficial de referência arquitetural, regras de negócio, engenharia de software e especificações técnicas.**  
+> Qualquer decisão de arquitetura, fluxo, banco de dados ou integração fabril deve ser consultada e mantida estritamente alinhada com este documento.
 
 ---
 
-## O que é este projeto
+## 1. Identidade do Produto & Contexto Operacional
 
-O **SGT** é um hub/portal web de **gestão de lançamentos** da fábrica Trael (transformadores elétricos), onde **gerentes e supervisores** registram e acompanham os **lançamentos operacionais** de cada área — uma tela inicial ("Selecione um sistema") com um card de acesso por módulo:
+O **SGT (Sistema de Gestão Trael)** é a plataforma integrada de inteligência industrial, planejamento, controle de produção e chão de fábrica da **Trael Transformadores Elétricos**. O sistema unifica a gestão de retrabalhos, rastreabilidade de ordens de fabricação (OFs e sub-OFs), controle de qualidade (IQF e Laboratório de Alta Tensão), visão computacional com OCR industrial (Paint Check), e incorpora formalmente todos os módulos de inteligência e painéis do **PCP (Planejamento e Controle da Produção)** e **SOMA (Cronoanálise Industrial & Tempos Padrão)** sob a aba e módulo de **Produção**.
 
-| Módulo | Área | Descrição | Status |
-|---|---|---|---|
-| **SGT** | Engenharia | Gestão de demandas, projetos e etapas de produção | ✅ implementado |
-| **SOMA** | PCP | Análise de tempos: peça/hora e dados de produção | 🚧 a construir |
-| **Produção** | Operação | Acompanhamento das etapas no chão de fábrica | 🚧 em construção — 1ª atividade (estação LAB + leitura de QR) + Lista de Registros implementadas |
-| **Retrabalho** | Qualidade | Registro e acompanhamento de retrabalhos | ✅ implementado |
-| **5S** | Organização | Auditorias e checklists de 5S por setor | 🚧 a construir |
-| **Ausências** | Pessoas | Faltas, férias e afastamentos da equipe | 🚧 a construir |
-| **Incidentes** | Segurança | Registro e acompanhamento de incidentes no processo | 🚧 a construir |
-| **Perdas** | Descartes | Lançamento de descartes do setor: sucatas e perdas | 🚧 a construir |
-| **Paradas** | Operação | Registro de paradas de máquina: motivos e tempo | 🚧 a construir |
+### Usuários Principais
+- **Supervisores de Produção & Líderes de Linha:** Acompanhamento de esteiras em tempo real, apontamentos operacionais, leitura de QR Codes por câmera/terminal e monitoramento de paradas de máquina.
+- **Planejadores do PCP:** Monitoramento contínuo de metas diárias e mensais (Meta × Realizado), análise de atrasos do Plano Mestre, priorização de pedidos (FIFO com herança) e rastreamento da árvore de sub-montagens.
+- **Inspetores de Qualidade & Laboratório de Ensaios (`LAB` / `IQF`):** Ensaios elétricos de rotina e tipo, inspeção dimensional e mecânica, emissão de reprovas, controle de reensaios e liberação para expedição.
+- **Liderança Industrial & Diretoria:** Dashboards executivos de indicadores de produção por linha (Distribuição — TPD, Média Força — TPM, Transformadores a Seco — TPS), medidores de eficiência (*gauges*), gargalos por célula e balanço de produtividade.
+- **Operadores de Máquina & Digitadores:** Terminais simplificados para apontamento de tempos de ciclo, paradas de linha e alimentação de ordens de fabricação.
 
-Todos os módulos vivem no mesmo app: mesma stack, mesmo login/perfis, mesma base de dados. O **Retrabalho** é o primeiro módulo de lançamentos implementado; o **Produção** teve sua 1ª atividade implementada (card da estação Laboratório + leitura de QR — especificação completa em `PROJETO-SGT/producao-tela-spec.md`) junto com a Lista de Registros (listagem + Reprovar, ponte para o Retrabalho), com as estações IQF/GER e o painel gerencial ainda pendentes; os demais módulos seguem como escopo futuro. Conforme cada módulo é construído, ganha sua própria seção de documentação neste arquivo.
-
----
-
-## Conceito: gestão de lançamentos
-
-O SGT é **gerencial** — a operação registra e a gestão acompanha. Cada módulo representa um **tipo de lançamento** (um retrabalho, uma perda, uma parada, um incidente, uma auditoria 5S, uma ausência) e entrega três coisas:
-
-1. **Formulário de lançamento** — o supervisor registra a ocorrência (setor, data, responsável, motivo/categoria, a métrica da área — quantidade, tempo ou valor — e observações).
-2. **Painel gerencial** — KPIs, gráficos e ranking (por setor, período, motivo) para leitura rápida da gestão.
-3. **Tabela de acompanhamento** — lista dos lançamentos com filtros e ciclo de status **definido por cada módulo**. Padrão de referência: aberto → em andamento → concluído. Ex. atual do **Retrabalho**: **Agu. Abertura → Agu. Causa da Reprova → Finalizado**, derivado automaticamente dos dados (data de finalização e causa da reprova), sem seleção manual. Um módulo pode ganhar telas de listagem complementares além da tabela do painel — ex.: **Relação de Retrabalhos** (`pages/retrabalho/relacao.php`), com abas por estação, agrupada por **N° de Série** (com múltiplas reprovas empilhadas), filtros, colunas ordenáveis e paginação, mais duas colunas calculadas: **flag de urgência** (verde/amarelo/laranja/vermelho por dias úteis parado, `diasUteisEntre()` em `includes/helpers.php`) e **reincidência** (quantas vezes o mesmo N° de série já apareceu no retrabalho), além de herança de **Prioridade e Sequência** (NS > Projeto > Pedido: Emergente, Urgente, Importante, Neutro); o **Dashboard de Reprovas** (`pages/retrabalho/dashboard.php`), painel gerencial em tempo real com gráfico interativo de Principais Motivos (clique-para-filtrar na planilha em tempo real com feedback visual e reset dinâmico), contagem de KPIs consolidada por peça física única e gráfico de Status Diário; o **Painel de Retrabalho** (`pages/retrabalho/index.php`), mapa interativo de fluxo fabril com filtros rápidos (🚨 Urgentes, 🔄 Em Retorno para LAB e IQF/MF, ⏳ Aguardando Triagem) e iluminação dinâmica; e a **Lista de Registros** do **Produção** (`pages/producao/lista.php`), com o mesmo padrão de abas/filtros/ordenação/paginação e uma ação **Reprovar** que registra a reprovação diretamente em `retrabalhos` (ponte manual entre os dois módulos, sem tabela compartilhada — ver "Módulo Produção" abaixo).
-
-**Sem modelo de dados único obrigatório:** cada módulo define o **seu próprio** conjunto de campos e sua tabela conforme a natureza da área — não há schema comum imposto entre módulos. O que se mantém padrão é a experiência (formulário + painel + tabela) e as convenções técnicas de banco (soft delete, status, auditoria).
-
-**Telas de apoio (cadastro):** um módulo pode depender de cadastros auxiliares fora do fluxo padrão (formulário + painel + tabela) — ex.: o **Retrabalho** depende do cadastro de **Pedidos e Projetos** (`pages/projetos/`), que alimenta os selects do formulário de lançamento, e do painel de **Prioridades** (`pages/pedidos/prioridade.php`), que possui abas independentes para Pedidos, Projetos e N° de Série para gerenciar a fila. Essas telas de apoio têm acesso próprio na sidebar, mas não aparecem como card no hub.
+### Princípios Fundamentais do Produto
+1. **Visibilidade Imediata:** Informações críticas, desvios de meta e gargalos produtivos saltam aos olhos com contrastes calibrados e sem navegação profunda.
+2. **Zero Fricção Operacional:** Topos travados (*sticky headers*), filtros instantâneos no padrão planilha, paginação ágil e rolagem única controlada no container principal.
+3. **Fidelidade Real do Chão de Fábrica:** As regras do sistema espelham fielmente a física dos processos de manufatura, a lógica de montagem dos transformadores, os turnos reais e os dados do ERP.
+4. **Precisão & Integridade:** Dados 100% auditados, rastreabilidade ponta a ponta sem duplicidades e integridade referencial com soft delete em todas as operações.
 
 ---
 
-## Stack obrigatória
+## 2. Stack Tecnológica & Padrões Arquiteturais
 
-> Vale para o hub inteiro e para todos os módulos — mesma stack, sem framework novo nem stack paralela.
+### Back-end
+- **PHP 8.4 Vanilla:** Arquitetura limpa sem frameworks externos (sem Laravel, Symfony, etc.); uso obrigatório da declaração estrita `declare(strict_types=1)` em todos os arquivos PHP.
+- **Conexão Dual de Banco de Dados:**
+  - **MySQL (Aplicação Principal):** Conexão singleton gerenciada exclusivamente por `getDB()` em `config/conexao.php` (autenticação, sessões, retrabalho, metas mensais, catálogo e cronoanálise).
+  - **SQL Server (ERP Trael / Kardex / piAudit):** Conexão singleton segura `getSqlServerDB(): ?PDO` via PDO ODBC (`vsat.trael.local` / `vsattrael`) em `config/conexao.php`, com timeout curto e tolerância a falhas na rede interna da fábrica.
+- **Planilhas-Ponte & Leitura Server-Side:**
+  - Leitura no servidor via `PharData` (sem dependência de extensões pesadas como ZipArchive ou Composer), cacheada em `storage/cache/`.
+  - `PLANILHA QUE ATUALIZA/NS.OF.xlsx`: Índice de Ordens de Fabricação (~4,8 MB, atualizado por Power Query, lido por `includes/planilha-ns-of.php`).
+  - `PLANILHA Q ATUALIZA/Relação Kardex.xlsx`: Histórico de movimentações de produção (~85 MB, 38 colunas, abas `dw vw_kardex_lotes` e `dw vw_ficha_espc_trafo`, lido por `includes/boletim-planilha.php`).
+  - `PLANILHA QUE ATUALIZA/Item.csv`: Catálogo oficial de materiais (~23,7 mil itens, importado para `itens_catalogo` por `_inicial/importar-itens-catalogo.php`).
 
-**Back-end**
-- PHP 8.4 vanilla — sem frameworks; `declare(strict_types=1)` em todo arquivo PHP
-- MySQL via PDO — conexão singleton `getDB()` em `config/conexao.php`
+### Front-end
+- **Tailwind CSS (CDN Play):** Estilização utilitária combinada com o design system central em `assets/css/main.css`.
+- **CSS Variables & Design Tokens Trael:**
+  ```css
+  --color-sidebar:        #1a3d2a;  --color-sidebar-hover:  #2d6e45;
+  --color-sidebar-active: #3a8a58;  --color-sidebar-text:   rgba(255,255,255,.85);
+  --color-accent:         #e8a020;  --color-accent-hover:   #d4911a;
+  --color-accent-light:   #fef3dc;  --color-accent-text:    #7a4f08;
+  --color-bg:             #f4f5f7;  --color-surface:        #ffffff;
+  --color-surface-2:      #f8f9fb;  --color-border:         #e2e6ed;
+  --color-text-primary:   #1a2133;  --color-text-secondary: #5a6480;
+  --color-text-muted:     #9aa3b8;
+  --color-success: #16a34a / bg #dcfce7   --color-warning: #d97706 / bg #fef3c7
+  --color-danger:  #dc2626 / bg #fee2e2   --color-info:    #2563eb / bg #dbeafe
+  ```
+- **JavaScript Vanilla:** Scripts dedicados por módulo em `assets/js/` sem React, Vue ou Alpine.
+- **Bibliotecas CDN Homologadas:**
+  - **Chart.js + ChartDataLabels:** Gráficos diários, séries empilhadas, histogramas, metas lineares e medidores de eficiência (*gauges*).
+  - **jsQR:** Decodificação em tempo real de QR Codes via stream de vídeo da câmera e upload de imagens no chão de fábrica.
 
-**Front-end**
-- Tailwind CSS via CDN play (`cdn.tailwindcss.com`) — sem build step, sem config file
-- `assets/css/main.css` — sistema de design próprio com CSS variables
-- `assets/js/app.js` — JavaScript global, carregado via `includes/footer.php`
-- JavaScript vanilla — sem jQuery, sem React, sem Alpine
-- Chart.js via CDN (`cdn.jsdelivr.net/npm/chart.js`) — gráficos do painel gerencial (usado no Retrabalho, `chartRanking`/`chartDonut`); padrão para os demais módulos
-- jsQR via CDN (`cdn.jsdelivr.net/npm/jsqr`) — leitura de QR Code por câmera ou imagem enviada (usado no Produção, `assets/js/producao.js`)
-
-**Layout**
-- Páginas autenticadas usam `layoutHeader()` + `layoutFooter()` de `includes/layout.php` (incluem sidebar, header, footer, fontes e assets automaticamente)
-
-**Deploy (produção)**
-- Railway com `Dockerfile` na raiz (`php:8.3-cli` + `pdo pdo_mysql`)
-- `.env` (local, gitignored) e variáveis Railway (`MYSQLHOST`, `MYSQLDATABASE`, `MYSQLUSER`, `MYSQLPASSWORD`, `MYSQLPORT`, `APP_URL`, `APP_ENV`)
-- **Base de URL no JS:** montar `fetch` internos com `APP_URL` (`window.__APP_BASE`), nunca com prefixo fixo de pasta — evita 404 entre local e produção.
-
----
-
-## Regras de comportamento
-
-**Escopo de trabalho**
-- Faça **apenas** o que for pedido na tarefa atual
-- Não crie arquivos além dos solicitados
-- Não refatore, não renomeie, não reorganize código que não foi pedido
-- Ao terminar cada tarefa, liste exatamente o que foi criado/alterado e aguarde validação
-- Nunca pule para a próxima etapa sem confirmação
-
-**Conflito com este documento**
-- Este documento descreve o **estado atual acordado** do projeto — não é uma trava imutável
-- Quando um pedido divergir de algo registrado aqui (stack, convenção, estrutura, decisão técnica), **alertar antes de executar**:
-  > "Este pedido conflita com [seção/regra]. Confirma que quer prosseguir? Se sim, atualizo o documento também."
-- O pedido do usuário sempre prevalece após confirmação
-- Após confirmação, atualizar este documento para refletir a nova decisão
-- Se tiver dúvida sobre conflito, **pergunte antes de fazer**
+### Padrão de Layout & Navegação
+- Páginas autenticadas utilizam o encapsulamento `layoutHeader($pageTitle)` e `layoutFooter()` de `includes/layout.php`.
+- Container principal com rolagem única (`<main class="main-content">`), header fixo com perfil/avatar e sidebar dinâmica que se ajusta automaticamente com base nas permissões RBAC do usuário.
+- **Base de URL Dinâmica:** Chamadas fetch e redirecionamentos no front-end utilizam `window.__APP_BASE` para garantir funcionamento transparente entre ambiente local e deploy no Railway.
 
 ---
 
-## Estrutura de pastas do projeto
+## 3. Regras de Ouro & Comportamento de Engenharia
+
+1. **Execução Aprofundada & Sem Pressa (Zero-Rush):** Não abreviar código, não pular código boilerplate e nunca usar placeholders como `// TODO` ou `// resto do código aqui`. Arquivos entregues devem ser completos e prontos para produção.
+2. **Escopo Estrito:** Fazer estritamente o que foi solicitado na tarefa. Não refatorar, renomear ou reorganizar código que não tenha sido expressamente pedido.
+3. **Preservação de UI/UX:** Ao editar interfaces e scripts, preservar rigorosamente labels de botões, tags, elementos visuais e comportamentos do Design System Trael.
+4. **Testes Ponta a Ponta Obrigatórios:** Nenhuma alteração é considerada concluída sem verificação de sintaxe (`php -l`), validação de queries e testes de execução.
+
+---
+
+## 4. Regras Críticas de Chão de Fábrica & PCP
+
+### 4.1. Turno de Produção Industrial (07:30 às 02:48)
+- A jornada diária de produção da fábrica tem início às **07:30** da manhã e se estende até as **02:48** da madrugada do dia posterior.
+- Apontamentos realizados entre **00:00:00 e 07:29:59** pertencem juridicamente e operacionalmente à data do **turno anterior**.
+- Na leitura direta do ERP (`SQL Server`), esses registros são cruzados com a tabela de auditoria `dbo.piAudit` (`OIDTable = 29708`) e recuados para a data do turno anterior através do deslocamento temporal:
+  ```sql
+  DATEADD(minute, -450, COALESCE(aud.DataHoraAudit, k.dt_Movimento))
+  ```
+
+### 4.2. Agregação de Produção de Fins de Semana na Sexta-Feira
+- Transformadores apontados no **sábado** ou no **domingo** são automaticamente somados e agregados na **sexta-feira imediatamente anterior** através da função `boletimAjustarDataFimDeSemanaParaSexta()`. Isso reflete fielmente o fechamento da programação semanal.
+
+### 4.3. Classificação de Núcleos na Linha de Distribuição (`boletimClassificarNucleoTrafo()`)
+Na linha de Distribuição (TPD), cada transformador é classificado estritamente em uma das 3 famílias de núcleo:
+- **`JC-TRIF`:** Exclusivamente transformadores com núcleo `JC` (`ds_TpEnrolamentoNucleo = 'JC'`) e que sejam **Trifásicos** (`nrofasesTrafo = 'TRI'` ou descrição do produto contendo `3F`).
+- **`ENR`:** Inclui núcleos `ENR` e **todos os transformadores `JC` Monofásicos (`1F`/`MON`) ou Bifásicos (`2F`/`BIF`)**.
+- **`EMP`:** Núcleos `EMP` e `EMP-LM` (Convencional / Empilhado de lâminas).
+
+### 4.4. Segregação de Reprovas do Laboratório (`LAB`)
+- Reprovas emitidas no Laboratório (`LAB`) são monitoradas em seus próprios KPIs de não-conformidade e retrabalho. Elas **nunca** são somadas à contagem de transformadores aprovados nos gráficos de Mix nem no Executado Total dos dashboards de produção.
+
+### 4.5. Regra de Alternância da Linha TPD por Planta (`cdEnt`)
+- A coluna `cdEnt` do Kardex define a unidade fabril onde o transformador foi produzido:
+  - `cdEnt = 1`: Planta de **Distribuição**.
+  - `cdEnt = 4`: Planta de **Média Força**.
+- Linhas TPM e TPS são **sempre** alocadas em Média Força (`area='forca'`), independente de `cdEnt`.
+- A produção de TPD realizada na planta 4 (`cdEnt=4`) entra no dashboard de Média Força como uma série dedicada e **nunca é somada com TPM no mesmo indicador** (segmentação rígida de famílias).
+
+### 4.6. Exclusão de Itens RNS
+- Itens cujo código de referência inicia com `RNS-` ("Reator de Núcleo Saturado") não são transformadores de potência/distribuição e são ignorados pelos dashboards de medição.
+
+### 4.7. Priorização FIFO e Herança de Sequência em 3 Níveis
+- A prioridade da fila operacional de fabricação e retrabalho segue o princípio **FIFO** (Primeiro a Entrar, Primeiro a Sair) com herança estrita em 3 níveis hierárquicos:
+  $$\text{N° de Série} > \text{Projeto} > \text{Pedido}$$
+- O nível mais específico cadastrado sempre sobrepõe os níveis mais genéricos. Níveis: **Emergente (1)**, **Urgente (2)**, **Importante (3)** e **Neutro (4)**.
+
+---
+
+## 5. Módulos de Produção & PCP (Especificação Detalhada)
+
+O módulo de **Produção** no SGT centraliza a inteligência do PCP, dashboards gerenciais, controle de fluxo e os apontamentos de chão de fábrica.
+
+```
+pages/
+├── producao/
+│   ├── index.php                ← Registro de Entrada / Apontamento (Card LAB, Leitor QR, Câmera)
+│   ├── lista.php                ← Lista de Registros Operacionais & Ação Reprovar
+│   ├── retornos.php             ← Fila de Retornos de Retrabalho (Pós-Correção)
+│   ├── distribuicao.php         ← Dashboard Indicador Distribuição (TPD) [Proxy]
+│   ├── atraso-distribuicao.php   ← Dashboard de Atrasos do Plano Mestre [Proxy]
+│   ├── forca-seco.php           ← Dashboard Indicador Média Força / Seco (TPM / TPS) [Proxy]
+│   ├── painel-setor.php         ← Painel por Setor / Célula Fabril [Proxy]
+│   ├── fluxo-pedidos.php        ← Rastreabilidade & Árvore de Sub-OFs por Célula [Proxy]
+│   ├── acompanhamento.php       ← Acompanhamento Tanque/Parte Ativa → Montagem Final [Proxy]
+│   └── settings.php             ← Configurações de Metas Mensais & Calendário
+├── distribuicao/
+│   └── index.php                ← Dashboard Principal de Distribuição (TPD)
+├── atraso-distribuicao/
+│   └── index.php                ← Análise de Atraso e Aging do Plano Mestre
+├── forca-seco/
+│   └── index.php                ← Dashboard de Média Força e Transformadores a Seco
+├── painel-setor/
+│   └── index.php                ← Visão Operacional por Célula / Histograma
+├── fluxo-pedidos/
+│   ├── index.php                ← Matriz de Rastreabilidade em 10 Células
+│   └── setor.php                ← Visão Detalhada por Célula
+├── acompanhamento/
+│   └── index.php                ← Convergência Tanque/Parte Ativa → Montagem Final
+```
+
+### 5.1. Dashboard Indicador Distribuição (TPD) (`pages/distribuicao/index.php`)
+- **Painel Superior de Indicadores (KPIs):** Meta do Mês, Realizado Acumulado, Saldo Restante, % Atingido, Média Diária Realizada e Ritmo Diário Necessário para bater a meta.
+- **Gráficos Interativos (Chart.js):**
+  - **Produção Diária por Núcleo:** Gráfico de barras empilhadas (`ENR`, `JC-TRIF`, `EMP`) com linha de Meta Diária sobreposta.
+  - **Mix de Produção:** Comparativo Donut/Pizza entre o Mix Programado e o Mix Realizado.
+  - **Produção Acumulada:** Curva de área da produção realizada contra a curva linear da meta mensal.
+- **Painel "Produção por Linha":** Tabela analítica por núcleo com 4 linhas de métricas (`Executado`, `Meta`, `Diferença`, `% Executado`) e colunas de `MÉDIA` e `SOMA`.
+- **Exportação & Impressão A4 Paisagem:** Botão "Imprimir Produção por Linha" (`imprimirProducaoPorLinha()`) com CSS específico para layout Landscape sem quebra de página.
+- **Modal de Métricas & Calendário Interativo (`#modal-metricas`):** Definição de metas diárias por núcleo e calendário interativo para marcar dias úteis, pontes e feriados, recalculando a meta mensal automaticamente na tabela `boletim_config_metas`.
+
+### 5.2. Dashboard Atraso Distribuição (`pages/atraso-distribuicao/index.php`)
+- Cruzamento diário entre o snapshot das peças previstas no Plano Mestre e os apontamentos de conclusão no Laboratório (Kardex / SQL Server).
+- Indicadores de atraso segmentados por família de núcleo (Monofásico, Convencional, JC-TRIF em quantidade de peças e dias médios de atraso).
+- Cálculo da **Média Geral Simples** de atraso da fábrica e gráfico de evolução temporal diária.
+- Tabela analítica com busca instantânea, ordenação por colunas e identificação visual de criticidade.
+
+### 5.3. Dashboard Indicador Média Força / Seco (`pages/forca-seco/index.php`)
+- Acompanhamento das linhas **TPM (Média Força)** e **TPS (Transformadores a Seco)**.
+- Exibição de Meta Mensal, Realizado Acumulado, Saldo a Produzir e % de Eficiência.
+- Gráfico de barras diárias com linha de meta sobreposta e série condicional de TPD produzido na linha de força (`cdEnt=4`).
+
+### 5.4. Painel por Setor (`pages/painel-setor/index.php`)
+- Visão por célula produtiva (Pintura, Montagem Elétrica, Montagem Final, Bobinagem, Laboratório ou Consolidado Geral).
+- **Gauge de Eficiência (%):** Mostrador velocímetro de eficiência da célula em tempo real.
+- **Métricas Operacionais:** Meta do Dia, Produção Total, Saldo Restante e Fila Acumulada em Espera.
+- **Histograma Diário:** Gráfico com linha de meta dinâmica baseada na capacidade instalada da célula.
+
+### 5.5. Acompanhamento Tanque / Parte Ativa → Montagem Final (`pages/acompanhamento/index.php`)
+- Rastreamento da convergência das 2 sub-montagens cruciais que alimentam a Montagem Final (restrito à **Empresa 1**):
+  - **Pintura (`MTQ`):** Status de conclusão do Tanque.
+  - **Montagem Elétrica (`ME-` / `PA-`):** Status de conclusão da Parte Ativa.
+  - **Montagem Final (`MFL`):** Montagem Final do equipamento.
+- **Matriz de Status e Ação Operacional:**
+  - `Pintura OK + Montagem Elétrica OK (Montagem Final Pendente)` ➔ **"DESCER PARA MONTAGEM FINAL"** (Badge Verde).
+  - `Montagem Elétrica OK + Pintura Pendente` ➔ **"PINTAR TANQUE"** (Badge Âmbar).
+  - `Pintura OK + Montagem Elétrica Pendente` ➔ **"GUARDAR NA ESTUFA"** (Badge Azul).
+  - `Montagem Final OK com Pintura ou Montagem Elétrica Pendentes` ➔ **"VERIFICAR APONTAMENTO"** (Badge Vermelho — Alerta de Inconsistência).
+  - *Peças com ciclo completo ou sem nenhuma etapa iniciada são ocultadas automaticamente da fila.*
+
+### 5.6. Rastreabilidade & Fluxo de Pedidos (`pages/fluxo-pedidos/index.php`)
+- Decomposição hierárquica recursiva de até **5 níveis de sub-OFs** no SQL Server (`dbo.RlcProgramacao`).
+- Visão matricial em 10 células fabris: Chassi (`CH`), Baixa Tensão (`BT`), Alta Tensão (`AT`), Corte CNC (`CNC`), Solda/Tanque (`SOL`), Montagem Núcleo (`MN`), Pintura (`PIN`), Montagem Elétrica (`ME`), Montagem Final (`MF`), Laboratório (`LAB`).
+- Filtros avançados por período, semana, mês, número do pedido, código do projeto e número de série com drill-down instantâneo para a lista de peças.
+
+### 5.7. Apontamento de Chão de Fábrica & Registro (`pages/producao/index.php`)
+- Card interativo da estação (LAB/IQF/GER) com exibição do transformador em processo e cronômetro decorrido em tempo real atualizado a cada segundo via JavaScript.
+- Leitor de QR Code modal em tela cheia com alternância dinâmica para upload de imagem e digitação manual de número de série.
+- Resolução e validação instantânea de projeto/pedido contra o índice de Ordens de Fabricação (`NS.OF.xlsx` / `includes/planilha-ns-of.php`).
+- Prevenção de concorrência com trava de banco para evitar dois apontamentos em andamento para o mesmo equipamento.
+
+### 5.8. Lista de Registros & Retornos (`pages/producao/lista.php` e `retornos.php`)
+- Tabela geral de passagens pelas estações com abas de filtro por local (Todas, LAB, IQF, GER), busca textual e filtro mensal.
+- **Ação Reprovar (Ponte Produção ➔ Retrabalho):** Botão que abre modal com Pedido/Projeto/N° de série travados e blocos repetíveis de reprova (catálogo `reprovas`). Ao confirmar, cria as entradas em `retrabalhos` e finaliza a etapa atual.
+- **Fila de Retornos:** Gestão de transformadores que passaram por retrabalho e retornaram para reensaio no Laboratório ou Inspeção Final.
+
+---
+
+## 6. Módulo Cronoanálise & SOMA (Sistema Operacional de Manutenção e Apontamento)
+
+O subsistema **SOMA** gerencia a cronoanálise de tempos padrão, medição de peça/hora, eficiência de operadores e apontamento de paradas de linha.
+
+```
+pages/soma/
+├── index.php                ← Hub & Dashboard Geral do SOMA
+├── digitador.php            ← Apontamento Rápido em Lote (Digitador do PCP)
+├── operador.php             ← Terminal de Chão de Fábrica do Operador
+├── paradas.php              ← Apontamento e Gestão de Paradas de Máquina
+├── registros.php            ← Relação Geral de Tempos & Ciclos Medidos
+├── relatorios.php           ← Relatórios de Produtividade & Peça/Hora
+├── auditoria.php            ← Auditoria de Apontamentos & Inconsistências
+└── settings.php             ← Configurações de Tempos Padrão & Cadastros
+```
+
+### Funcionalidades do SOMA:
+- **Terminal do Operador (`operador.php`):** Interface otimizada para tablets industriais com botões largos de Iniciar Ciclo, Finalizar Ciclo e Registrar Parada (`assets/js/soma-leitor.js`).
+- **Apontamento pelo Digitador (`digitador.php`):** Digitação acelerada por teclado de múltiplos apontamentos com cálculo automático de tempos decorridos.
+- **Gestão de Paradas (`paradas.php`):** Cadastro de motivos de parada (Falta de Material, Manutenção Mecânica/Elétrica, Ajuste de Processo, Troca de Ferramental) com impacto direto no OEE da célula.
+- **Classificação Industrial de Produtividade:**
+  - `[DENTRO DO PADRÃO]` — Badge Verde (tempo executado $\le$ tempo padrão).
+  - `[DESVIO MODERADO]` — Badge Âmbar (tempo executado até +20% do padrão).
+  - `[GARGALO CRÍTICO]` — Badge Vermelho (tempo executado $>20\%$ acima do padrão).
+
+---
+
+## 7. Módulos Complementares do SGT
+
+### 7.1. Módulo de Retrabalho (`pages/retrabalho/`)
+- **Ciclo de Vida Automático dos Lançamentos:**
+  $$\text{Aguardando Abertura} \longrightarrow \text{Aguardando Causa da Reprova} \longrightarrow \text{Finalizado}$$
+  *(Status derivado diretamente da presença de data de término e causa raiz, sem seleção manual).*
+- **Dashboard de Reprovas (`dashboard.php`):** Painel gerencial em tempo real com gráfico interativo de Principais Motivos de Reprova, contagem consolidada por peça física única e gráfico de status diário.
+- **Painel Interativo de Retrabalho (`index.php`):** Mapa visual das esteiras fabris com filtros instantâneos (🚨 Urgentes, 🔄 Em Retorno, ⏳ Aguardando Triagem) e iluminação dinâmica dos postos de trabalho.
+- **Relação de Retrabalhos (`relacao.php`):** Tabela mestre agrupada por número de série com múltiplas reprovas empilhadas, flags de urgência por dias úteis parados (`diasUteisEntre()`), contador de reincidências e herança de prioridade FIFO.
+- **Triagem & Materiais Utilizados:** Registro obrigatório de causa raiz, setor causador, ação corretiva e materiais gastos consumidos diretamente de `itens_catalogo` com snapshot de preço médio.
+
+### 7.2. Central de Administração & Usuários (`pages/admin/usuarios.php`)
+- Painel administrativo unificado em 3 abas principais: **Usuários**, **Setores da Fábrica** e **Perfis/Permissões**.
+- Árvore de permissões hierárquica em 3 níveis (**Sistema HUB ➔ Módulo ➔ Tela**) com accordions expansíveis, sticky header e ações em lote (Expandir/Recolher/Liberar/Bloquear Todos).
+- Gestão de CPFs, e-mails, senhas com hash `BCRYPT`, flag operacional `e_executor` e exclusão lógica segura com confirmação modal.
+
+### 7.3. Paint Check — Visão Computacional & OCR Industrial Híbrido (`pages/qualidade/paint-check.php` & `paint-check-robo/server.py`)
+- Sistema de inteligência artificial para validação automatizada de montagem e identificação de placas de transformadores:
+  - Detecção e correção de perspectiva angular via **YOLO-OBB** (`cv2.warpAffine`), square padding e realce morfológico para superfícies metálicas (CLAHE + TopHat).
+  - Inferência dupla em 0° e 180° com eliminação de sobreposição via IoU ($>50\%$).
+  - Inversão semântica bidirecional de caracteres ambíguos a 180° (`6 ↔ 9`, `2 ↔ 5`, `0 ↔ 0`, etc.) no Python e PHP, validada contra o catálogo oficial `NS.OF.xlsx`.
+
+---
+
+## 8. Estrutura de Diretórios do Projeto
 
 ```
 SGT/
-├── _inicial/              ← referência (não subir para produção)
-│   ├── database.sql       ← estrutura do banco + dados iniciais
-│   ├── migrar-*.sql       ← migrações incrementais (idempotentes, ver "Banco de dados")
-│   └── importar-*.php     ← scripts CLI de importação em lote de planilhas externas (simulação por padrão, --commit grava; ver "Funções centralizadas")
-├── api/                   ← endpoints chamados via fetch/AJAX
-│   ├── retrabalho-acao.php ← registrar/editar Triagem, causa raiz/correção por reprova, buscar_material (catálogo de materiais)
-│   ├── projetos-acao.php  ← cadastro de apoio (pedidos/projetos)
-│   └── producao-acao.php  ← ler/confirmar/status (Registro) + remover_etapa (usado pelo Reprovar da Lista)
+├── _inicial/                        ← Migrações incrementais e scripts CLI
+│   ├── database.sql                 ← Schema inicial de infraestrutura
+│   ├── migrar-*.sql                 ← Migrações incrementais idempotentes
+│   └── importar-*.php               ← Scripts CLI de importação de dados
+├── api/                             ← Endpoints chamados via fetch/AJAX
+│   ├── producao-acao.php            ← Ações de apontamento de chão de fábrica
+│   ├── boletim-acao.php             ← Ações de metas e lançamentos do PCP
+│   ├── boletim-fluxo.php            ← Endpoint do Fluxo de Pedidos
+│   ├── boletim-exportar.php         ← Exportação de dados do PCP
+│   ├── retrabalho-acao.php          ← Ações de retrabalho e triagem
+│   ├── soma-acao.php                ← Ações e apontamentos do SOMA
+│   └── projetos-acao.php            ← Cadastro de apoio (pedidos/projetos)
 ├── config/
-│   ├── conexao.php        ← conexão PDO + carga de ambiente (getDB, APP_URL)
-│   ├── session.php        ← sessão + helpers de acesso (requireLogin/requirePerfil)
-│   └── versao.php         ← APP_VERSION
+│   ├── conexao.php                  ← Conexão PDO MySQL (getDB) e SQL Server (getSqlServerDB)
+│   ├── session.php                  ← Sessão segura em banco e controle de acessos
+│   └── versao.php                   ← Versão global do sistema (APP_VERSION)
 ├── includes/
+│   ├── layout.php                   ← Encapsulamento de cabeçalho, sidebar e rodapé
 │   ├── header.php / sidebar.php / footer.php
-│   ├── layout.php         ← wrapper de layout das páginas autenticadas
-│   ├── helpers.php        ← funções utilitárias globais
-│   └── planilha-ns-of.php ← índice cd_of → N° de série/projeto/pedido (planilha externa, ver "Módulo Produção")
+│   ├── helpers.php                  ← Funções utilitárias globais (datas, cálculos, dias úteis)
+│   ├── boletim-planilha.php         ← Leitor da planilha-ponte do Kardex
+│   ├── boletim-acompanhamento.php   ← Motor de dados do Acompanhamento Tanque/Parte Ativa
+│   ├── boletim-fluxo-pedidos.php    ← Árvore recursiva de sub-OFs do SQL Server
+│   ├── boletim-atraso.php           ← Cruzamento de atrasos do Plano Mestre
+│   ├── boletim-painel-setor.php     ← Métricas e histogramas por célula
+│   ├── planilha-ns-of.php           ← Leitor do catálogo NS.OF.xlsx
+│   ├── soma-helpers.php / soma-subnav.php
+│   ├── modal-detalhes-pecas.php     ← Modal de detalhe de peças
+│   └── modal-filtro-data.php        ← Modal de filtro de intervalo de datas
 ├── pages/
-│   ├── retrabalho/        ← 1º módulo de lançamentos: dashboard.php (painel de reprovas), index.php (form + mapa), relacao.php (listagem)
-│   ├── projetos/          ← cadastro de apoio: pedidos e projetos (usado pelo Retrabalho)
-│   └── producao/          ← módulo Produção: index.php (Registro — card LAB + leitura QR) + lista.php (Lista — listagem + Reprovar)
+│   ├── producao/                    ← Módulo de Produção & Chão de Fábrica
+│   ├── distribuicao/                ← Dashboard Indicador Distribuição (TPD)
+│   ├── atraso-distribuicao/         ← Dashboard de Atraso Distribuição
+│   ├── forca-seco/                  ← Dashboard Indicador Média Força / Seco (TPM/TPS)
+│   ├── painel-setor/                ← Painel Operacional por Setor
+│   ├── fluxo-pedidos/               ← Rastreabilidade e Fluxo de Pedidos em 10 Células
+│   ├── acompanhamento/              ← Acompanhamento Tanque/Parte Ativa → Montagem Final
+│   ├── soma/                        ← Subsistema de Cronoanálise SOMA
+│   ├── retrabalho/                  ← Módulo de Gestão de Retrabalhos
+│   ├── pedidos/                     ← Priorização e Sequenciamento de Pedidos
+│   ├── projetos/                    ← Cadastro de Apoio de Pedidos e Projetos
+│   ├── qualidade/                   ← Tipos de Reprova & Paint Check
+│   ├── pintura/                     ← Paint Check e Relação de Retrabalhos da Pintura
+│   └── admin/                       ← Central Unificada de Usuários, Setores e Perfis
 ├── assets/
-│   ├── css/main.css       ← design system
-│   └── js/                ← app.js (global) + retrabalho.js / projetos.js / producao.js / producao-lista.js (por tela)
-├── PLANILHA QUE ATUALIZA/ ← NS.OF.xlsx (lida por includes/planilha-ns-of.php) + Item.csv (catálogo de materiais, importado por _inicial/importar-itens-catalogo.php para itens_catalogo) — planilhas externas atualizadas por Power Query
-├── storage/
-│   └── cache/             ← cache do índice da planilha OF (gitignored)
-├── uploads/               ← arquivos enviados
-├── .env                   ← credenciais locais (gitignored)
-├── Dockerfile             ← build de produção (Railway)
-├── index.php              ← hub "Selecione um sistema"
-├── login.php / logout.php ← autenticação
-└── em-breve.php           ← placeholder de módulos a construir
+│   ├── css/main.css                 ← Design System central e variáveis CSS
+│   ├── css/fluxo-pedidos.css        ← Estilização da matriz de fluxo de pedidos
+│   └── js/                          ← Scripts específicos por tela
+├── PLANILHA QUE ATUALIZA/           ← Planilhas externas sincronizadas por Power Query
+├── storage/cache/                   ← Cache de índices de leitura rápida (gitignored)
+├── uploads/                         ← Arquivos e fotos enviados (gitignored)
+├── .env                             ← Variáveis de ambiente locais (gitignored)
+├── Dockerfile                       ← Build de deploy para produção no Railway
+├── index.php                        ← Hub principal de seleção de sistemas
+├── login.php / logout.php           ← Fluxo de autenticação
+└── em-breve.php                     ← Placeholder de sistemas em desenvolvimento
 ```
 
-> Cada novo módulo ganha sua subpasta `pages/<modulo>/`, seguindo o mesmo padrão de `includes/layout.php` + `config/conexao.php`. Telas de apoio (cadastro) seguem a mesma convenção, mas sem entrada como card no hub — só na sidebar.
-
 ---
 
-## Decisões técnicas — não rediscutir
+## 9. Estrutura de Banco de Dados & Schema Unificado
 
-### Banco de dados
-Estrutura em `_inicial/database.sql`. Conexão via singleton `getDB()` em `config/conexao.php` — nunca instanciar PDO diretamente nas páginas.
-
-**Tabelas de infraestrutura (compartilhadas pelo hub)**
-| Grupo | Tabelas |
+### 9.1. Tabelas de Infraestrutura & Acesso
+| Tabela | Descrição |
 |---|---|
-| Acesso | `perfis`, `alocacoes`, `usuarios`, `password_resets` |
-| Operação | `setores` |
-| Auditoria | `logs_atividade` |
-| Sessão | `php_sessions` |
+| `perfis` | Papéis mestres: 1=Administrador, 2=Planejador, 3=Executor, 4=Dashboard, 5=Cliente Interno |
+| `usuarios` | Cadastro de usuários, CPF, e-mail, senha criptografada (`BCRYPT`), `id_perfil`, `id_setor`, `ativo`, `e_executor` e `deleted_at` |
+| `setores` | Setores da fábrica (Bobinagem, Montagem, Solda, Pintura, LAB, IQF, etc.) |
+| `php_sessions` | Sessões persistidas em banco (`TraelDbSessionHandler`) para suportar deploy efêmero |
+| `logs_atividade` | Auditoria de acessos (`login_ok`, `login_erro`, `logout`) e operações críticas |
 
-**Por módulo:** cada módulo adiciona sua(s) própria(s) tabela(s) de lançamentos. O módulo **Retrabalho** usa `retrabalhos` (lançamentos, com `prioridade` e `sequencia`) + `pedidos` e `projetos` (cadastro próprio, tela `pages/projetos/`, com vinculação 1 pedido → N projetos, também armazenando `prioridade` e `sequencia` localmente) + `reprovas` (tabela de referência das contenções: código, família, descrição, local IQF/LAB/GER) + `retrabalho_material_uso` (materiais usados por lote na Triagem — snapshot de código/descrição/unidade escolhido no momento, não FK viva a um catálogo externo, ver "Materiais utilizados na Triagem" abaixo) + `itens_catalogo` (catálogo de materiais compartilhável entre módulos, populado a partir de `Item.csv`). O módulo **Produção** (1ª atividade) usa `producao_transformadores` (registro N° de série → Projeto) + `producao_etapas` (uma linha por passagem numa estação IQF/LAB/GER; coluna gerada `ns_ativo` + índice único garantem, a nível de banco, que nunca haja 2 linhas `em_andamento` simultâneas para o mesmo N° de série) — ver `_inicial/migrar-producao.sql`. Novos módulos criam suas tabelas seguindo as convenções abaixo, sem alterar as de infraestrutura.
-
-**Migrações incrementais:** mudanças de schema em banco já existente (local + Railway) são versionadas como scripts em `_inicial/migrar-<descrição>.sql`, idempotentes, aplicados manualmente (`mysql -u root trael_db < _inicial/migrar-....sql`). `database.sql` não é reeditado retroativamente — ele reflete o estado inicial; o estado atual é `database.sql` + migrações aplicadas em ordem.
-
-**Convenções obrigatórias**
-- Campo `status` é palavra reservada — sempre entre crases: `` `status` ``
-- Soft delete com `deleted_at TIMESTAMP NULL DEFAULT NULL` — toda query padrão filtra `WHERE deleted_at IS NULL`
-- Datas/timestamps padrão `created_at`/`updated_at`; auditoria de autor via `id_criador`/`id_responsavel`
-- `ativo BOOLEAN` em `usuarios` = suspensão temporária (diferente de exclusão lógica)
-- `e_executor BOOLEAN` em `usuarios` = pode registrar lançamentos, independente do perfil
-- Regra do Retrabalho: `ns_transformador` é único **por projeto** — o mesmo N° de série não pode estar vinculado a outro projeto (validado em `api/retrabalho-acao.php`, não é constraint de banco)
-- Datas/horas embutidas em JSON para o navegador: usar `isoComOffset()` (`includes/helpers.php`) para converter o DATETIME "naive" do MySQL em ISO-8601 com offset explícito — nunca embutir a string crua, ou o JS pode interpretar a hora como fuso local do dispositivo
-
-### Autenticação
-- Login por e-mail + senha em `login.php`
-- Senhas: `password_hash()` com `PASSWORD_BCRYPT`
-- Sessão PHP armazenada no banco (`php_sessions`) para compatibilidade com Railway (armazenamento efêmero)
-- Proteção contra força bruta e logs de acesso em `logs_atividade`
-- ⚠️ **Nesta cópia (SGT-dev)** a proteção contra força bruta está **desativada** em `login.php` — feito a pedido, só para destravar testes manuais da Tela de Produção. O projeto original em `c:\laragon\www\SGT` mantém a proteção normalmente. Reativar antes de qualquer deploy a partir desta cópia.
-
-### Perfis e controle de acesso
-- IDs fixos: 1=Administrador, 2=Planejador, 3=Executor, 4=Dashboard, 5=Cliente Interno
-- Flag `e_executor`: usuários com esta flag (de qualquer perfil) podem registrar lançamentos operacionais
-- Cada módulo pode restringir telas por perfil via `requirePerfil([...])` (`config/session.php`)
-
-### Visual
-Tokens via CSS variables em `assets/css/main.css`. Tailwind CSS (CDN) para utilitários.
-- Verde Trael (`#1a3d2a` / `#0e2c1d`) como base; Âmbar (`#e8a020` / `#E89B1C`) para destaques
-- Fontes: Inter / Manrope (UI)
-- Componentes globais reutilizáveis além de `.card`/`.badge-*`/`.btn-*`/`.modal-*`: `.fab`/`.fab--secondary` (botão flutuante) e `.station-*`/`.scan-*` (cards de estação + área de leitura), introduzidos pelo Produção mas disponíveis a qualquer módulo (`assets/css/main.css`)
-
-### Funções centralizadas
-- `includes/helpers.php` — funções utilitárias globais (formatação pt-BR, datas, `isoComOffset()`, `diasUteisEntre()`, etc.)
-- `includes/helpers.php::buscarMateriaisCatalogo()` — busca por código ou descrição em `itens_catalogo` (`%` funciona como coringa nativo do `LIKE`, sempre em modo "contém"); usada pela ação `buscar_material` (`api/retrabalho-acao.php`) que alimenta o autocomplete de "Materiais utilizados" na Triagem
-- `includes/planilha-ns-of.php` — índice `cd_of → N° de série/projeto/pedido`, lido de `PLANILHA QUE ATUALIZA/NS.OF.xlsx` (planilha externa, atualizada por Power Query) via `PharData` (sem Composer/ext-zip), cacheado em `storage/cache/`; usado hoje só pela leitura de etiqueta do Produção
-- `assets/js/app.js` — JavaScript global (toasts/alertas, utilidades de UI)
-
-### Materiais utilizados na Triagem (Retrabalho)
-A Triagem registra os materiais gastos no retrabalho buscando direto no catálogo real da fábrica (`itens_catalogo`, populado a partir de `PLANILHA QUE ATUALIZA/Item.csv` — ~23,7 mil itens, código/descrição/unidade — por `_inicial/importar-itens-catalogo.php`, rodado manualmente e reexecutado sempre que o Item.csv for atualizado, mesma convenção do `NS.OF.xlsx`) em vez de uma lista fixa de peças. A busca (`buscarMateriaisCatalogo()` em `includes/helpers.php`, ação `buscar_material` em `api/retrabalho-acao.php`) aceita código ou descrição e trata `%` como coringa nativo do `LIKE` (ex.: `isolador%25kva`), sempre em modo "contém" — sugestões aparecem num dropdown enquanto o operador digita (`assets/js/retrabalho-detalhe.js`, debounce de 250ms). Cada material escolhido vira 1 linha em `retrabalho_material_uso`, agrupada por `id_lote` (mesmo agrupamento de reprovas/causa da reprova da Triagem) — código/descrição/unidade são gravados como **snapshot** no momento da escolha, não como FK viva ao catálogo, porque o catálogo é reimportado periodicamente e pode mudar a descrição sob o mesmo código (mesma lógica de "resolver e guardar no servidor" já usada em Produção). Quando o material buscado não existe no catálogo, um fallback manual (código opcional + descrição + unidade livres) grava a linha do mesmo jeito. O preenchimento da Correção e de Materiais é obrigatório (para materiais, o operador deve adicionar itens ou assinalar que "Nenhum material foi utilizado"). Refletido também no modal "Ver detalhes" da Relação de Retrabalhos (`pages/retrabalho/historico.php`).
-
-### Módulo Produção — 1ª atividade + Lista de Registros (implementadas)
-Especificação de UX completa (1ª atividade) em `PROJETO-SGT/producao-tela-spec.md`. Cobre hoje só a estação **LAB**: card no grid de estações (`pages/producao/index.php`, item de sidebar "Registro"), leitura de QR/imagem/manual via FAB, confirmação de entrada (`api/producao-acao.php`). IQF/GER seguem como cards "em breve" no mesmo grid, mesmo padrão de card quando forem especificados.
-
-**Leitura de etiqueta via planilha OF** (decisão tomada durante a implementação, diferente da premissa original do spec): etiquetas do chão de fábrica trazem prefixo(5) + `cd_of` + sufixo(1) **concatenados sem separador** (ex.: `1001020421786` → `cd_of` = `2042178`, descartando os 5 primeiros e o último caractere — não é um formato `prefixo | cd_of | sufixo` com `|` literal, correção feita em 2026-07-22 após teste com etiqueta real). O `cd_of` (miolo) é resolvido em `includes/planilha-ns-of.php` (`extrairCdOfDaEtiqueta()`), que lê `PLANILHA QUE ATUALIZA/NS.OF.xlsx` (fonte externa, atualizada por Power Query) e devolve N° de série + projeto (`cd_Referencia`) + descrição + pedido (`cdPedido`) + cliente. Códigos fora desse formato (curtos demais, não numéricos — N° de série digitado manualmente, QR legado) são tratados como N° de série direto, como o spec original previa.
-
-**Leitura de QR:** `jsQR` via CDN, não `html5-qrcode` como o spec recomendava — decodificação em `<canvas>` a partir do `<video>` (câmera) ou de uma imagem enviada pelo botão secundário de upload (fallback adicional não previsto no spec original, útil quando a câmera do tablet falha ou está indisponível).
-
-**Resolução de transformador — automática, sem cascata manual** (diferente da premissa original do spec, que previa um modo de cadastro Pedido → Projeto editável pelo operador): a Área de Leitura só exibe campos fixos, somente-leitura (N° de série, Projeto, Descrição, Pedido, Cliente) — nada é digitável ali além do N° de série/OF na leitura manual. `resolverTransformador()` em `api/producao-acao.php` decide tudo no servidor: se o N° de série já está em `producao_transformadores`, usa o vínculo salvo; senão tenta casar `cd_Referencia` da planilha com `projetos.codigo`; se nem isso resolver mas a planilha trouxer Projeto **e** Pedido da OF, marca `precisa_criar` — nesse caso o Pedido+Projeto só são criados de fato dentro da ação `confirmar` (nunca na prévia `ler`, para não gravar cadastro por um scan que o operador só olhou e cancelou), por `criarPedidoProjetoDaPlanilha()`. Se nada disso resolve o projeto, a tela mostra "Projeto não cadastrado" e **bloqueia** o registro (botão desabilitado) até o Pedido/Projeto ser cadastrado manualmente em **Pedidos e Projetos** — não há mais fallback de cadastro inline na tela de Produção.
-
-**Ações de `api/producao-acao.php`:** `ler` (resolve um código digitado/escaneado e devolve preview — status `ok`/`conflict`/`nao_registrado`, sem gravar nada), `confirmar` (regrava tudo a partir do código bruto — nunca confia num id_projeto vindo do cliente — e insere a linha em `producao_etapas`), `status` (usado pelo polling do card a cada 20s, para manter tablets/abas sincronizados), `remover_etapa` (soft delete de uma etapa `em_andamento` por N° de série — usado hoje só pelo fluxo de Reprovar da Lista, abaixo).
-
-**Lista de Registros** (`pages/producao/lista.php`, item de sidebar "Lista", JS em `assets/js/producao-lista.js`) — cumpre para o Produção o papel da "3. Tabela de acompanhamento" do padrão de 3 partes (ver "Conceito: gestão de lançamentos"), no mesmo espírito da Relação de Retrabalhos: abas por estação (Todas/IQF/LAB/GER), busca textual (N° de série/projeto/pedido/responsável), filtro por mês, checkboxes "Mostrar" por `status` de `producao_etapas` (rótulos da tela: **Não iniciado** = `em_andamento`, **Finalizado** = `finalizado` — hoje nenhuma ação do sistema grava `finalizado`; a única forma de uma etapa sair de `em_andamento` é via Reprovar/`remover_etapa`), colunas ordenáveis por clique e paginação (10/25/50/100). Estilo: usa classes CSS locais `lst-*` num `<style>` inline na própria página — mesmo padrão `rt-*` que o Retrabalho já usava, não os tokens globais que a seção 0 do spec recomendava para telas novas de Produção.
-
-**Reprovar (ponte Produção → Retrabalho):** cada linha da Lista tem um botão "Reprovar" que abre um modal com Pedido/Projeto/N° de série travados (vindos do próprio registro, sem edição) e 1+ blocos repetíveis de código de reprova (catálogo `reprovas`, mesmo usado no Retrabalho — descrição/família/local preenchidos automaticamente ao escolher o código). Ao confirmar, o JS envia uma reprova por vez para `api/retrabalho-acao.php` (ação `registrar`) — cada uma vira 1 linha nova em `retrabalhos` — e só depois de todas confirmadas chama `api/producao-acao.php` (ação `remover_etapa`) para tirar a etapa da Lista. Não há tabela compartilhada entre os módulos; a ponte é essa sequência de chamadas no cliente, e para no primeiro erro em vez de deixar metade registrada silenciosamente.
-
-**Sidebar contextual:** dentro de `pages/producao/*` (Registro + Lista), os itens de Retrabalho/Projetos somem do menu, e vice-versa dentro de Retrabalho/Relação/Projetos — único módulo com esse comportamento hoje (`includes/sidebar.php`).
-
----
-
-## Glossário
-
-| Termo | Significado |
+### 9.2. Tabelas de Retrabalho & Catálogo
+| Tabela | Descrição |
 |---|---|
-| **Lançamento** | Registro operacional inserido num módulo (um retrabalho, uma perda, uma parada, um incidente, uma auditoria 5S, uma ausência) |
-| **Módulo** | Sistema/área do hub (Retrabalho, Perdas, Paradas, …) — cada um com seu formulário, painel e tabela |
-| **Setor / Área** | Local da fábrica onde o lançamento ocorreu (Corte, Usinagem, Solda, Montagem, Bobinagem, Pintura, Acabamento, Expedição) |
-| **Responsável** | Usuário associado ao lançamento |
-| **Status** | Situação do lançamento — o fluxo é definido por módulo (Retrabalho: Agu. Abertura → Agu. Causa da Reprova → Finalizado, automático) |
-| **Painel** | Visão gerencial do módulo (KPIs, gráficos, ranking por setor/período) |
-| **Pedido** | Agrupador comercial cadastrado em `pages/projetos/`: 1 pedido → N projetos |
-| **Projeto** | Código do transformador/modelo vinculado a 1 pedido; é o projeto que recebe os retrabalhos |
-| **Prioridade / Sequência** | A prioridade da fila funciona por **FIFO** (Primeiro a Entrar, Primeiro a Sair) e herança em 3 níveis: **N° de Série > Projeto > Pedido**. O nível mais específico prevalece sobre os mais genéricos. |
-| **Flag de urgência** | Indicador de cor (verde/amarelo/laranja/vermelho) calculado a partir dos dias úteis que um retrabalho está parado, usado na Relação de Retrabalhos |
-| **Reincidência** | Quantidade de vezes que o mesmo N° de série já apareceu no retrabalho |
-| **Estação** | Ponto do chão de fábrica no módulo Produção: **IQF** (Inspeção final), **LAB** (Laboratório), **GER** (Geral) |
-| **OF / cd_of** | Ordem de Fabricação — código impresso na etiqueta do transformador (prefixo(5) + `cd_of` + sufixo(1) concatenados, sem separador), usado para resolver N° de série/projeto/pedido via a planilha `NS.OF.xlsx` |
+| `pedidos` | Cadastro de pedidos comerciais com prioridade e sequência |
+| `projetos` | Projetos de engenharia vinculados a pedidos |
+| `reprovas` | Catálogo de tipos de reprova com código, descrição, família, local e setor causador |
+| `retrabalhos` | Lançamentos de reprova e retrabalho |
+| `retrabalho_material_uso` | Materiais consumidos na triagem com snapshot de código, descrição, unidade e preço médio |
+| `itens_catalogo` | Catálogo geral de materiais importado de `Item.csv` |
 
-### Painel de Gestão de Usuários, Setores & Perfis (`pages/admin/usuarios.php`)
-Central administrativa unificada em 3 abas (Usuários, Setores da Fábrica, Perfis/Templates):
-- **Hierarquia em 3 Níveis:** Sistemas do HUB (SGE, SOMA, Produção, 5S, Ausências, Incidentes, Perdas, Paradas) ➔ Módulos Operacionais ➔ Telas Individuais, com navegação por accordions expansíveis e topo travado (sticky header para perfil base e ações em lote: Expandir/Recolher/Liberar/Bloquear Todos).
-- **Segurança & Soft Delete:** Exclusão lógica com confirmação modal padrão SGT (`deleted_at TIMESTAMP NULL DEFAULT NULL`) com trava de autoexclusão e auditoria.
-- **Concordância Visual:** Botões padronizados com o design system (`btn-icon`, `btn-icon-edit`, `btn-icon-danger`) e modais integrados (`modal`, `btn-secondary`, `btn-danger`).
+### 9.3. Tabelas de Chão de Fábrica (Produção)
+| Tabela | Descrição |
+|---|---|
+| `producao_transformadores` | Vínculo de número de série ao projeto e pedido |
+| `producao_etapas` | Passagens por estações (IQF, LAB, GER) com índice único de etapa ativa (`ns_ativo`) |
 
-### Paint Check — Visão Computacional & OCR Industrial Híbrido (`pages/qualidade/paint-check.php` & `paint-check-robo/server.py`)
-Módulo de inspeção visual e validação de montagem de transformadores por inteligência artificial:
-- **Pipeline Híbrido:** Detecção e correção angular com YOLO-OBB (`cv2.warpAffine`), square padding e pré-processamento morfológico para metais (CLAHE + TopHat).
-- **Inferência Dupla (0° e 180°):** Dupla rotação da imagem com eliminação de sobreposição via IoU ($>50\%$).
-- **Inversão Semântica Bidirecional:** Transposição e mapeamento de caracteres ambíguos a 180° (`6 ↔ 9`, `2 ↔ 5`, `0 ↔ 0`, etc.) no Python e PHP, com validação cruzada de hipóteses contra o índice oficial de Ordens de Fabricação da Trael (`includes/planilha-ns-of.php`).
+### 9.4. Tabelas do PCP (Boletim)
+| Tabela | Descrição |
+|---|---|
+| `boletim_config_metas` | Metas mensais (`meta_tpm`, `meta_tpd_distribuicao`, `meta_enrolado`, `meta_convencional`, `meta_jctrif`, `meta_tpd_forca`, `meta_tps`), dias úteis, trabalhados e dias customizados |
+| `boletim_registros` | Registro diário de metas e produções por área e linha |
+| `boletim_equipamentos` | Cadastro e status semáforo de equipamentos críticos |
+
+### 9.5. Tabelas do SOMA (Cronoanálise)
+| Tabela | Descrição |
+|---|---|
+| `soma_empresas` | Unidades fabris cadastradas (Matriz Cuiabá, Filial PA, Filial SP) |
+| `soma_setores` | Setores fabris com metas percentuais de produtividade |
+| `soma_operadores` | Operadores de produção |
+| `soma_maquinas` | Máquinas e postos de trabalho cadastrados |
+| `soma_motivos_parada` | Motivos de parada de linha (Manutenção, Processo, Material, etc.) |
+| `soma_produtos` | Tempos padrão de ciclo por produto e etapa |
+| `soma_registros` | Apontamentos de tempos e ciclos realizados |
+| `soma_paradas` | Registro de ocorrências de paradas de máquina com duração |
 
 ---
 
-## Roteiro de sprints
+## 10. Matriz de Permissões RBAC
+
+| Chave | Módulo / Tela | Descrição |
+|---|---|---|
+| `hub:producao` | Produção | Acesso geral ao card de Produção no Hub |
+| `prod.dis` | Indicador Distribuição | Dashboard de metas e realizado de TPD |
+| `prod.atr` | Atraso Distribuição | Dashboard de atraso do Plano Mestre |
+| `prod.for` | Indicador Média Força | Dashboard de TPM e TPS |
+| `prod.set` | Painel por Setor | Visão e histograma por célula |
+| `prod.flu` | Fluxo de Pedidos | Matriz de rastreabilidade de pedidos |
+| `prod.aco` | Acompanhamento | Acompanhamento Tanque / Parte Ativa |
+| `prod.met` | Configurações PCP | Edição de metas e calendário de produção |
+| `prod.reg` / `lab.reg` | Registro LAB | Card de apontamento de entrada no Laboratório |
+| `prod.lis` / `lab.lis` | Lista Produção | Listagem de passagens e ação Reprovar |
+| `prod.ret` / `lab.ret` | Retornos LAB | Fila de retornos pós-retrabalho |
+| `hub:soma` | SOMA | Acesso geral ao card de SOMA no Hub |
+| `soma.hub` | Dashboard SOMA | Visão gerencial de cronoanálise |
+| `soma.dig` | Digitador SOMA | Interface de digitação rápida de tempos |
+| `soma.ope` | Operador SOMA | Terminal do operador de máquina |
+| `soma.par` | Paradas SOMA | Registro e gestão de paradas de linha |
+| `soma.reg` | Relação SOMA | Tabela detalhada de ciclos |
+| `soma.rel` | Relatórios SOMA | Relatórios de peça/hora e produtividade |
+| `soma.aud` | Auditoria SOMA | Auditoria de apontamentos |
+| `soma.cfg` | Configurações SOMA | Cadastro de tempos padrão e máquinas |
+| `ret.dash` | Dashboard Retrabalho | Visão executiva de não-conformidades |
+| `ret.pan` | Painel Retrabalho | Mapa interativo das esteiras fabris |
+| `ret.rel` | Relação Retrabalhos | Tabela mestre de retrabalhos |
+| `pcp.pri` | Prioridades | Sequenciamento e prioridades de pedidos |
+| `pin.pai` | Paint Check | Visão computacional e inspeção OCR |
+| `adm.usu` | Central Admin | Gestão de usuários, setores e permissões |
+
+---
+
+## 11. Roteiro de Sprints Atualizado
 
 | Sprint | Escopo | Status |
 |---|---|---|
-| **1 — Fundação** | Banco + login + perfis + sessão | ✅ |
-| **2 — Hub** | Tela inicial "Selecione um sistema" (cards dos módulos) + navegação | ✅ |
-| **3 — Retrabalho** | 1º módulo de lançamentos: formulário + painel (KPIs/gráficos) + tabela + Relação de Retrabalhos (listagem, flags de urgência, reincidências) | ✅ |
-| **4 — Produção (1ª atividade + Lista)** | Card da estação Laboratório + leitura de QR/imagem/manual + confirmação de entrada (ver `PROJETO-SGT/producao-tela-spec.md`) + Lista de Registros com filtros/ordenação/paginação e Reprovar (ponte para Retrabalho) | ✅ (parcial — IQF/GER e painel gerencial pendentes) |
-| **5 — Central Admin & Paint Check** | Gestão unificada de usuários/setores/perfis com hierarquia de sistemas em accordion + OCR industrial com inversão semântica | ✅ |
-| **6+ — Demais módulos** | Um por vez, mesma stack: Perdas → Paradas → Incidentes → 5S → Ausências → SOMA → resto de Produção (IQF/GER, painel gerencial) — escopo definido antes de começar | 🗓 Planejada |
-
-**Regra:** cada sprint só começa após validação e confirmação da anterior.
+| **1 — Fundação & Autenticação** | Banco MySQL unificado, login seguro bcrypt, perfis e persistência de sessões | ✅ |
+| **2 — Hub Central de Sistemas** | Tela "Selecione um sistema" com roteamento dinâmico baseado em RBAC | ✅ |
+| **3 — Módulo de Retrabalho** | Dashboard executivo, mapa fabril, relação mestre e triagem de materiais | ✅ |
+| **4 — Apontamento de Chão de Fábrica** | Card LAB em tempo real, leitor de QR Code (câmera/imagem/manual) e Lista com ação Reprovar | ✅ |
+| **5 — Central Admin & Paint Check** | Gestão unificada em 3 abas (usuários/setores/perfis) + OCR industrial com inversão semântica | ✅ |
+| **6 — PCP & SOMA Integrados na Produção** | Incorporação dos Dashboards de Distribuição (TPD), Atrasos, Média Força, Painel por Setor, Fluxo de Pedidos, Acompanhamento Tanque/Parte Ativa e Cronoanálise SOMA | ✅ |
+| **7 — Demais Módulos do Hub** | Desenvolvimento progressivo dos sistemas planejados (SGE, 5S, Ausências, Incidentes, Perdas, Paradas) | 🗓 Planejada |
 
 ---
 
-## Como atualizar o changelog
+## 12. Glossário Unificado de Termos Fabris
 
-- Versão do sistema em `config/versao.php` (`APP_VERSION`) — exibida automaticamente na interface.
-- Histórico de versões mantido em `pages/changelog.php` (sem tabela no banco): inserir o bloco da nova versão antes do anterior.
-- Commitar `config/versao.php` + `pages/changelog.php` com mensagem `feat:`/`fix: vX.Y.Z — …`.
+| Termo | Significado |
+|---|---|
+| **PCP** | Planejamento e Controle da Produção |
+| **TPD** | Transformadores de Distribuição (linha padrão até 300 kVA) |
+| **TPM** | Transformadores de Média Força |
+| **TPS** | Transformadores a Seco |
+| **OF / cd_of** | Ordem de Fabricação impressa na placa do transformador |
+| **Sub-OF** | Ordem de fabricação filha vinculada a uma sub-montagem (Tanque, Parte Ativa, Bobina) |
+| **Parte Ativa** | Conjunto mecânico e elétrico formado pelo núcleo de lâminas de silício montado com as bobinas de AT e BT (Montagem Elétrica `ME`/`PA`) |
+| **Tanque** | Estrutura metálica de caldeiraria e pintura (`MTQ`) onde a parte ativa é enclausurada e imersa em óleo mineral |
+| **Montagem Final (`MFL`)** | Posto de montagem final onde a parte ativa é encaixada no tanque com fechamento de tampa e conexões |
+| **Núcleo ENR** | Núcleo enrolado contínuo + transformadores JC monofásicos/bifásicos |
+| **Núcleo JC-TRIF** | Núcleo modelo JC exclusivamente trifásico |
+| **Núcleo EMP** | Núcleo empilhado convencional de lâminas |
+| **IQF** | Inspeção da Qualidade Final |
+| **LAB** | Laboratório de Ensaios Elétricos de Alta Tensão |
+| **SOMA** | Sistema Operacional de Manutenção e Apontamento (Cronoanálise e Tempos) |
+| **Turno Fabril** | Período de 07:30 às 02:48 (-450 min de deslocamento para apontamentos da madrugada) |
+| **FIFO** | First In, First Out — Regra de priorização onde peças mais antigas têm precedência |
+
+---
+
+## 13. Controle de Versão & Atualização de Changelog
+- Versão do sistema gerenciada em `config/versao.php` (`APP_VERSION`).
+- Histórico de versões mantido em `pages/changelog.php`.
+- Padrão oficial de mensagens de commit: `feat: vX.Y.Z — <descrição>` ou `fix: vX.Y.Z — <descrição>`.

@@ -1,0 +1,660 @@
+/* ==========================================================================
+   SGT — Fluxo do Pedido & Acompanhamento de Produção
+   Módulo standalone: reaproveita as variáveis e componentes de
+   assets/css/main.css (carregado antes deste arquivo). Aqui fica só o
+   que é específico deste módulo (circuito, planilha, popup de filtro).
+   ========================================================================== */
+
+:root {
+  --setor-comercial:  var(--color-info);
+  --setor-engenharia: #9333ea;
+  --setor-pcp:        var(--color-warning);
+  --setor-producao:   var(--color-success);
+  --setor-logistica:  #0891b2;
+}
+
+/* No PCP (diferente do módulo standalone original) este conteúdo vive dentro
+   de <main class="app-content"> — o único scroll da aplicação já definido em
+   main.css. Não sobrescrevemos overflow/height de html/body aqui. */
+
+.fp-wrapper {
+  max-width: 1760px;
+  margin: 0 auto;
+}
+
+/* ─── Cabeçalho ───────────────────────────────────────────────────────────── */
+.top-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 14px 20px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.top-brand { display: flex; align-items: center; gap: 12px; }
+
+.brand-icon {
+  width: 38px; height: 38px;
+  border-radius: var(--radius-md);
+  background: var(--color-accent-light);
+  color: var(--color-accent-text);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.brand-icon svg { width: 20px; height: 20px; }
+
+.brand-info h1 { font-size: var(--font-size-lg); font-weight: 700; color: var(--color-text-primary); }
+.brand-info p  { font-size: var(--font-size-sm); color: var(--color-text-secondary); margin-top: 2px; }
+
+.top-actions { display: flex; align-items: center; gap: 8px; }
+
+/* ─── Setor: navegação rápida + voltar ───────────────────────────────────── */
+.setor-nav { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.setor-nav-btn {
+  height: 32px; padding: 0 12px; border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-strong); background: var(--color-surface);
+  color: var(--color-text-secondary); font-size: var(--font-size-sm); font-weight: 600;
+  text-decoration: none; display: inline-flex; align-items: center;
+  transition: all var(--transition);
+}
+.setor-nav-btn:hover { background: var(--color-surface-2); text-decoration: none; }
+.setor-nav-btn.active { background: var(--color-sidebar-active); border-color: var(--color-sidebar-active); color: #fff; }
+
+/* ─── Macro KPIs (index.php) ─────────────────────────────────────────────── */
+.metrics-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+/* ─── Painel de Busca (index.php) ────────────────────────────────────────── */
+.search-glow-panel { margin-bottom: 24px; }
+.search-input-wrap { position: relative; max-width: 640px; margin: 0 auto; }
+.search-icon {
+  position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+  width: 16px; height: 16px; color: var(--color-text-muted); pointer-events: none;
+}
+#searchInput {
+  width: 100%; height: 44px; padding: 0 16px 0 40px;
+  border: 1px solid var(--color-border-strong); border-radius: var(--radius-full);
+  font-size: var(--font-size-md); font-family: var(--font-sans);
+  background: var(--color-surface); color: var(--color-text-primary);
+  outline: none; box-shadow: var(--shadow-sm); transition: border-color var(--transition), box-shadow var(--transition);
+}
+#searchInput:focus { border-color: var(--color-accent); box-shadow: 0 0 0 3px rgba(232,160,32,0.15); }
+
+/* ─── Circuito do Caminho do Pedido (index.php) ──────────────────────────── */
+.mapa-canvas-wrap {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  padding: 44px 24px;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 20px;
+}
+
+.circuit-container { max-width: 1120px; margin: 0 auto; }
+
+.pipeline-track {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+}
+
+.pipe-segment-h {
+  flex-grow: 1;
+  align-self: center;
+  height: 6px;
+  margin: 0 -2px;
+  border-radius: var(--radius-full);
+  background: repeating-linear-gradient(
+    90deg,
+    var(--color-border-strong) 0, var(--color-border-strong) 8px,
+    transparent 8px, transparent 16px
+  );
+  position: relative;
+  z-index: 1;
+}
+
+.station-node {
+  width: 196px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition), box-shadow var(--transition), border-color var(--transition);
+  user-select: none;
+  position: relative;
+  z-index: 3;
+}
+.station-node:hover { transform: translateY(-3px); border-color: var(--color-accent); box-shadow: var(--shadow-md); }
+.station-node.is-highlighted { border-color: var(--color-accent); box-shadow: 0 0 0 3px var(--color-accent-light); }
+
+.station-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+.station-code-wrap { display: flex; flex-direction: column; gap: 1px; }
+
+.station-code { font-size: var(--font-size-md); font-weight: 800; font-family: var(--font-mono); }
+.station-node[data-setor="COMERCIAL"]  .station-code { color: var(--setor-comercial); }
+.station-node[data-setor="ENGENHARIA"] .station-code { color: var(--setor-engenharia); }
+.station-node[data-setor="PCP"]        .station-code { color: var(--setor-pcp); }
+.station-node[data-setor="PRODUCAO"]   .station-code { color: var(--setor-producao); }
+.station-node[data-setor="LOGISTICA"]  .station-code { color: var(--setor-logistica); }
+
+.station-name { font-size: var(--font-size-xs); font-weight: 600; color: var(--color-text-secondary); }
+
+.station-count {
+  min-width: 32px; height: 28px; padding: 0 8px;
+  border-radius: var(--radius-md);
+  display: flex; align-items: center; justify-content: center;
+  font-size: var(--font-size-sm); font-weight: 800; font-family: var(--font-mono);
+}
+.station-node[data-setor="COMERCIAL"]  .station-count { background: var(--color-info-bg);    color: var(--color-info-text); }
+.station-node[data-setor="ENGENHARIA"] .station-count { background: #faf5ff; color: var(--setor-engenharia); }
+.station-node[data-setor="PCP"]        .station-count { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.station-node[data-setor="PRODUCAO"]   .station-count { background: var(--color-success-bg); color: var(--color-success-text); }
+.station-node[data-setor="LOGISTICA"]  .station-count { background: #ecfeff; color: var(--setor-logistica); }
+
+.station-details {
+  border-top: 1px solid var(--color-border);
+  padding-top: 8px;
+  display: flex; flex-direction: column; gap: 3px;
+  min-height: 20px;
+}
+.station-sub { font-size: var(--font-size-xs); color: var(--color-text-secondary); }
+
+.station-action-btn {
+  margin-top: 10px; width: 100%;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs); font-weight: 700;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+}
+.station-action-btn svg { width: 12px; height: 12px; }
+.station-node:hover .station-action-btn { background: var(--color-sidebar); color: #fff; border-color: var(--color-sidebar); }
+
+/* ==========================================================================
+   TELA DO SETOR (setor.php) — mesmo padrão de "layout travado 100% viewport"
+   já usado em pages/acompanhamento/index.php: .app-content vira o quadro
+   fixo (a página em si) e só a tabela rola por dentro, com cabeçalho sticky.
+   Diferente do módulo standalone original, que travava html/body inteiros —
+   aqui travamos .app-content, que já é o único scroll do PCP (o bloqueio do
+   .app-content em si fica num <style> inline em setor.php, escopado só
+   àquela página, mesmo padrão do Acompanhamento).
+   ========================================================================== */
+.fp-wrapper.page-setor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.page-setor .top-header { flex-shrink: 0; }
+
+.page-setor .sector-screen-box {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.page-setor .advanced-filter-bar {
+  flex-shrink: 0;
+  margin-bottom: 10px;
+}
+
+.page-setor .table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  position: relative;
+  background: var(--color-surface);
+}
+
+/* ─── Cabeçalho Sticky na Tabela (permanece visível na rolagem) ──────────── */
+.page-setor .data-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.page-setor .data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+.page-setor .data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: #f8fafc !important;
+  border-bottom: 2px solid var(--color-border-strong) !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+/* Scrollbars Industriais Elegantes */
+.page-setor .table-wrap::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.page-setor .table-wrap::-webkit-scrollbar-track {
+  background: var(--color-surface-2);
+}
+.page-setor .table-wrap::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 4px;
+}
+.page-setor .table-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* ─── Barra de Filtros & Quadradinhos de Células ─────────────────────────── */
+.advanced-filter-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+}
+
+.filter-top-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.filter-dates-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.filter-dates-group label {
+  font-size: var(--font-size-xs); font-weight: 700; color: var(--color-text-secondary);
+  text-transform: uppercase; letter-spacing: .3px;
+}
+
+.input-date, .select-filter {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-sans);
+  color: var(--color-text-primary);
+  outline: none;
+}
+.input-date:focus, .select-filter:focus { border-color: var(--color-accent); }
+
+.urg-btn {
+  height: 32px; padding: 0 12px; border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-strong); background: var(--color-surface);
+  color: var(--color-text-primary); font-size: var(--font-size-sm); font-weight: 500;
+  cursor: pointer; transition: all var(--transition);
+}
+.urg-btn:hover { background: var(--color-surface-2); }
+.urg-btn.active { background: var(--color-accent); border-color: var(--color-accent); color: #fff; font-weight: 700; }
+
+/* ─── Alternador de Visuais (Lotes vs Individual) ────────────────────────── */
+.view-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  padding: 2px;
+  gap: 2px;
+}
+.view-mode-btn {
+  background: transparent;
+  border: none;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all var(--transition);
+}
+.view-mode-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface);
+}
+.view-mode-btn.active {
+  background: var(--color-accent);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* ─── Quadradinhos de Células Pendentes (11 Estações) ────────────────────── */
+.celulas-kpis-grid {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding-top: 8px; border-top: 1px solid var(--color-border);
+}
+
+.celula-badge-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  padding: 4px 7px;
+  font-size: var(--font-size-xs);
+  display: flex; align-items: center; gap: 5px;
+  cursor: pointer; transition: all var(--transition); user-select: none;
+}
+.celula-badge-card:hover { border-color: var(--color-accent); background: var(--color-accent-light); transform: translateY(-1px); }
+.celula-badge-card.active-filter { background: var(--color-warning-bg); border-color: var(--color-warning); box-shadow: 0 0 0 2px rgba(217,119,6,0.2); }
+
+.celula-code-tag { font-weight: 800; font-family: var(--font-mono); color: var(--color-text-primary); }
+.celula-count-pend {
+  font-weight: 700; color: var(--color-warning-text); background: var(--color-warning-bg);
+  padding: 1px 5px; border-radius: var(--radius-sm); font-size: 10px;
+}
+.celula-count-pend.zero { color: var(--color-success-text); background: var(--color-success-bg); }
+
+/* ==========================================================================
+   TABELA (reaproveita .table-wrap / .data-table de main.css)
+   ========================================================================== */
+#tableHeader .th-content {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  width: 100%; position: relative;
+}
+#tableHeader .th-title { cursor: pointer; }
+
+.excel-th-filter-btn {
+  background: transparent; border: 1px solid transparent; color: var(--color-text-secondary);
+  border-radius: var(--radius-sm); width: 16px; height: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9px; cursor: pointer; padding: 0; transition: all var(--transition);
+}
+.excel-th-filter-btn:hover { background: var(--color-border-strong); color: var(--color-text-primary); }
+.excel-th-filter-btn.has-filter { background: var(--color-accent); color: #fff; border-color: var(--color-accent-hover); }
+
+/* ─── Popup Menu de Filtro (estilo Excel) ────────────────────────────────── */
+.excel-filter-popup {
+  position: absolute; top: 100%; left: 0; margin-top: 4px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 10px; z-index: 9999;
+  min-width: 180px; max-width: 260px;
+  text-align: left; font-weight: normal;
+}
+
+.popup-search-input {
+  width: 100%; padding: 5px 7px; font-size: var(--font-size-sm);
+  border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm);
+  margin-bottom: 8px; box-sizing: border-box;
+}
+
+.popup-sort-group {
+  display: flex; flex-direction: column; gap: 2px;
+  margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--color-border);
+}
+.popup-sort-btn {
+  background: transparent; border: none; padding: 5px 6px;
+  font-size: var(--font-size-xs); font-weight: 600; color: var(--color-text-primary);
+  text-align: left; border-radius: var(--radius-sm); cursor: pointer;
+  display: flex; align-items: center; gap: 6px;
+}
+.popup-sort-btn svg { width: 12px; height: 12px; }
+.popup-sort-btn:hover { background: var(--color-surface-2); }
+
+.popup-values-list { max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+.popup-value-item {
+  display: flex; align-items: center; gap: 6px; font-size: var(--font-size-sm);
+  color: var(--color-text-primary); cursor: pointer; user-select: none;
+  padding: 2px 4px; border-radius: var(--radius-sm);
+}
+.popup-value-item:hover { background: var(--color-surface-2); }
+
+.popup-actions { display: flex; justify-content: space-between; gap: 6px; padding-top: 6px; border-top: 1px solid var(--color-border); }
+.btn-popup-apply {
+  background: var(--color-accent); color: #fff; border: none;
+  padding: 5px 9px; border-radius: var(--radius-sm); font-size: var(--font-size-xs); font-weight: 700; cursor: pointer;
+}
+.btn-popup-apply:hover { background: var(--color-accent-hover); }
+.btn-popup-clear { background: transparent; border: none; color: var(--color-text-secondary); font-size: var(--font-size-xs); cursor: pointer; text-decoration: underline; }
+
+/* ─── Colunas específicas da planilha (Nº Série / Projeto / Célula) ──────── */
+.data-table td.col-ns {
+  font-family: var(--font-mono); font-weight: 800; color: var(--color-info-text);
+  text-align: center; background: var(--color-info-bg); width: 68px; min-width: 68px;
+}
+.data-table td.col-faixa-ns {
+  font-family: var(--font-mono); font-weight: 800; color: var(--color-info-text);
+  text-align: center; background: var(--color-info-bg); width: 130px; min-width: 120px;
+  white-space: nowrap; font-size: 12px;
+}
+.data-table td.col-proj {
+  font-weight: 700;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  letter-spacing: -0.2px;
+}
+.data-table td.col-cell { text-align: center; padding: 4px 2px; width: 36px; min-width: 36px; }
+.data-table td.col-cell .badge { width: 100%; justify-content: center; }
+
+/* ─── Accordion de Produtos por Pedido (Sub-linha) ──────────────────────── */
+.order-main-row {
+  cursor: pointer;
+  transition: background-color var(--transition);
+}
+.order-main-row:hover {
+  background-color: var(--color-surface-2) !important;
+}
+.order-expand-btn {
+  background: transparent;
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-sm);
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  cursor: pointer;
+  transition: transform var(--transition), background var(--transition), color var(--transition);
+  user-select: none;
+}
+.order-expand-btn:hover {
+  background: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+.order-expand-btn.is-expanded {
+  transform: rotate(90deg);
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+
+.order-subrow {
+  background: #f8fafc;
+}
+.order-subrow td {
+  padding: 14px 20px 18px 24px !important;
+  border-bottom: 1px solid var(--color-border) !important;
+}
+
+.sub-card-wrap {
+  background: #ffffff;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  padding: 14px 16px 16px 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.sub-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+.sub-card-title {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: 0.2px;
+}
+.sub-card-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--color-accent);
+}
+
+.sub-data-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  font-size: var(--font-size-sm);
+}
+.sub-data-table th {
+  background: var(--color-surface-2);
+  color: var(--color-text-secondary);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+}
+.sub-data-table td {
+  padding: 10px 12px !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  vertical-align: middle;
+}
+.sub-data-table tr:last-child td {
+  border-bottom: none !important;
+}
+
+/* ─── Modal Enriquecido (Produtos e SAC) ─────────────────────────────────── */
+.modal-section-title {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin-top: 16px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.modal-section-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--color-accent);
+}
+.modal-prods-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+.modal-prods-table th {
+  background: var(--color-surface-2);
+  padding: 8px 12px;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+.modal-prods-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  font-size: 13px;
+  vertical-align: middle;
+}
+.modal-prods-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* ─── Linha do Tempo de Follow-Ups (modal) ───────────────────────────────── */
+.timeline-list { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+.timeline-card {
+  position: relative; padding: 10px 12px 10px 18px;
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.timeline-bullet {
+  position: absolute; left: 6px; top: 15px; width: 8px; height: 8px;
+  border-radius: 50%; background: var(--color-accent);
+}
+.timeline-title-txt { font-size: var(--font-size-sm); font-weight: 700; color: var(--color-text-primary); }
+.timeline-sub-txt { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 3px; }
+.timeline-obs {
+  font-size: var(--font-size-xs); color: var(--color-text-primary); margin-top: 6px;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  padding: 7px 9px; border-radius: var(--radius-sm);
+}
+
+/* ─── Modal (main.css define o visual; aqui só o toggle de exibição) ────── */
+.modal-overlay { display: none; }
+.modal-overlay.active { display: flex; }
+
+/* ─── Utilitários locais e Loading Spinner ───────────────────────────────── */
+.loading-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-border-strong);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: fp-spin 0.8s linear infinite;
+  vertical-align: middle;
+}
+.spin { animation: fp-spin 0.9s linear infinite; }
+@keyframes fp-spin { to { transform: rotate(360deg); } }
+
+/* ─── Badge Laranja para Produção Parcial (%) ────────────────────────────── */
+.badge-orange, .badge-partial {
+  background: #ffedd5 !important;
+  color: #c2410c !important;
+  border: 1px solid #fdba74 !important;
+  font-weight: 800 !important;
+  font-family: var(--font-mono, monospace);
+  letter-spacing: -0.2px;
+}

@@ -50,9 +50,18 @@ require_once __DIR__ . '/versao.php';
         'APP_URL' => $getEnv('APP_URL', $env['APP_URL'] ?? ''),
         'APP_ENV' => $getEnv('APP_ENV', $env['APP_ENV'] ?? 'local'),
         'APP_TIMEZONE' => $getEnv('APP_TIMEZONE', $env['APP_TIMEZONE'] ?? 'America/Cuiaba'),
+
+        'SQLSRV_HOST'   => $getEnv('SQLSRV_HOST', $env['SQLSRV_HOST'] ?? 'vsat.trael.local'),
+        'SQLSRV_DB'     => $getEnv('SQLSRV_DB', $env['SQLSRV_DB'] ?? 'vsattrael'),
+        'SQLSRV_USER'   => $getEnv('SQLSRV_USER', $env['SQLSRV_USER'] ?? 'bi_consulta'),
+        'SQLSRV_PASS'   => $getEnv('SQLSRV_PASS', $env['SQLSRV_PASS'] ?? ''),
+        'SQLSRV_DRIVER' => $getEnv('SQLSRV_DRIVER', $env['SQLSRV_DRIVER'] ?? 'SQL Server Native Client 11.0'),
     ];
 
     define('_GFT_ENV', $config);
+    if (!defined('_PCP_ENV')) {
+        define('_PCP_ENV', $config);
+    }
 
     // Detectar APP_URL dinamicamente se não definido
     $appUrl = $config['APP_URL'];
@@ -172,7 +181,110 @@ function getDB(): PDO
                 WHERE codigo LIKE 'R%'
             ");
         } catch (\Throwable $e) {}
+
+        try {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS boletim_config_metas (
+                    `month`               CHAR(7)   NOT NULL PRIMARY KEY,
+                    meta_total            INT       NOT NULL DEFAULT 0,
+                    meta_tpm              INT       NOT NULL DEFAULT 0,
+                    meta_tpd_distribuicao INT       NOT NULL DEFAULT 0,
+                    meta_enrolado         INT       NOT NULL DEFAULT 0,
+                    meta_convencional     INT       NOT NULL DEFAULT 0,
+                    meta_jctrif           INT       NOT NULL DEFAULT 0,
+                    meta_tpd_forca        INT       NOT NULL DEFAULT 0,
+                    meta_tps              INT       NOT NULL DEFAULT 0,
+                    dias_uteis            INT       NOT NULL DEFAULT 0,
+                    dias_trabalhados      INT       NOT NULL DEFAULT 0,
+                    dias_customizados     TEXT      NULL,
+                    created_at            TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at            TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+        } catch (\Throwable $e) {}
+
+        try {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS boletim_registros (
+                    id           INT          AUTO_INCREMENT PRIMARY KEY,
+                    `date`       DATE         NOT NULL,
+                    `area`       ENUM('distrib','forca') NOT NULL,
+                    line         VARCHAR(10)  NOT NULL,
+                    core_type    ENUM('ENR','JC','EMP','LAB') NULL,
+                    prog         INT          NOT NULL DEFAULT 0,
+                    `real`       INT          NOT NULL DEFAULT 0,
+                    description  VARCHAR(255) NULL,
+                    `origin`     ENUM('manual','excel','excel_consolidated') NOT NULL DEFAULT 'manual',
+                    id_criador   INT          NOT NULL,
+                    created_at   TIMESTAMP    NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at   TIMESTAMP    NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    deleted_at   TIMESTAMP    NULL DEFAULT NULL,
+                    KEY idx_boletim_registros_consulta (`date`, `area`, line, core_type),
+                    KEY idx_boletim_registros_deleted (deleted_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+        } catch (\Throwable $e) {}
+
+        try {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS boletim_equipamentos (
+                    id          INT          AUTO_INCREMENT PRIMARY KEY,
+                    nome        VARCHAR(100) NOT NULL,
+                    `status`    ENUM('verde','amarelo','vermelho') NOT NULL DEFAULT 'verde',
+                    observacao  VARCHAR(255) NULL,
+                    id_criador  INT          NOT NULL,
+                    created_at  TIMESTAMP    NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at  TIMESTAMP    NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    deleted_at  TIMESTAMP    NULL DEFAULT NULL,
+                    KEY idx_boletim_equipamentos_status (`status`),
+                    KEY idx_boletim_equipamentos_deleted (deleted_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+        } catch (\Throwable $e) {}
     }
 
     return $pdo;
+}
+
+/**
+ * Conexão singleton PDO com o SQL Server (vsat.trael.local / vsattrael).
+ * Retorna null se o servidor estiver inacessível (sem interromper o sistema).
+ */
+function getSqlServerDB(): ?PDO
+{
+    static $pdoSrv = null;
+    static $tentou = false;
+
+    if ($pdoSrv !== null) {
+        return $pdoSrv;
+    }
+    if ($tentou) {
+        return null;
+    }
+    $tentou = true;
+
+    $env = _GFT_ENV;
+    if (empty($env['SQLSRV_HOST']) || empty($env['SQLSRV_USER'])) {
+        return null;
+    }
+
+    $driver = $env['SQLSRV_DRIVER'] ?? 'SQL Server Native Client 11.0';
+    $host   = $env['SQLSRV_HOST'];
+    $db     = $env['SQLSRV_DB'];
+    $user   = $env['SQLSRV_USER'];
+    $pass   = $env['SQLSRV_PASS'];
+
+    $dsn = "odbc:Driver={{$driver}};Server={$host};Database={$db};";
+
+    try {
+        $pdoSrv = new PDO($dsn, $user, $pass, [
+            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_TIMEOUT            => 4,
+        ]);
+        return $pdoSrv;
+    } catch (\Throwable $e) {
+        error_log('Erro ao conectar ao SQL Server: ' . $e->getMessage());
+        return null;
+    }
 }

@@ -52,7 +52,7 @@ $_sGrupos = [
         ],
     ],
     [
-        'rotulo' => 'PCP',
+        'rotulo' => 'PCP & Planejamento',
         'esconder' => $_hidePcp,
         'itens'  => [
             [
@@ -60,6 +60,54 @@ $_sGrupos = [
                 'label' => 'Prioridades',
                 'icon'  => '<circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>',
                 'permissao' => 'pcp.pri'
+            ],
+            [
+                'href'  => '/pages/distribuicao/index.php',
+                'label' => 'Indicador Distribuição',
+                'icon'  => '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 16V10M12 16V7M17 16V13"/>',
+                'permissao' => 'prod.dis'
+            ],
+            [
+                'href'  => '/pages/atraso-distribuicao/index.php',
+                'label' => 'Atraso Distribuição',
+                'icon'  => '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+                'permissao' => 'prod.atr'
+            ],
+            [
+                'href'  => '/pages/forca-seco/index.php',
+                'label' => 'Indicador Média Força',
+                'icon'  => '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+                'permissao' => 'prod.for'
+            ],
+            [
+                'href'  => '/pages/painel-setor/index.php',
+                'label' => 'Painel por Setor',
+                'icon'  => '<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
+                'permissao' => 'prod.set'
+            ],
+            [
+                'href'  => '/pages/fluxo-pedidos/index.php',
+                'label' => 'Fluxo de Pedidos',
+                'icon'  => '<line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+                'permissao' => 'prod.flu'
+            ],
+            [
+                'href'  => '/pages/acompanhamento/index.php',
+                'label' => 'Acompanhamento',
+                'icon'  => '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>',
+                'permissao' => 'prod.aco'
+            ],
+        ],
+    ],
+    [
+        'rotulo' => 'Cronoanálise',
+        'esconder' => $isAdminContext,
+        'itens'  => [
+            [
+                'href'  => '/pages/soma/index.php',
+                'label' => 'SOMA',
+                'icon'  => '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/>',
+                'permissao' => 'soma.hub'
             ],
         ],
     ],
@@ -214,7 +262,9 @@ $_sGrupos = [
         <p class="nav-group-label"><?= htmlspecialchars($_sGrupo['rotulo']) ?></p>
         <?php endif; ?>
         <?php foreach ($_sItensVisiveis as $_sItem):
-            $isActive = ($_sRelSelf === $_sItem['href']);
+            $isActive = ($_sRelSelf === $_sItem['href'])
+                || (str_starts_with($_sItem['href'], '/pages/soma/') && str_starts_with($_sRelSelf, '/pages/soma/'))
+                || (str_starts_with($_sItem['href'], '/pages/fluxo-pedidos/') && str_starts_with($_sRelSelf, '/pages/fluxo-pedidos/'));
         ?>
         <a class="nav-item<?= $isActive ? ' active' : '' ?>"
            href="<?= htmlspecialchars($_sBaseUrl . $_sItem['href']) ?>">
