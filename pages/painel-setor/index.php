@@ -908,7 +908,6 @@ layoutHeader($pageTitle);
                     <span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:700;background:#e0f2fe;color:#0284c7;">
                         <?= htmlspecialchars($it['linha']) ?>
                     </span>
-                </td>
                 <td class="font-mono" style="text-align:center;font-size:11px;color:var(--color-text-secondary);">
                     <?= date('d/m/Y', strtotime($it['data_programada'])) ?>
                 </td>
@@ -926,109 +925,15 @@ layoutHeader($pageTitle);
     </div>
 </div>
 
-<!-- ─── MODAL: FILTRO DE DATA (Idêntico à Referência do Usuário) ─────────── -->
-<div class="date-filter-overlay" id="dateFilterModal" onclick="if(event.target === this) fecharFiltroDataModal();">
-    <div class="date-filter-modal">
-        
-        <!-- Header do Modal -->
-        <div class="df-header">
-            <div class="df-title">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                <span>FILTRO DE DATA</span>
-            </div>
-            <button type="button" class="df-close-btn" onclick="fecharFiltroDataModal()" aria-label="Fechar">&times;</button>
-        </div>
-
-        <!-- Segmented Tabs: Hoje | Mês | Personalizável -->
-        <div class="df-tabs-container">
-            <button type="button" class="df-tab-btn <?= $modoData === 'hoje' ? 'active' : '' ?>" id="tabBtnHoje" onclick="trocarTabFiltro('hoje')">
-                Hoje
-            </button>
-            <button type="button" class="df-tab-btn <?= $modoData === 'mes' ? 'active' : '' ?>" id="tabBtnMes" onclick="trocarTabFiltro('mes')">
-                Mês
-            </button>
-            <button type="button" class="df-tab-btn <?= $modoData === 'personalizado' ? 'active' : '' ?>" id="tabBtnPersonalizado" onclick="trocarTabFiltro('personalizado')">
-                Personalizável
-            </button>
-        </div>
-
-        <!-- FORM: TAB 1 - HOJE -->
-        <form method="GET" id="formFiltroHoje" style="display: <?= $modoData === 'hoje' ? 'block' : 'none' ?>;">
-            <input type="hidden" name="setor" value="<?= htmlspecialchars($dadosPainel['setor_chave']) ?>">
-            <input type="hidden" name="modo_data" value="hoje">
-
-            <div class="df-hoje-box">
-                <div class="df-hoje-tag">DATA DE HOJE</div>
-                <div class="df-hoje-date"><?= date('d/m/Y') ?></div>
-                <div class="df-hoje-desc">
-                    Filtra os apontamentos registrados exclusivamente na data de hoje.
-                </div>
-            </div>
-
-            <button type="submit" class="df-btn-apply">
-                Aplicar Data de Hoje
-            </button>
-        </form>
-
-        <!-- FORM: TAB 2 - MÊS -->
-        <form method="GET" id="formFiltroMes" style="display: <?= $modoData === 'mes' ? 'block' : 'none' ?>;">
-            <input type="hidden" name="setor" value="<?= htmlspecialchars($dadosPainel['setor_chave']) ?>">
-            <input type="hidden" name="modo_data" value="mes">
-
-            <div class="df-hoje-box" style="background:#f8fafc;border-color:#e2e6ed;">
-                <div class="df-hoje-tag" style="color:#475569;">MÊS DE REFERÊNCIA</div>
-                <div style="margin: 12px 0;">
-                    <input type="month" name="mes" value="<?= htmlspecialchars($dadosPainel['mes']) ?>" 
-                           style="border:1px solid #cbd5e1;border-radius:8px;padding:8px 12px;font-size:16px;font-weight:700;color:#0f172a;background:#ffffff;outline:none;">
-                </div>
-                <div class="df-hoje-desc">
-                    Filtra todos os apontamentos e metas do mês selecionado.
-                </div>
-            </div>
-
-            <button type="submit" class="df-btn-apply">
-                Aplicar Mês
-            </button>
-        </form>
-
-        <!-- FORM: TAB 3 - PERSONALIZÁVEL -->
-        <form method="GET" id="formFiltroPersonalizado" style="display: <?= $modoData === 'personalizado' ? 'block' : 'none' ?>;">
-            <input type="hidden" name="setor" value="<?= htmlspecialchars($dadosPainel['setor_chave']) ?>">
-            <input type="hidden" name="modo_data" value="personalizado">
-
-            <div class="df-hoje-box" style="background:#f8fafc;border-color:#e2e6ed;text-align:left;">
-                <div class="df-hoje-tag" style="color:#475569;text-align:center;">INTERVALO PERSONALIZADO</div>
-                
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0;">
-                    <div>
-                        <label style="display:block;font-size:11px;font-weight:700;color:#64748b;margin-bottom:4px;">De:</label>
-                        <input type="date" name="data_inicio" value="<?= htmlspecialchars($dadosPainel['data_inicio']) ?>" 
-                               style="width:100%;border:1px solid #cbd5e1;border-radius:6px;padding:6px 8px;font-size:13px;font-weight:600;background:#ffffff;outline:none;">
-                    </div>
-                    <div>
-                        <label style="display:block;font-size:11px;font-weight:700;color:#64748b;margin-bottom:4px;">Até:</label>
-                        <input type="date" name="data_fim" value="<?= htmlspecialchars($dadosPainel['data_fim']) ?>" 
-                               style="width:100%;border:1px solid #cbd5e1;border-radius:6px;padding:6px 8px;font-size:13px;font-weight:600;background:#ffffff;outline:none;">
-                    </div>
-                </div>
-
-                <div class="df-hoje-desc" style="text-align:center;">
-                    Filtra os apontamentos dentro do intervalo de datas especificado.
-                </div>
-            </div>
-
-            <button type="submit" class="df-btn-apply">
-                Aplicar Intervalo
-            </button>
-        </form>
-
-        <!-- Link para Limpar Filtro -->
-        <a href="?setor=<?= urlencode($dadosPainel['setor_chave']) ?>" class="df-clear-link">
-            Ver Todas as Datas (Limpar filtro de data)
-        </a>
-
-    </div>
-</div>
+<!-- ─── MODAL: FILTRO DE DATA (Idêntico ao Dashboard do Retrabalho) ─────────── -->
+<?php
+$extraHiddenInputs = ['setor' => $dadosPainel['setor_chave']];
+$modoData = $dadosPainel['modo_data'];
+$mes = $dadosPainel['mes'];
+$dataInicio = $dadosPainel['data_inicio'];
+$dataFim = $dadosPainel['data_fim'];
+require_once __DIR__ . '/../../includes/modal-filtro-data.php';
+?>
 
 <!-- Scripts de Gráficos (Chart.js + Plugin DataLabels) -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
