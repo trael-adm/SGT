@@ -102,6 +102,11 @@ if ($acao === 'excluir_setor') {
             echo json_encode(['sucesso' => false, 'erro' => 'Não é possível excluir: existem usuários vinculados.']);
             exit;
         }
+
+        try {
+            $pdo->prepare('UPDATE usuarios SET id_setor = NULL WHERE id_setor = ?')->execute([$id]);
+        } catch (\Throwable $ignored) {}
+
         $stmt = $pdo->prepare('DELETE FROM setores WHERE id = ?');
         $stmt->execute([$id]);
         echo json_encode(['sucesso' => true]);
@@ -269,13 +274,34 @@ if ($acao === 'excluir_usuario') {
 if ($acao === 'excluir_perfil') {
     $id = (int)($_POST['id'] ?? 0);
     try {
+        // Bloquear exclusão se for perfil nativo do sistema
+        $stmtSys = $pdo->prepare('SELECT sistema FROM perfis WHERE id = ?');
+        $stmtSys->execute([$id]);
+        if ((int)$stmtSys->fetchColumn() === 1) {
+            echo json_encode(['sucesso' => false, 'erro' => 'Perfis nativos do sistema não podem ser excluídos.']);
+            exit;
+        }
+
+        // Bloquear exclusão se houver colaboradores ativos com este perfil
         $stmtCheck = $pdo->prepare('SELECT COUNT(*) FROM usuarios WHERE id_perfil = ? AND deleted_at IS NULL');
         $stmtCheck->execute([$id]);
         $count = (int)$stmtCheck->fetchColumn();
         if ($count > 0) {
-            echo json_encode(['sucesso' => false, 'erro' => 'Não é possível excluir: existem usuários com este perfil.']);
+            echo json_encode(['sucesso' => false, 'erro' => 'Não é possível excluir: existem colaboradores ativos vinculados a este perfil.']);
             exit;
         }
+
+        // Desvincular de foreign keys em tabelas de setores e usuários arquivados
+        try {
+            $pdo->prepare('UPDATE admin_setores SET id_perfil = NULL WHERE id_perfil = ?')->execute([$id]);
+        } catch (\Throwable $ignored) {}
+        try {
+            $pdo->prepare('UPDATE setores SET id_perfil = NULL WHERE id_perfil = ?')->execute([$id]);
+        } catch (\Throwable $ignored) {}
+        try {
+            $pdo->prepare('UPDATE usuarios SET id_perfil = NULL WHERE id_perfil = ?')->execute([$id]);
+        } catch (\Throwable $ignored) {}
+
         $stmt = $pdo->prepare('DELETE FROM perfis WHERE id = ?');
         $stmt->execute([$id]);
         echo json_encode(['sucesso' => true]);

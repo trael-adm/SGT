@@ -41,3 +41,11 @@ ALTER TABLE usuario_acessos ADD COLUMN IF NOT EXISTS nivel VARCHAR(20) NOT NULL 
 -- 5. Restrição de GER para Revitalizações
 UPDATE reprovas SET local = 'IQF' WHERE local = 'GER' AND codigo NOT LIKE 'R%';
 UPDATE reprovas SET local = 'GER', setor_causador = 'REVITALIZAÇÃO' WHERE codigo LIKE 'R%';
+
+-- 6. Remoção de FKs legadas impeditivas
+SET @fk_exists = (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'admin_setores' AND CONSTRAINT_NAME = 'admin_setores_ibfk_1');
+SET @sql = IF(@fk_exists > 0, 'ALTER TABLE admin_setores DROP FOREIGN KEY admin_setores_ibfk_1', 'SELECT 1');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+

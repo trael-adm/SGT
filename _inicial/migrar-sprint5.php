@@ -77,6 +77,15 @@ try {
     $pdo->exec("UPDATE reprovas SET local = 'GER', setor_causador = 'REVITALIZAÇÃO' WHERE codigo LIKE 'R%'");
     echo "  [OK] Reprovas atualizadas para Revitalização.\n";
 
+    // 6. Tratamento de constraints legadas (admin_setores)
+    echo "\n6. Verificando integridade de Foreign Keys:\n";
+    try {
+        $pdo->exec("ALTER TABLE admin_setores DROP FOREIGN KEY admin_setores_ibfk_1");
+        echo "  [OK] Constraint legada admin_setores_ibfk_1 removida com sucesso.\n";
+    } catch (\Throwable $e) {
+        echo "  . Constraint admin_setores_ibfk_1 já removida ou inexistente.\n";
+    }
+
     echo "\n=======================================================\n";
     echo "🎉 SUCESSO: TODAS AS ALTERAÇÕES FORAM APLICADAS NO RAILWAY!\n";
     echo "=======================================================\n";
