@@ -27,7 +27,6 @@ layoutHeader('SOMA — Leitor de Folha de Produção (OCR)', 'soma');
 
 $somaAbaAtual = 'digitador';
 require dirname(__DIR__, 2) . '/includes/soma-subnav.php';
-<?php
 $base = defined('APP_URL') ? APP_URL : '';
 ?>
 
