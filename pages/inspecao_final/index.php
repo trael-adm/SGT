@@ -174,7 +174,7 @@ layoutHeader($pageTitle);
     window.PRODUCAO_ESTACAO = <?= json_encode($estacaoAtual, JSON_HEX_TAG | JSON_HEX_AMP) ?>;
     window.PRODUCAO_ITEM_ATUAL = <?= json_encode($itemAtualLab, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE) ?>;
 </script>
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="<?= htmlspecialchars($base) ?>/assets/js/vendor/jsQR.js"></script>
 <?php $pJsVer = @filemtime(__DIR__ . '/../../assets/js/producao.js') ?: (defined('APP_VERSION') ? APP_VERSION : '1'); ?>
 <script src="<?= htmlspecialchars($base) ?>/assets/js/producao.js?v=<?= htmlspecialchars((string) $pJsVer) ?>"></script>
 

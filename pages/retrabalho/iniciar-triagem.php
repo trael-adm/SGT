@@ -295,7 +295,7 @@ if (!$registro) {
     window.RETRABALHO_INICIO_VOLTAR = <?= json_encode($voltarUrl) ?>;
     window.RETRABALHO_INICIO_DESTINO = <?= json_encode($destinoUrl) ?>;
 </script>
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="<?= htmlspecialchars($base) ?>/assets/js/vendor/jsQR.js"></script>
 <?php $riJsVer = @filemtime(__DIR__ . '/../../assets/js/retrabalho-iniciar-triagem.js') ?: (defined('APP_VERSION') ? APP_VERSION : '1'); ?>
 <script src="<?= htmlspecialchars($base) ?>/assets/js/retrabalho-iniciar-triagem.js?v=<?= htmlspecialchars((string) $riJsVer) ?>"></script>
 

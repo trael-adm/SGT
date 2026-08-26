@@ -280,7 +280,7 @@ if (!$registro || $registro['data_chegada'] !== null) {
     window.RETRABALHO_CHEGADA_NS = <?= json_encode($registro['ns_transformador']) ?>;
     window.RETRABALHO_CHEGADA_VOLTAR = <?= json_encode($voltarUrl) ?>;
 </script>
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="<?= htmlspecialchars($base) ?>/assets/js/vendor/jsQR.js"></script>
 <?php $rcJsVer = @filemtime(__DIR__ . '/../../assets/js/retrabalho-chegada.js') ?: (defined('APP_VERSION') ? APP_VERSION : '1'); ?>
 <script src="<?= htmlspecialchars($base) ?>/assets/js/retrabalho-chegada.js?v=<?= htmlspecialchars((string) $rcJsVer) ?>"></script>
 
