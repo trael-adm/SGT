@@ -821,7 +821,7 @@ function boletimBuscarLinhasAnaliticasMes(string $mes, string $filtroArea = 'tod
             'descricao'            => $prod,
             'pedido'               => $pedido ?: '—',
             'pedido_cliente'       => $r['PedidoCliente'] ?? '',
-            'cliente'              => $cliente ?: '—',
+            'cliente'              => $cliente ?: 'Trael',
             'kva'                  => $kva,
             'cdEnt'                => $cdEnt,
             'almoxarifado'         => $r['cd_AlmoxEmpresa'] ?? '',
@@ -922,7 +922,7 @@ function boletimBuscarLinhasAnaliticasMes(string $mes, string $filtroArea = 'tod
             'descricao'            => $r['ds_Prod'] ?? '',
             'pedido'               => $pedido ?: '—',
             'pedido_cliente'       => $r['PedidoCliente'] ?? '',
-            'cliente'              => $cliente ?: '—',
+            'cliente'              => $cliente ?: 'Trael',
             'kva'                  => '',
             'cdEnt'                => $r['cdEnt'] ?? '',
             'almoxarifado'         => $almox,
@@ -1023,11 +1023,13 @@ function boletimBuscarDetalhesProducao(string $mes, ?string $dataDia = null, ?st
                             p.cdPedido,
                             p.PedidoCliente,
                             cli.Nome AS ClienteNome,
-                            cli.Apelido AS ClienteApelido
+                            cli.Apelido AS ClienteApelido,
+                            c.Tp_Mercado AS tp_mercado
                         FROM dbo.CtrlNumSerie cns WITH(NOLOCK)
                         JOIN dbo.It_Pedido it WITH(NOLOCK) ON it.id_it_pedido = cns.id_it_pedido
                         JOIN dbo.Pedidos p WITH(NOLOCK) ON p.id_Ped = it.id_Ped
                         JOIN dbo.Entidade cli WITH(NOLOCK) ON cli.Id_Ent = p.id_Cliente
+                        LEFT JOIN dbo.Clientes c WITH(NOLOCK) ON c.id_Cliente = cli.Id_Ent
                         WHERE cns.NumSerie IN ($placeholders)
                     ";
                     try {
@@ -1038,6 +1040,7 @@ function boletimBuscarDetalhesProducao(string $mes, ?string $dataDia = null, ?st
                             if (isset($seriesMap[$sKey])) {
                                 $cliNome = trim((string)($row['ClienteApelido'] ?: $row['ClienteNome'] ?: ''));
                                 $pedNum  = trim((string)($row['cdPedido'] ?? ''));
+                                $tpMerc  = trim((string)($row['tp_mercado'] ?? ''));
                                 if ($pedNum === '' && !empty($row['PedidoCliente'])) {
                                     $pedNum = trim((string)$row['PedidoCliente']);
                                 }
@@ -1051,6 +1054,9 @@ function boletimBuscarDetalhesProducao(string $mes, ?string $dataDia = null, ?st
                                     if (!empty($row['PedidoCliente'])) {
                                         $filtradas[$targetIdx]['pedido_cliente'] = (string)$row['PedidoCliente'];
                                     }
+                                    if ($tpMerc !== '') {
+                                        $filtradas[$targetIdx]['tp_mercado'] = $tpMerc;
+                                    }
                                 }
                             }
                         }
@@ -1062,8 +1068,93 @@ function boletimBuscarDetalhesProducao(string $mes, ?string $dataDia = null, ?st
         }
     }
 
+    // Garantir normalização e agrupamento inteligente de clientes
+    foreach ($filtradas as &$fItem) {
+        $fItem['cliente'] = boletimNormalizarNomeCliente($fItem['cliente'] ?? '', $fItem['tp_mercado'] ?? null);
+    }
+    unset($fItem);
+
     return boletimUtf8Safe($filtradas);
 }
+
+/**
+ * Normaliza e consolida nomes de clientes e concessionárias em grupos econômicos.
+ * Mapeia clientes do mercado 'VAR' (Varejo) ou particulares para 'Particular'.
+ */
+function boletimNormalizarNomeCliente(?string $nome, ?string $tpMercado = null): string
+{
+    $n = trim((string)$nome);
+    if ($n === '' || $n === '—' || $n === '-' || strcasecmp($n, 'CLIENTE NÃO INFORMADO') === 0 || strcasecmp($n, 'CLIENTE NÃO IDENTIFICADO') === 0) {
+        return 'Trael';
+    }
+
+    $upper = mb_strtoupper($n, 'UTF-8');
+
+    // Concessionárias Oficiais
+    if (str_contains($upper, 'EQUATORIAL') || str_contains($upper, 'EQTL')) {
+        return 'Equatorial';
+    }
+
+    if (
+        str_contains($upper, 'ENERGISA') ||
+        preg_match('/\b(EMS|EMT|ESE|EPB|ETO|ESS|ERO|EAC|ENF|EMR)\b/i', $upper)
+    ) {
+        return 'Energisa';
+    }
+
+    if (str_contains($upper, 'COPEL')) {
+        return 'Copel';
+    }
+
+    if (str_contains($upper, 'CEMIG')) {
+        return 'Cemig';
+    }
+
+    if (
+        str_contains($upper, 'COELBA') ||
+        str_contains($upper, 'NEOENERGIA') ||
+        str_contains($upper, 'CELPE') ||
+        str_contains($upper, 'COSERN') ||
+        str_contains($upper, 'ELEKTRO')
+    ) {
+        return 'Neoenergia';
+    }
+
+    if (str_contains($upper, 'CPFL') || str_contains($upper, 'RGE')) {
+        return 'CPFL';
+    }
+
+    if (str_contains($upper, 'ENEL') || str_contains($upper, 'AMPLA') || str_contains($upper, 'COELCE')) {
+        return 'Enel';
+    }
+
+    if (str_contains($upper, 'EDP') || str_contains($upper, 'ESCELSA')) {
+        return 'EDP';
+    }
+
+    if (str_contains($upper, 'CELESC')) {
+        return 'Celesc';
+    }
+
+    if (str_contains($upper, 'LIGHT')) {
+        return 'Light';
+    }
+
+    if (str_contains($upper, 'TRAEL') || str_contains($upper, 'ESTOQUE') || str_contains($upper, 'INTERNO')) {
+        return 'Trael';
+    }
+
+    // Mercado VAR / Varejo ou Clientes Privados / Particulares
+    $mercadoUpper = strtoupper(trim((string)$tpMercado));
+    if ($mercadoUpper === 'VAR' || str_contains($upper, 'VAR') || str_contains($upper, 'PARTICULAR')) {
+        return 'Particular';
+    }
+
+    // Qualquer outro cliente privado / terceiros
+    return 'Particular';
+}
+
+
 
 /**
  * Fallback para o caso extremo onde o SQL Server estiver inacessível.

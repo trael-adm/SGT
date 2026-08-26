@@ -15,4 +15,10 @@ _inicial/dados*.sql
 PLANILHA QUE ATUALIZA/*.xlsx
 !PLANILHA QUE ATUALIZA/NS.OF.xlsx
 PLANILHA QUE ATUALIZA/Historico_Atraso.csv
-PLANILHA QUE ATUALIZA/Item.csv
+.agents
+.agent
+.impeccable
+.opencode
+.claude
+docs/INFORMATIVO.md
+

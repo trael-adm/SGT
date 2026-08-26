@@ -192,25 +192,30 @@ foreach (array_keys($NUCLEOS) as $c) {
     foreach ($diasDoMes as $d) $serieProducao[$c][] = $porDiaCore[$d][$c]['real'] ?? 0;
 }
 
-// Linha "Executado Total" + "Meta Diária" sobrepostas ao gráfico "Produção — Quantidade"
+// Último dia do mês com produção lançada (Kardex ou manual)
+$ultimaDataProducao = null;
+foreach ($diasDoMes as $d) {
+    $real = 0;
+    foreach ($NUCLEOS_PRODUCAO as $c) $real += $porDiaCore[$d][$c]['real'] ?? 0;
+    if ($real > 0) $ultimaDataProducao = $d;
+}
+
+// Linha "Executado Total" sobreposta: dias futuros sem produção não despencam a zero
 $serieExecutadoTotal = [];
 foreach ($diasDoMes as $d) {
     $real = 0;
     foreach ($NUCLEOS_PRODUCAO as $c) $real += $porDiaCore[$d][$c]['real'] ?? 0;
-    $serieExecutadoTotal[] = $real;
+    if ($real === 0 && $ultimaDataProducao !== null && $d > $ultimaDataProducao) {
+        $serieExecutadoTotal[] = null;
+    } else {
+        $serieExecutadoTotal[] = $real;
+    }
 }
 
 // Dias que de fato tiveram produção (Executado Total > 0) — denominador das
 // médias (KPIs e tabela "Produção por Núcleo"), em vez de dias corridos/úteis
 // até hoje, para não diluir a média com dias ainda sem produção lançada.
-$diasComProducaoReal = count(array_filter($serieExecutadoTotal, fn($v) => $v > 0));
-
-// Último dia do mês com produção lançada (Kardex ou manual) — usado para saber
-// até onde já "aconteceu" o dia (dias futuros/sem produção não geram diferença).
-$ultimaDataProducao = null;
-foreach ($diasDoMes as $i => $d) {
-    if ($serieExecutadoTotal[$i] > 0) $ultimaDataProducao = $d;
-}
+$diasComProducaoReal = count(array_filter($serieExecutadoTotal, fn($v) => $v !== null && $v > 0));
 
 $metaDiariaTotal = ($diasUteis > 0 && $metaTpdDistribuicao > 0) ? round($metaTpdDistribuicao / $diasUteis, 1) : ($metaDiaEnr + $metaDiaJc + $metaDiaEmp);
 $serieMetaTotal  = array_fill(0, count($diasDoMes), $metaDiariaTotal);
@@ -224,6 +229,7 @@ foreach ($diasDoMes as $d) {
     }
     $seriePercentual[] = ($metaDiariaTotal > 0 && $real > 0) ? round(($real / $metaDiariaTotal) * 100, 1) : 0;
 }
+
 
 // Gráfico "Produção Acumulada": realizado acumulado (ENR+JC+EMP) vs meta linear
 // vs tendência de fábrica (ritmo médio real projetado pro mês inteiro)
@@ -553,7 +559,8 @@ layoutHeader($pageTitle);
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20v-6M6 20V10M18 20V4"/></svg>
             Métricas
         </button>
-        <div class="bo-ref-chip">
+        <div class="bo-ref-chip" style="gap:6px;">
+            <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#16a34a;box-shadow:0 0 0 2px rgba(22,163,74,0.2);"></span>
             <span class="bo-ref-label">Sincronizado</span>
             <span class="bo-ref-value" style="font-size:var(--font-size-sm);color:var(--color-text-secondary);"><?= htmlspecialchars(boletimKardexUltimaSincronizacao($mes)) ?></span>
         </div>
@@ -577,6 +584,10 @@ layoutHeader($pageTitle);
         </div>
     </div>
 </div>
+
+<?php 
+$pctMetaMensal = $metaTpdDistribuicao > 0 ? round(($totalRealAteHoje / $metaTpdDistribuicao) * 100, 1) : 0;
+?>
 
 <!-- KPIs - Linha 1: Quantidade Total Produzida & Reprovas -->
 <div class="bo-kpis-grid-5" style="margin-bottom:16px;">
@@ -605,23 +616,33 @@ layoutHeader($pageTitle);
         <div class="metric-sub">unidades · média <?= htmlspecialchars(fmtDecimal($mediaDiaria['EMP'])) ?> un/dia</div>
     </div>
     <div class="metric-card" style="border-left: 4px solid #dc2626;">
-        <div class="metric-label" style="display:flex;align-items:center;gap:6px;">
-            <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#dc2626;"></span>
-            Reprovas
+        <div class="metric-label" style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="display:flex;align-items:center;gap:6px;">
+                <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#dc2626;"></span>
+                Reprovas
+            </span>
+            <span style="font-size:10.5px;font-weight:700;color:#dc2626;background:rgba(220,38,38,0.08);padding:1px 6px;border-radius:4px;"><?= htmlspecialchars(fmtDecimal($pctReprovas, 1)) ?>% do PCP</span>
         </div>
         <div class="metric-value" style="color:#dc2626;"><?= (int) $totalLab ?></div>
-        <div class="metric-sub">
-            <div style="font-weight:700;color:#dc2626;margin-bottom:2px;">Percentual: <?= htmlspecialchars(fmtDecimal($pctReprovas, 1)) ?>% do PCP</div>
-            <div>unidades (almox. 22) · média <?= htmlspecialchars(fmtDecimal($mediaDiariaLab)) ?> un/dia</div>
-        </div>
+        <div class="metric-sub">unidades (almox. 22) · média <?= htmlspecialchars(fmtDecimal($mediaDiariaLab)) ?> un/dia</div>
     </div>
-    <div class="metric-card" style="border-left: 4px solid var(--color-primary);background:var(--color-surface);">
-        <div class="metric-label" style="display:flex;align-items:center;gap:6px;">
-            <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--color-primary);"></span>
-            Produção Total
+    <div class="metric-card" style="border-left: 4px solid var(--color-primary);background:var(--color-surface);position:relative;">
+        <div class="metric-label" style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="display:flex;align-items:center;gap:6px;">
+                <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--color-primary);"></span>
+                Produção Total
+            </span>
+            <?php if ($metaTpdDistribuicao > 0): ?>
+                <span style="font-size:10.5px;font-weight:700;color:var(--color-primary);background:rgba(22,163,74,0.1);padding:1px 6px;border-radius:4px;"><?= $pctMetaMensal ?>%</span>
+            <?php endif; ?>
         </div>
         <div class="metric-value" style="color:var(--color-primary);"><?= (int) $totalRealAteHoje ?></div>
-        <div class="metric-sub">total no mês · meta <?= (int) $metaTpdDistribuicao ?> un</div>
+        <div class="metric-sub" style="margin-bottom:6px;">total no mês · meta <?= (int) $metaTpdDistribuicao ?> un</div>
+        <?php if ($metaTpdDistribuicao > 0): ?>
+        <div style="width:100%;background:#f1f5f9;height:4px;border-radius:999px;overflow:hidden;">
+            <div style="width:<?= min(100, $pctMetaMensal) ?>%;background:var(--color-primary);height:100%;border-radius:999px;transition:width 0.3s ease;"></div>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -682,12 +703,20 @@ layoutHeader($pageTitle);
                 <table class="bo-nucleo-table">
                     <thead>
                         <tr>
-                            <th>Núcleo</th>
-                            <?php foreach ($diasDoMes as $d): ?>
-                                <th><?= (int) date('j', strtotime($d)) ?></th>
+                            <th style="vertical-align:bottom;padding-bottom:8px;">Núcleo</th>
+                            <?php 
+                            $diasSemanaAbrev = [0 => 'Dom', 1 => 'Seg', 2 => 'Ter', 3 => 'Qua', 4 => 'Qui', 5 => 'Sex', 6 => 'Sáb'];
+                            foreach ($diasDoMes as $d): 
+                                $diaNum = (int) date('j', strtotime($d));
+                                $diaSem = $diasSemanaAbrev[(int) date('w', strtotime($d))] ?? '';
+                            ?>
+                                <th data-dia="<?= $d ?>" style="cursor:pointer;line-height:1.2;padding:4px 3px;" onclick="abrirModalDetalhesPecas('<?= $d ?>', 'TOTAL')" title="Clique para ver análise do dia <?= date('d/m/Y', strtotime($d)) ?>">
+                                    <span style="display:block;font-size:11px;font-weight:700;color:var(--color-text-primary);"><?= $diaNum ?></span>
+                                    <span style="display:block;font-size:8px;font-weight:600;color:var(--color-text-muted);text-transform:uppercase;"><?= $diaSem ?></span>
+                                </th>
                             <?php endforeach; ?>
-                            <th>Média</th>
-                            <th>Total</th>
+                            <th style="background:var(--color-surface-2);border-left:1px solid var(--color-border);vertical-align:bottom;padding-bottom:8px;">Média</th>
+                            <th style="background:var(--color-surface-2);vertical-align:bottom;padding-bottom:8px;">Total</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -707,27 +736,27 @@ layoutHeader($pageTitle);
                                 <?= htmlspecialchars($label) ?>
                             </td>
                             <?php foreach ($diasDoMes as $d): $v = $porDiaCore[$d][$c]['real'] ?? 0; ?>
-                                <td class="<?= $v === 0 ? 'bo-zero' : '' ?>" style="<?= $v > 0 ? 'cursor:pointer;' : '' ?>" <?= $v > 0 ? "onclick=\"abrirModalDetalhesPecas('" . $d . "', '" . $c . "')\" title=\"Clique para ver detalhes das peças\"" : "" ?>><?= $v ?: '—' ?></td>
+                                <td data-dia="<?= $d ?>" class="<?= $v === 0 ? 'bo-zero' : '' ?>" style="<?= $v > 0 ? 'cursor:pointer;' : '' ?>" <?= $v > 0 ? "onclick=\"abrirModalDetalhesPecas('" . $d . "', '" . $c . "')\" title=\"Clique para ver detalhes das peças\"" : "" ?>><?= $v ?: '—' ?></td>
                             <?php endforeach; ?>
-                            <td><?= htmlspecialchars(fmtDecimal($totalCore[$c]['real'] / $qtdDias)) ?></td>
-                            <td style="font-weight:600;<?= $totalCore[$c]['real'] > 0 ? 'cursor:pointer;' : '' ?>" <?= $totalCore[$c]['real'] > 0 ? "onclick=\"abrirModalDetalhesPecas('', '" . $c . "')\" title=\"Clique para ver todas as peças deste núcleo no mês\"" : "" ?>><?= (int) $totalCore[$c]['real'] ?></td>
+                            <td style="background:var(--color-surface-2);border-left:1px solid var(--color-border);font-weight:600;"><?= htmlspecialchars(fmtDecimal($totalCore[$c]['real'] / $qtdDias)) ?></td>
+                            <td style="background:var(--color-surface-2);font-weight:600;<?= $totalCore[$c]['real'] > 0 ? 'cursor:pointer;' : '' ?>" <?= $totalCore[$c]['real'] > 0 ? "onclick=\"abrirModalDetalhesPecas('', '" . $c . "')\" title=\"Clique para ver todas as peças deste núcleo no mês\"" : "" ?>><?= (int) $totalCore[$c]['real'] ?></td>
                         </tr>
                         <?php endforeach; ?>
                         <tr>
                             <td style="font-weight:600;">Executado Total</td>
                             <?php foreach ($diasDoMes as $i => $d): $v = $serieExecutadoTotal[$i]; ?>
-                                <td class="<?= $v === 0 ? 'bo-zero' : '' ?>" style="font-weight:600;<?= $v > 0 ? 'cursor:pointer;' : '' ?>" <?= $v > 0 ? "onclick=\"abrirModalDetalhesPecas('" . $d . "', 'TOTAL')\" title=\"Clique para ver todas as peças do dia\"" : "" ?>><?= $v ?: '—' ?></td>
+                                <td data-dia="<?= $d ?>" class="<?= ($v === 0 || $v === null) ? 'bo-zero' : '' ?>" style="font-weight:600;<?= ($v !== null && $v > 0) ? 'cursor:pointer;' : '' ?>" <?= ($v !== null && $v > 0) ? "onclick=\"abrirModalDetalhesPecas('" . $d . "', 'TOTAL')\" title=\"Clique para ver todas as peças do dia\"" : "" ?>><?= ($v !== null && $v > 0) ? $v : '—' ?></td>
                             <?php endforeach; ?>
-                            <td style="font-weight:600;"><?= htmlspecialchars(fmtDecimal(array_sum($serieExecutadoTotal) / $qtdDias)) ?></td>
-                            <td style="font-weight:600;cursor:pointer;" onclick="abrirModalDetalhesPecas('', 'TOTAL')" title="Clique para ver todas as peças produzidas no mês"><?= array_sum($serieExecutadoTotal) ?></td>
+                            <td style="background:var(--color-surface-2);border-left:1px solid var(--color-border);font-weight:600;"><?= htmlspecialchars(fmtDecimal(array_sum(array_filter($serieExecutadoTotal, fn($x) => $x !== null)) / $qtdDias)) ?></td>
+                            <td style="background:var(--color-surface-2);font-weight:600;cursor:pointer;" onclick="abrirModalDetalhesPecas('', 'TOTAL')" title="Clique para ver todas as peças produzidas no mês"><?= array_sum(array_filter($serieExecutadoTotal, fn($x) => $x !== null)) ?></td>
                         </tr>
                         <tr>
                             <td style="font-weight:600;">Meta Diária</td>
                             <?php foreach ($diasDoMes as $d): ?>
-                                <td style="font-weight:600;"><?= $metaDiariaTotal > 0 ? (int) round($metaDiariaTotal) : '—' ?></td>
+                                <td data-dia="<?= $d ?>" style="font-weight:600;"><?= $metaDiariaTotal > 0 ? (int) round($metaDiariaTotal) : '—' ?></td>
                             <?php endforeach; ?>
-                            <td style="font-weight:600;"><?= $metaDiariaTotal > 0 ? (int) round($metaDiariaTotal) : '—' ?></td>
-                            <td style="font-weight:700;color:var(--color-accent-text);"><?= $metaTpdDistribuicao > 0 ? (int) $metaTpdDistribuicao : '—' ?></td>
+                            <td style="background:var(--color-surface-2);border-left:1px solid var(--color-border);font-weight:600;"><?= $metaDiariaTotal > 0 ? (int) round($metaDiariaTotal) : '—' ?></td>
+                            <td style="background:var(--color-surface-2);font-weight:700;color:var(--color-accent-text);"><?= $metaTpdDistribuicao > 0 ? (int) $metaTpdDistribuicao : '—' ?></td>
                         </tr>
                         <tr>
                             <td>Potência Média (kVA)</td>
@@ -736,16 +765,17 @@ layoutHeader($pageTitle);
                                 $origem = $potenciaPorDia[$d]['origem'] ?? null;
                                 $titulo = $origem === 'kardex' ? 'Automático (Kardex)' : ($origem === 'manual' ? 'Manual' : '');
                             ?>
-                                <td class="<?= $v === null ? 'bo-zero' : '' ?>" title="<?= htmlspecialchars($titulo) ?>"><?= $v !== null ? htmlspecialchars(fmtDecimal($v)) : '—' ?></td>
+                                <td data-dia="<?= $d ?>" class="<?= $v === null ? 'bo-zero' : '' ?>" title="<?= htmlspecialchars($titulo) ?>"><?= $v !== null ? htmlspecialchars(fmtDecimal($v)) : '—' ?></td>
                             <?php endforeach; ?>
-                            <td style="font-weight:600;"><?= htmlspecialchars(fmtDecimal($potenciaMediaMensal)) ?></td>
-                            <td style="font-weight:600;"><?= htmlspecialchars(fmtDecimal($potenciaMediaMensal)) ?></td>
+                            <td style="background:var(--color-surface-2);border-left:1px solid var(--color-border);font-weight:600;"><?= htmlspecialchars(fmtDecimal($potenciaMediaMensal)) ?></td>
+                            <td style="background:var(--color-surface-2);font-weight:600;"><?= htmlspecialchars(fmtDecimal($potenciaMediaMensal)) ?></td>
                         </tr>
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
+
     <div class="card bo-chart-card">
         <div class="card-header"><span class="card-title">Percentual do Planejado (%)</span></div>
         <div style="position:relative;height:320px;width:100%;">
@@ -1262,51 +1292,9 @@ layoutHeader($pageTitle);
             }
         }
     }
-
-    // ─── Auto-Refresh 30 Segundos (Padrão Retrabalho) ───────────────────────────
-    let autoRefreshSegundos = 30;
-    let autoRefreshPausado = false;
-
-    const intervalAutoRefresh = setInterval(() => {
-        const modalAberto = document.querySelector('.date-filter-overlay.open, .bo-modal-overlay.open, .bo-modal-backdrop.open');
-        const inputFocado = document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
-
-        if (!autoRefreshPausado && !modalAberto && !inputFocado) {
-            autoRefreshSegundos--;
-            const lbl = document.getElementById('labelTimerRefresh');
-            if (lbl) {
-                lbl.textContent = autoRefreshSegundos + 's';
-            }
-
-            if (autoRefreshSegundos <= 0) {
-                window.location.reload();
-            }
-        }
-    }, 1000);
-
-    function alternarAutoRefresh() {
-        autoRefreshPausado = !autoRefreshPausado;
-        const lbl = document.getElementById('labelTimerRefresh');
-        const chip = document.getElementById('chipAutoRefresh');
-        const dot = chip?.querySelector('.pulse-dot');
-
-        if (autoRefreshPausado) {
-            if (lbl) {
-                lbl.textContent = 'Pausado';
-                lbl.style.color = '#64748b';
-            }
-            if (dot) dot.style.background = '#94a3b8';
-        } else {
-            autoRefreshSegundos = 30;
-            if (lbl) {
-                lbl.textContent = '30s';
-                lbl.style.color = '';
-            }
-            if (dot) dot.style.background = '#22c55e';
-        }
-    }
 </script>
 <?php 
+
 require_once __DIR__ . '/../../includes/modal-filtro-data.php';
 require_once __DIR__ . '/../../includes/modal-detalhes-pecas.php';
 ?>

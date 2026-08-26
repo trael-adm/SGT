@@ -61,3 +61,15 @@ Este arquivo define as regras de ouro para IAs (como o Gemini) atuarem no projet
 
 ## 🔗 Roteamento e Chamadas de Rede
 - Requisições fetch no frontend devem usar `window.__APP_BASE` para gerar rotas absolutas (evita erro 404 entre local e prod). Exemplo: `fetch(window.__APP_BASE + '/api/exemplo.php')`.
+
+## 🤖 Agent skills
+
+### Issue tracker
+Tarefas e specs rastreadas localmente em arquivos markdown em `scratch/`. Consulte `docs/agents/issue-tracker.md`.
+
+### Triage labels
+Rótulos canônicos de triagem (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). Consulte `docs/agents/triage-labels.md`.
+
+### Domain docs
+Estrutura single-context orientada pelo glossário industrial em `CONTEXT.md` e decisões em `docs/adr/`. Consulte `docs/agents/domain.md`.
+

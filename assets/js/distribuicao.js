@@ -12,11 +12,41 @@
     var AMBAR  = '#e8a020'; // Planejado / Meta
     var TENDENCIA = '#7c3aed'; // Tendência de Fábrica (ritmo atual projetado)
 
+    // ─── Plugin para desenhar o Glow no quadrante do dia inteiro no gráfico ──
+    var dayColumnGlowPlugin = {
+        id: 'dayColumnGlow',
+        beforeDraw: function (chart) {
+            if (chart._hoveredDayIndex !== undefined && chart._hoveredDayIndex !== null && chart._hoveredDayIndex >= 0) {
+                var ctx = chart.ctx;
+                var chartArea = chart.chartArea;
+                var xAxis = chart.scales.x;
+                var index = chart._hoveredDayIndex;
+                var totalCols = (chart.data.labels || []).length;
+                if (totalCols > 0 && index < totalCols && chartArea) {
+                    var xCenter = xAxis.getPixelForTick(index);
+                    var colWidth = chartArea.width / totalCols;
+                    ctx.save();
+                    // Glow suave verde no quadrante vertical do dia
+                    ctx.fillStyle = 'rgba(34, 197, 94, 0.15)';
+                    ctx.fillRect(xCenter - colWidth / 2, chartArea.top, colWidth, chartArea.bottom - chartArea.top);
+                    // Borda do quadrante
+                    ctx.strokeStyle = 'rgba(34, 197, 94, 0.55)';
+                    ctx.lineWidth = 1.5;
+                    ctx.strokeRect(xCenter - colWidth / 2, chartArea.top, colWidth, chartArea.bottom - chartArea.top);
+                    ctx.restore();
+                }
+            }
+        }
+    };
+
     // ─── 1. Gráfico "Produção — Quantidade" (barras agrupadas + Executado Total + Meta Diária) ─
     var elProducao = document.getElementById('chart-producao');
+    var chartProducaoInstance = null;
+
     if (elProducao && DATA.dias) {
-        new Chart(elProducao, {
+        chartProducaoInstance = new Chart(elProducao, {
             type: 'bar',
+            plugins: [dayColumnGlowPlugin],
             data: {
                 labels: DATA.dias,
                 datasets: [
@@ -85,6 +115,7 @@
                         tension: 0.25,
                         pointRadius: 3,
                         pointHoverRadius: 5,
+                        spanGaps: false,
                         fill: false,
                         order: 0,
                         datalabels: {
@@ -92,7 +123,7 @@
                             offset: 6,
                             color: VERDE,
                             font: { weight: 'bold', size: 10 },
-                            formatter: function (v) { return v || ''; },
+                            formatter: function (v) { return (v !== null && v !== undefined && v > 0) ? v : ''; },
                             anchor: function (ctx) {
                                 var meta = DATA.metaTotal[ctx.dataIndex] || 0;
                                 var val = ctx.dataset.data[ctx.dataIndex] || 0;
@@ -108,6 +139,7 @@
                     {
                         type: 'line',
                         label: 'Meta Diária',
+
                         data: DATA.metaTotal,
                         borderColor: AMBAR,
                         backgroundColor: AMBAR,
@@ -123,26 +155,42 @@
                 responsive: true,
                 maintainAspectRatio: false,
                 layout: { padding: { top: 24 } },
-                onHover: function (evt, elements) {
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                onHover: function (evt, elements, chart) {
                     if (evt.native && evt.native.target) {
-                        evt.native.target.style.cursor = (elements && elements.length > 0) ? 'pointer' : 'default';
+                        evt.native.target.style.cursor = 'pointer';
+                    }
+                    var pts = chart.getElementsAtEventForMode(evt, 'index', { intersect: false }, true);
+                    var dayIndex = (pts && pts.length > 0) ? pts[0].index : null;
+                    
+                    if (chart._hoveredDayIndex !== dayIndex) {
+                        chart._hoveredDayIndex = dayIndex;
+                        chart.draw();
+                    }
+
+                    document.querySelectorAll('.bo-nucleo-table .bo-col-glow').forEach(function (el) {
+                        el.classList.remove('bo-col-glow');
+                    });
+                    if (dayIndex !== null && DATA.dias && DATA.dias[dayIndex] !== undefined) {
+                        var diaNum = DATA.dias[dayIndex];
+                        var mes = window.MES_REFERENCIA || (new Date().toISOString().substring(0, 7));
+                        var dataYmd = mes + '-' + String(diaNum).padStart(2, '0');
+                        document.querySelectorAll('.bo-nucleo-table [data-dia="' + dataYmd + '"]').forEach(function (el) {
+                            el.classList.add('bo-col-glow');
+                        });
                     }
                 },
                 onClick: function (evt, elements, chart) {
-                    if (!elements || elements.length === 0) return;
-                    var firstElem = elements[0];
-                    var datasetIndex = firstElem.datasetIndex;
-                    var index = firstElem.index;
-                    var dataset = chart.data.datasets[datasetIndex];
-                    var label = dataset.label;
-                    if (label === 'Meta Diária') return;
-
+                    var pts = chart.getElementsAtEventForMode(evt, 'index', { intersect: false }, true);
+                    if (!pts || pts.length === 0) return;
+                    var index = pts[0].index;
                     var diaNum = DATA.dias[index];
                     var mes = window.MES_REFERENCIA || (new Date().toISOString().substring(0, 7));
                     var dataYmd = mes + '-' + String(diaNum).padStart(2, '0');
-
-                    var tipo = (label === 'REP') ? 'LAB' : (label === 'JC-TRIF' ? 'JC' : (label === 'Executado Total' ? 'TOTAL' : label));
-                    window.abrirModalDetalhesPecas(dataYmd, tipo);
+                    window.abrirModalDetalhesPecas(dataYmd, 'TOTAL');
                 },
                 scales: {
                     x: { title: { display: true, text: 'Dia do mês' } },
@@ -160,7 +208,49 @@
                 },
             },
         });
+
+        // Limpar glow ao sair do gráfico
+        elProducao.addEventListener('mouseleave', function () {
+            if (chartProducaoInstance) {
+                chartProducaoInstance._hoveredDayIndex = null;
+                chartProducaoInstance.draw();
+            }
+            document.querySelectorAll('.bo-nucleo-table .bo-col-glow').forEach(function (el) {
+                el.classList.remove('bo-col-glow');
+            });
+        });
+
+        // Sincronização de Glow ao passar o mouse na tabela de núcleos
+        document.querySelectorAll('.bo-nucleo-table [data-dia]').forEach(function (cell) {
+            cell.style.cursor = 'pointer';
+            cell.addEventListener('mouseenter', function () {
+                var d = this.getAttribute('data-dia');
+                if (!d) return;
+                document.querySelectorAll('.bo-nucleo-table [data-dia="' + d + '"]').forEach(function (el) {
+                    el.classList.add('bo-col-glow');
+                });
+                if (chartProducaoInstance && DATA.dias) {
+                    var partes = d.split('-');
+                    var diaNum = parseInt(partes[2] || d, 10);
+                    var idx = DATA.dias.indexOf(diaNum);
+                    if (idx !== -1) {
+                        chartProducaoInstance._hoveredDayIndex = idx;
+                        chartProducaoInstance.draw();
+                    }
+                }
+            });
+            cell.addEventListener('mouseleave', function () {
+                document.querySelectorAll('.bo-nucleo-table .bo-col-glow').forEach(function (el) {
+                    el.classList.remove('bo-col-glow');
+                });
+                if (chartProducaoInstance) {
+                    chartProducaoInstance._hoveredDayIndex = null;
+                    chartProducaoInstance.draw();
+                }
+            });
+        });
     }
+
 
     // ─── 2. Gráfico "Percentual do Planejado (%)" ──────────────────────────────
     var elPercentual = document.getElementById('chart-percentual');
@@ -1063,9 +1153,15 @@
         printWin.document.close();
     };
 
-    // ─── Modal de Detalhes Analíticos de Peças ────────────────────────────────
+    // ─── Modal de Análise Diária & Detalhes de Peças ───────────────────────────
     var pecasCache = [];
     var filtroPecaAtivo = 'TODOS';
+    var clienteSelecionadoModal = null;
+    var topClientesAtuais = [];
+    var chartModalPieInstance = null;
+    var chartModalBarInstance = null;
+    var paletaCoresClientes = ['#10b981', '#0ea5e9', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#64748b'];
+
 
     window.abrirModalDetalhesPecas = async function (dataDia, tipo) {
         var modal = document.getElementById('modal-detalhes-pecas');
@@ -1077,18 +1173,21 @@
         var mes = window.MES_REFERENCIA || (new Date().toISOString().substring(0, 7));
         var area = window.BOLETIM_AREA || 'distrib';
 
-        var tituloTxt = 'Relação de Peças';
+        var tituloTxt = 'Análise Diária de Produção';
         if (dataDia) {
             var partes = dataDia.split('-');
-            var dataFmt = (partes.length === 3) ? (partes[2] + '/' + partes[1] + '/' + partes[0]) : dataDia;
-            tituloTxt += ' — ' + dataFmt;
+            if (partes.length === 3) {
+                var dtObj = new Date(parseInt(partes[0], 10), parseInt(partes[1], 10) - 1, parseInt(partes[2], 10));
+                var diasSemana = ['Domingo', 'Segunda-Feira', 'Terça-Feira', 'Quarta-Feira', 'Quinta-Feira', 'Sexta-Feira', 'Sábado'];
+                var nomeSemana = diasSemana[dtObj.getDay()] || '';
+                tituloTxt = 'Análise de Produção — ' + partes[2] + '/' + partes[1] + '/' + partes[0] + ' (' + nomeSemana + ')';
+            } else {
+                tituloTxt += ' — ' + dataDia;
+            }
         } else {
             tituloTxt += ' — Mês ' + mes;
         }
 
-        if (tipo && tipo !== 'TOTAL' && tipo !== 'TODOS') {
-            tituloTxt += ' (' + tipo + ')';
-        }
         var elTitulo = document.getElementById('modal-pecas-titulo-texto');
         if (elTitulo) elTitulo.textContent = tituloTxt;
 
@@ -1096,15 +1195,17 @@
         var elTable = document.getElementById('modal-pecas-table');
         var elEmpty = document.getElementById('modal-pecas-empty-msg');
         var elTbody = document.getElementById('modal-pecas-tbody');
-        var elBadgeTotal = document.getElementById('modal-pecas-badge-total');
         var inputBusca = document.getElementById('modal-pecas-input-busca');
 
         if (inputBusca) inputBusca.value = '';
+        window.atualizarBotaoLimparBuscaModal();
+        clienteSelecionadoModal = null;
+        window.atualizarVisualFiltroClienteModal();
+
         if (elLoading) elLoading.style.display = 'block';
         if (elTable) elTable.style.display = 'none';
         if (elEmpty) elEmpty.style.display = 'none';
         if (elTbody) elTbody.innerHTML = '';
-        if (elBadgeTotal) elBadgeTotal.textContent = 'Carregando...';
 
         filtroPecaAtivo = (tipo && tipo !== 'TOTAL') ? tipo : 'TODOS';
         renderizarChipsFiltroPecas(area);
@@ -1122,21 +1223,21 @@
 
             if (data.sucesso && Array.isArray(data.itens)) {
                 pecasCache = data.itens;
+                atualizarKpisEGraficosModal(dataDia);
                 window.filtrarTabelaPecasModal();
             } else {
                 if (elEmpty) {
                     elEmpty.style.display = 'block';
-                    elEmpty.innerHTML = '<div style="color:#dc2626;font-weight:600;">' + (data.erro || 'Não foi possível carregar as peças.') + '</div>';
+                    elEmpty.innerHTML = '<div style="color:#dc2626;font-weight:600;">' + (data.erro || 'Nenhuma produção encontrada para este dia.') + '</div>';
                 }
-                if (elBadgeTotal) elBadgeTotal.textContent = '0 peças';
             }
         } catch (err) {
+            console.error('Erro ao carregar peças:', err);
             if (elLoading) elLoading.style.display = 'none';
             if (elEmpty) {
                 elEmpty.style.display = 'block';
-                elEmpty.innerHTML = '<div style="color:#dc2626;font-weight:600;">Erro de comunicação ao carregar peças.</div>';
+                elEmpty.innerHTML = '<div style="color:#dc2626;font-weight:600;">Erro de comunicação ao carregar os dados.</div>';
             }
-            if (elBadgeTotal) elBadgeTotal.textContent = 'Erro';
         }
     };
 
@@ -1145,6 +1246,376 @@
         if (!modal) return;
         modal.classList.remove('open');
         document.body.style.overflow = '';
+    };
+
+    function normalizarNomeCliente(nome, tpMercado) {
+        if (!nome) return 'Trael';
+        var n = String(nome).trim();
+        if (!n || n === '—' || n === '-' || n.toUpperCase() === 'CLIENTE NÃO INFORMADO' || n.toUpperCase() === 'CLIENTE NÃO IDENTIFICADO') {
+            return 'Trael';
+        }
+        var upper = n.toUpperCase();
+        if (upper.indexOf('EQUATORIAL') !== -1 || upper.indexOf('EQTL') !== -1) {
+            return 'Equatorial';
+        }
+        if (upper.indexOf('ENERGISA') !== -1 || /\b(EMS|EMT|ESE|EPB|ETO|ESS|ERO|EAC|ENF|EMR)\b/.test(upper)) {
+            return 'Energisa';
+        }
+        if (upper.indexOf('COPEL') !== -1) {
+            return 'Copel';
+        }
+        if (upper.indexOf('CEMIG') !== -1) {
+            return 'Cemig';
+        }
+        if (upper.indexOf('COELBA') !== -1 || upper.indexOf('NEOENERGIA') !== -1 || upper.indexOf('CELPE') !== -1 || upper.indexOf('COSERN') !== -1 || upper.indexOf('ELEKTRO') !== -1) {
+            return 'Neoenergia';
+        }
+        if (upper.indexOf('CPFL') !== -1 || upper.indexOf('RGE') !== -1) {
+            return 'CPFL';
+        }
+        if (upper.indexOf('ENEL') !== -1 || upper.indexOf('AMPLA') !== -1 || upper.indexOf('COELCE') !== -1) {
+            return 'Enel';
+        }
+        if (upper.indexOf('EDP') !== -1 || upper.indexOf('ESCELSA') !== -1) {
+            return 'EDP';
+        }
+        if (upper.indexOf('CELESC') !== -1) {
+            return 'Celesc';
+        }
+        if (upper.indexOf('LIGHT') !== -1) {
+            return 'Light';
+        }
+        if (upper.indexOf('TRAEL') !== -1 || upper.indexOf('ESTOQUE') !== -1 || upper.indexOf('INTERNO') !== -1) {
+            return 'Trael';
+        }
+        var mercUpper = (tpMercado ? String(tpMercado) : '').toUpperCase().trim();
+        if (mercUpper === 'VAR' || upper.indexOf('VAR') !== -1 || upper.indexOf('PARTICULAR') !== -1) {
+            return 'Particular';
+        }
+        // Qualquer outro cliente privado / particular
+        return 'Particular';
+    }
+
+    function atualizarKpisEGraficosModal(dataDia) {
+        var totalProd = 0;
+        var totalReprovas = 0;
+        var projetosProdSet = new Set();
+        var projetosReprovasSet = new Set();
+        var clientesMap = {};
+
+        pecasCache.forEach(function (p) {
+            var proj = (p.projeto || p.referencia || '').trim();
+            var isRep = (p.tipo === 'REPROVA LAB' || p.linha === 'LAB' || p.nucleo_cod === 'LAB');
+            if (isRep) {
+                totalReprovas++;
+                if (proj) projetosReprovasSet.add(proj);
+            } else {
+                totalProd++;
+                if (proj) projetosProdSet.add(proj);
+            }
+
+            var cli = normalizarNomeCliente(p.cliente, p.tp_mercado);
+            if (!clientesMap[cli]) clientesMap[cli] = 0;
+            clientesMap[cli]++;
+        });
+
+        var elTotal = document.getElementById('modal-kpi-total');
+        var elTotalSub = document.getElementById('modal-kpi-total-sub');
+        var elMeta = document.getElementById('modal-kpi-meta');
+        var elRep = document.getElementById('modal-kpi-reprovas');
+        var elRepSub = document.getElementById('modal-kpi-reprovas-sub');
+        var elCli = document.getElementById('modal-kpi-clientes');
+        var elCliSub = document.getElementById('modal-kpi-clientes-sub');
+
+        if (elTotal) elTotal.textContent = totalProd + ' un';
+        if (elTotalSub) elTotalSub.textContent = projetosProdSet.size + ' projetos';
+
+        if (elRep) elRep.textContent = totalReprovas + ' un';
+        if (elRepSub) elRepSub.textContent = projetosReprovasSet.size + ' projetos';
+
+        var listaClientes = Object.keys(clientesMap).map(function (k) {
+            return { nome: k, qtd: clientesMap[k] };
+        }).sort(function (a, b) { return b.qtd - a.qtd; });
+
+        if (elCli) elCli.textContent = listaClientes.length + (listaClientes.length === 1 ? ' cliente' : ' clientes');
+        if (elCliSub) elCliSub.textContent = 'grupos consolidados';
+
+        if (elMeta) {
+            var metaVal = (typeof DATA !== 'undefined' && DATA.metaTotal && DATA.metaTotal[0]) ? DATA.metaTotal[0] : 0;
+            if (metaVal > 0) {
+                var pct = Math.round((totalProd / metaVal) * 100);
+                elMeta.textContent = metaVal + ' un (' + pct + '%)';
+            } else {
+                elMeta.textContent = '—';
+            }
+        }
+
+        renderizarGraficosClienteModal(listaClientes, totalProd + totalReprovas);
+    }
+
+    function renderizarGraficosClienteModal(listaClientes, totalGeral) {
+        try {
+            var elPie = document.getElementById('chart-modal-cliente-pie');
+            var elBar = document.getElementById('chart-modal-cliente-bar');
+
+            if (chartModalPieInstance) {
+                chartModalPieInstance.destroy();
+                chartModalPieInstance = null;
+            }
+            if (chartModalBarInstance) {
+                chartModalBarInstance.destroy();
+                chartModalBarInstance = null;
+            }
+
+            if (!listaClientes || listaClientes.length === 0) return;
+
+            var topLabels = [];
+            var topQtds = [];
+            var outrosQtd = 0;
+
+            listaClientes.forEach(function (c, idx) {
+                if (idx < 6) {
+                    topLabels.push(c.nome);
+                    topQtds.push(c.qtd);
+                } else {
+                    outrosQtd += c.qtd;
+                }
+            });
+
+            if (outrosQtd > 0) {
+                topLabels.push('OUTROS (' + (listaClientes.length - 6) + ')');
+                topQtds.push(outrosQtd);
+            }
+
+            topClientesAtuais = topLabels;
+            var coresIniciais = paletaCoresClientes.slice(0, topLabels.length);
+            var maxQtd = Math.max.apply(null, topQtds.concat([10]));
+
+            if (elPie) {
+                chartModalPieInstance = new Chart(elPie, {
+                    type: 'doughnut',
+                    data: {
+                        labels: topLabels,
+                        datasets: [{
+                            data: topQtds,
+                            backgroundColor: coresIniciais,
+                            borderWidth: 2,
+                            borderColor: '#ffffff',
+                            hoverOffset: 4
+                        }]
+                    },
+                    plugins: [{
+                        id: 'donutCenterMetric',
+                        beforeDraw: function(chart) {
+                            var chartArea = chart.chartArea;
+                            if (!chartArea) return;
+                            var ctx = chart.ctx;
+                            ctx.save();
+                            var centerX = (chartArea.left + chartArea.right) / 2;
+                            var centerY = (chartArea.top + chartArea.bottom) / 2;
+                            
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            
+                            ctx.font = 'bold 16px monospace';
+                            ctx.fillStyle = '#0f172a';
+                            ctx.fillText(totalGeral + ' un', centerX, centerY - 6);
+                            
+                            ctx.font = '700 9px sans-serif';
+                            ctx.fillStyle = '#64748b';
+                            ctx.fillText('TOTAL NO DIA', centerX, centerY + 10);
+                            ctx.restore();
+                        }
+                    }],
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: '62%',
+                        onHover: function (evt, elements) {
+                            if (evt.native && evt.native.target) {
+                                evt.native.target.style.cursor = (elements && elements.length > 0) ? 'pointer' : 'default';
+                            }
+                        },
+                        onClick: function (evt, elements) {
+                            if (!elements || elements.length === 0) return;
+                            var idx = elements[0].index;
+                            var cli = topLabels[idx];
+                            window.alternarFiltroClienteModal(cli);
+                        },
+                        plugins: {
+                            datalabels: { display: false },
+                            legend: {
+                                position: 'right',
+                                labels: {
+                                    boxWidth: 10,
+                                    boxHeight: 10,
+                                    usePointStyle: true,
+                                    pointStyle: 'circle',
+                                    font: { size: 12, weight: '700' },
+                                    color: '#1e293b',
+                                    padding: 8,
+                                    generateLabels: function(chart) {
+                                        var data = chart.data;
+                                        if (data.labels.length && data.datasets.length) {
+                                            return data.labels.map(function(lbl, i) {
+                                                var qtd = data.datasets[0].data[i];
+                                                var pct = totalGeral > 0 ? Math.round((qtd / totalGeral) * 100) : 0;
+                                                var shortName = lbl.length > 20 ? lbl.substring(0, 18) + '…' : lbl;
+                                                var fill = data.datasets[0].backgroundColor[i];
+                                                return {
+                                                    text: shortName + ' — ' + qtd + ' un (' + pct + '%)',
+                                                    fillStyle: fill,
+                                                    strokeStyle: fill,
+                                                    lineWidth: 0,
+                                                    hidden: false,
+                                                    index: i
+                                                };
+                                            });
+                                        }
+                                        return [];
+                                    }
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function (ctx) {
+                                        var val = ctx.raw || 0;
+                                        var pct = totalGeral > 0 ? Math.round((val / totalGeral) * 100) : 0;
+                                        return ' ' + ctx.label + ': ' + val + ' peças (' + pct + '%)';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            if (elBar) {
+                chartModalBarInstance = new Chart(elBar, {
+                    type: 'bar',
+                    data: {
+                        labels: topLabels.map(function(l) { return l.length > 20 ? l.substring(0, 18) + '…' : l; }),
+                        datasets: [{
+                            label: 'Peças Produzidas',
+                            data: topQtds,
+                            backgroundColor: coresIniciais,
+                            borderRadius: 4,
+                            barPercentage: 0.75,
+                            categoryPercentage: 0.85
+                        }]
+                    },
+                    options: {
+                        indexAxis: 'y',
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        layout: {
+                            padding: { right: 42 }
+                        },
+                        onHover: function (evt, elements) {
+                            if (evt.native && evt.native.target) {
+                                evt.native.target.style.cursor = (elements && elements.length > 0) ? 'pointer' : 'default';
+                            }
+                        },
+                        onClick: function (evt, elements) {
+                            if (!elements || elements.length === 0) return;
+                            var idx = elements[0].index;
+                            var cli = topLabels[idx];
+                            window.alternarFiltroClienteModal(cli);
+                        },
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                suggestedMax: maxQtd * 1.18,
+                                grid: {
+                                    color: '#f1f5f9'
+                                },
+                                ticks: { precision: 0, font: { size: 10 } }
+                            },
+                            y: {
+                                grid: { display: false },
+                                ticks: { font: { size: 12, weight: 'bold' }, color: '#1e293b' }
+                            }
+                        },
+                        plugins: {
+                            datalabels: {
+                                display: true,
+                                align: 'end',
+                                anchor: 'end',
+                                offset: 4,
+                                font: { size: 12, weight: 'bold', family: 'monospace' },
+                                color: '#0f172a',
+                                formatter: function(val) {
+                                    return val + ' un';
+                                }
+                            },
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: function (ctx) {
+                                        return ' Total: ' + ctx.raw + ' peças produzidas';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        } catch (errGraficos) {
+            console.warn('Erro ao renderizar gráficos do modal:', errGraficos);
+        }
+    }
+
+    window.alternarFiltroClienteModal = function (cliNome) {
+        if (!cliNome) return;
+        if (clienteSelecionadoModal === cliNome) {
+            clienteSelecionadoModal = null;
+        } else {
+            clienteSelecionadoModal = cliNome;
+        }
+        window.atualizarVisualFiltroClienteModal();
+        window.filtrarTabelaPecasModal();
+    };
+
+    window.limparFiltroClienteModal = function () {
+        clienteSelecionadoModal = null;
+        window.atualizarVisualFiltroClienteModal();
+        window.filtrarTabelaPecasModal();
+    };
+
+    window.atualizarVisualFiltroClienteModal = function () {
+        var badge = document.getElementById('modal-pecas-cliente-filtro-badge');
+        var badgeNome = document.getElementById('modal-pecas-cliente-filtro-nome');
+        if (badge && badgeNome) {
+            if (clienteSelecionadoModal) {
+                var labelExib = (clienteSelecionadoModal.indexOf('OUTROS') === 0) ? 'Outros Clientes' : clienteSelecionadoModal;
+                badgeNome.textContent = 'Cliente: ' + labelExib;
+                badge.style.display = 'inline-flex';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+
+        // Atualizar visual dos gráficos com destaque na seleção
+        [chartModalPieInstance, chartModalBarInstance].forEach(function (chart) {
+            if (!chart || !chart.data || !chart.data.datasets || !chart.data.datasets[0]) return;
+            var labels = topClientesAtuais || [];
+            var coresBase = paletaCoresClientes.slice(0, labels.length);
+            
+            if (clienteSelecionadoModal) {
+                var novasCores = labels.map(function (lbl, i) {
+                    var match = (clienteSelecionadoModal === lbl);
+                    if (match) {
+                        return coresBase[i];
+                    } else {
+                        return 'rgba(148, 163, 184, 0.3)'; // Muted
+                    }
+                });
+                chart.data.datasets[0].backgroundColor = novasCores;
+            } else {
+                chart.data.datasets[0].backgroundColor = coresBase;
+            }
+            chart.update();
+        });
     };
 
     function renderizarChipsFiltroPecas(area) {
@@ -1172,7 +1643,6 @@
         var elTable = document.getElementById('modal-pecas-table');
         var elEmpty = document.getElementById('modal-pecas-empty-msg');
         var elTbody = document.getElementById('modal-pecas-tbody');
-        var elBadgeTotal = document.getElementById('modal-pecas-badge-total');
         var elContador = document.getElementById('modal-pecas-contador-exibidos');
 
         if (!elTbody) return;
@@ -1181,49 +1651,64 @@
         if (!lista || lista.length === 0) {
             if (elTable) elTable.style.display = 'none';
             if (elEmpty) elEmpty.style.display = 'block';
-            if (elBadgeTotal) elBadgeTotal.textContent = '0 peças';
             if (elContador) elContador.textContent = 'Exibindo 0 registros';
             return;
         }
 
         if (elTable) elTable.style.display = 'table';
         if (elEmpty) elEmpty.style.display = 'none';
-        if (elBadgeTotal) elBadgeTotal.textContent = lista.length + (lista.length === 1 ? ' peça' : ' peças');
-        if (elContador) elContador.textContent = 'Exibindo ' + lista.length + ' de ' + pecasCache.length + ' registros';
+
+        var agrupadosMap = {};
+        var totalPecasFiltradas = 0;
+
+        lista.forEach(function (p) {
+            var proj = (p.projeto || p.referencia || '—').trim();
+            var desc = (p.descricao || '—').trim();
+            var cli  = normalizarNomeCliente(p.cliente, p.tp_mercado);
+            var rawCli = (p.cliente || '').trim();
+            var cliDisplay = (rawCli && rawCli !== '—' && rawCli !== '-' && rawCli.toUpperCase() !== 'CLIENTE NÃO INFORMADO') ? rawCli : cli;
+            var nuc  = (p.nucleo_cod || p.linha || 'ENR').trim();
+            var isRep = (p.tipo === 'REPROVA LAB' || p.linha === 'LAB' || p.nucleo_cod === 'LAB');
+
+            var chave = proj + '||' + desc + '||' + cliDisplay + '||' + nuc + '||' + (isRep ? 'REP' : 'OK');
+            if (!agrupadosMap[chave]) {
+                agrupadosMap[chave] = {
+                    projeto: proj,
+                    descricao: desc,
+                    cliente: cliDisplay,
+                    clienteGrupo: cli,
+                    nucleo: nuc,
+                    isRep: isRep,
+                    quantidade: 0
+                };
+            }
+            agrupadosMap[chave].quantidade++;
+            totalPecasFiltradas++;
+        });
+
+        var itensConsolidados = Object.values(agrupadosMap);
 
         var html = '';
-        lista.forEach(function (p, idx) {
-            var isRep = (p.tipo === 'REPROVA LAB' || p.linha === 'LAB' || p.nucleo_cod === 'LAB');
-            var trClass = isRep ? 'is-reprova' : '';
-            var badgeNucleoClass = 'badge-nucleo-' + (p.nucleo_cod || p.linha || 'ENR');
-
-            var situacaoHtml = '';
-            if (isRep) {
-                situacaoHtml = '<span class="badge badge-nucleo-LAB" style="margin-bottom:2px;">REPROVADO LAB</span>' + 
-                               '<div style="font-size:0.7rem;color:#b91c1c;margin-top:2px;">' + escapeHtml(p.motivo_reprova || 'Almoxarifado 22/422') + '</div>';
-            } else {
-                situacaoHtml = '<span style="color:#15803d;font-weight:600;font-size:0.75rem;">Concluído (Produção)</span>';
-            }
-
-            var horario = p.data_audit || p.data_mov || '';
-            var dataTurno = p.data_turno || '';
+        itensConsolidados.forEach(function (item, idx) {
+            var trClass = item.isRep ? 'is-reprova' : '';
+            var badgeNucleoClass = 'badge-nucleo-' + (item.isRep ? 'LAB' : item.nucleo);
+            var labelNucleo = item.isRep ? 'REPROVA' : (item.nucleo === 'JC' ? 'JC-TRIF' : item.nucleo);
 
             html += '<tr class="' + trClass + '">' +
-                '<td style="text-align:center;color:#94a3b8;font-size:0.75rem;">' + (idx + 1) + '</td>' +
-                '<td><span class="badge-peca-serie">' + escapeHtml(p.serie || '—') + '</span></td>' +
-                '<td style="font-weight:600;font-family:monospace;">' + escapeHtml(p.of || '—') + '</td>' +
-                '<td style="font-weight:600;color:#0f172a;" title="' + escapeHtml(p.projeto || p.referencia || '') + '">' + escapeHtml(p.projeto || p.referencia || '—') + '</td>' +
-                '<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(p.descricao || '') + '">' + escapeHtml(p.descricao || '—') + '</td>' +
-                '<td style="font-weight:600;">' + escapeHtml(p.pedido || '—') + '</td>' +
-                '<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(p.cliente || '') + '">' + escapeHtml(p.cliente || '—') + '</td>' +
-                '<td style="text-align:center;"><span class="badge-nucleo-tag ' + badgeNucleoClass + '">' + escapeHtml(p.nucleo_cod || p.linha || '—') + '</span></td>' +
-                '<td style="font-size:0.75rem;white-space:nowrap;" title="Data Turno: ' + escapeHtml(dataTurno) + '">' + escapeHtml(horario) + '</td>' +
-                '<td style="font-size:0.75rem;">' + escapeHtml(p.operador || '—') + '</td>' +
-                '<td>' + situacaoHtml + '</td>' +
+                '<td style="text-align:center;color:#94a3b8;font-size:0.75rem;font-weight:600;">' + (idx + 1) + '</td>' +
+                '<td style="font-weight:800;color:#0f172a;font-family:monospace;font-size:0.82rem;">' + escapeHtml(item.projeto) + '</td>' +
+                '<td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(item.descricao) + '">' + escapeHtml(item.descricao) + '</td>' +
+                '<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:#334155;" title="' + escapeHtml(item.cliente) + '">' + escapeHtml(item.cliente) + '</td>' +
+                '<td style="text-align:center;font-weight:800;font-size:0.85rem;color:#0f172a;font-family:monospace;">' + item.quantidade + ' un</td>' +
+                '<td style="text-align:center;"><span class="badge-nucleo-tag ' + badgeNucleoClass + '">' + escapeHtml(labelNucleo) + '</span></td>' +
             '</tr>';
         });
 
         elTbody.innerHTML = html;
+        if (elContador) {
+            var labelCliSuffix = clienteSelecionadoModal ? ' de ' + (clienteSelecionadoModal.indexOf('OUTROS') === 0 ? 'Outros Clientes' : clienteSelecionadoModal) : '';
+            elContador.textContent = 'Exibindo ' + itensConsolidados.length + ' projetos (' + totalPecasFiltradas + ' peças' + labelCliSuffix + ')';
+        }
     }
 
     window.filtrarTabelaPecasModal = function () {
@@ -1231,7 +1716,25 @@
         var query = (input ? input.value : '').toLowerCase().trim();
 
         var filtrados = pecasCache.filter(function (p) {
-            // Filtro por Chip ativo
+            var cli = normalizarNomeCliente(p.cliente, p.tp_mercado);
+            var rawCli = (p.cliente || '').trim();
+
+            // Filtro por Cliente (Cross-Filtering vindo do gráfico)
+            if (clienteSelecionadoModal) {
+                if (clienteSelecionadoModal.indexOf('OUTROS') === 0) {
+                    var top6 = (topClientesAtuais || []).filter(function(l) { return l.indexOf('OUTROS') !== 0; });
+                    if (top6.some(function(t) { return t.toUpperCase() === cli.toUpperCase(); })) {
+                        return false;
+                    }
+                } else {
+                    if (cli.toUpperCase() !== clienteSelecionadoModal.toUpperCase()) {
+                        return false;
+                    }
+                }
+            }
+
+
+
             if (filtroPecaAtivo !== 'TODOS') {
                 var nuc = (p.nucleo_cod || '').toUpperCase();
                 var lin = (p.linha || '').toUpperCase();
@@ -1255,17 +1758,12 @@
             if (!query) return true;
 
             var texto = [
-                p.serie,
-                p.of,
                 p.projeto,
                 p.referencia,
                 p.descricao,
-                p.pedido,
-                p.pedido_cliente,
-                p.cliente,
-                p.operador,
-                p.nucleo,
-                p.motivo_reprova
+                cli,
+                p.nucleo_cod,
+                p.linha
             ].join(' ').toLowerCase();
 
             return texto.indexOf(query) !== -1;
@@ -1274,39 +1772,22 @@
         renderizarTabelaPecas(filtrados);
     };
 
-    window.exportarPecasModalCSV = function () {
-        if (!pecasCache || pecasCache.length === 0) {
-            alert('Não há dados para exportar.');
-            return;
+    window.atualizarBotaoLimparBuscaModal = function () {
+        var input = document.getElementById('modal-pecas-input-busca');
+        var btn = document.getElementById('modal-pecas-search-clear');
+        if (input && btn) {
+            btn.style.display = input.value.trim() ? 'inline-flex' : 'none';
         }
+    };
 
-        var csv = [];
-        var headers = ['Tipo', 'Data Turno', 'Horario Apontamento', 'Nº Serie', 'OF', 'Projeto/Ref', 'Descricao', 'Pedido', 'Cliente', 'Nucleo/Linha', 'Operador', 'Motivo Reprova'];
-        csv.push(headers.join(';'));
-
-        pecasCache.forEach(function (p) {
-            var row = [
-                '"' + (p.tipo || '').replace(/"/g, '""') + '"',
-                '"' + (p.data_turno || '').replace(/"/g, '""') + '"',
-                '"' + (p.data_audit || p.data_mov || '').replace(/"/g, '""') + '"',
-                '"' + (p.serie || '').replace(/"/g, '""') + '"',
-                '"' + (p.of || '').replace(/"/g, '""') + '"',
-                '"' + (p.projeto || p.referencia || '').replace(/"/g, '""') + '"',
-                '"' + (p.descricao || '').replace(/"/g, '""') + '"',
-                '"' + (p.pedido || '').replace(/"/g, '""') + '"',
-                '"' + (p.cliente || '').replace(/"/g, '""') + '"',
-                '"' + (p.nucleo_cod || p.linha || '').replace(/"/g, '""') + '"',
-                '"' + (p.operador || '').replace(/"/g, '""') + '"',
-                '"' + (p.motivo_reprova || '').replace(/"/g, '""') + '"',
-            ];
-            csv.push(row.join(';'));
-        });
-
-        var blob = new Blob(['\uFEFF' + csv.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
-        var link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = 'relacao_pecas_' + (window.MES_REFERENCIA || 'export') + '.csv';
-        link.click();
+    window.limparBuscaModalPecas = function () {
+        var input = document.getElementById('modal-pecas-input-busca');
+        if (input) {
+            input.value = '';
+            input.focus();
+        }
+        window.atualizarBotaoLimparBuscaModal();
+        window.filtrarTabelaPecasModal();
     };
 
     function escapeHtml(str) {
@@ -1320,4 +1801,6 @@
     }
 
 })();
+
+
 

@@ -557,13 +557,7 @@ layoutHeader($pageTitle);
 
     <!-- Chips de Referência / Filtros -->
     <div class="ps-ref-row">
-        
-        <!-- Chip de Auto-Refresh (30s) -->
-        <div class="ps-ref-chip" id="chipAutoRefresh" title="Clique para pausar / retomar a atualização automática" onclick="alternarAutoRefresh()" style="cursor:pointer;user-select:none;">
-            <span class="pulse-dot"></span>
-            <span class="ps-ref-label">Auto-Refresh</span>
-            <span class="ps-ref-value font-mono" id="labelTimerRefresh" style="font-weight:700;color:#16a34a;">30s</span>
-        </div>
+
 
         <!-- Botão Disparador do Modal de Filtro de Data (Estilo idêntico ao Meta Diária) -->
         <button type="button" class="ps-ref-chip" onclick="abrirFiltroDataModal()" style="cursor:pointer;transition:all 0.15s ease;background:var(--color-surface, #ffffff);border:1px solid var(--color-border, #e2e6ed);color:inherit;font-family:inherit;">
@@ -940,49 +934,7 @@ require_once __DIR__ . '/../../includes/modal-filtro-data.php';
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
 
 <script>
-// ─── Atualização Automática a cada 30 Segundos ──────────────────────────────
-let autoRefreshSegundos = 30;
-let autoRefreshPausado = false;
 
-const intervalAutoRefresh = setInterval(() => {
-    // Se o modal de filtro estiver aberto ou o usuário digitando, não interrompe
-    const modalAberto = document.getElementById('dateFilterModal')?.classList.contains('open');
-    const inputFocado = document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName);
-
-    if (!autoRefreshPausado && !modalAberto && !inputFocado) {
-        autoRefreshSegundos--;
-        const lbl = document.getElementById('labelTimerRefresh');
-        if (lbl) {
-            lbl.textContent = autoRefreshSegundos + 's';
-        }
-
-        if (autoRefreshSegundos <= 0) {
-            window.location.reload();
-        }
-    }
-}, 1000);
-
-function alternarAutoRefresh() {
-    autoRefreshPausado = !autoRefreshPausado;
-    const lbl = document.getElementById('labelTimerRefresh');
-    const chip = document.getElementById('chipAutoRefresh');
-    const dot = chip?.querySelector('.pulse-dot');
-
-    if (autoRefreshPausado) {
-        if (lbl) {
-            lbl.textContent = 'Pausado';
-            lbl.style.color = '#64748b';
-        }
-        if (dot) dot.style.background = '#94a3b8';
-    } else {
-        autoRefreshSegundos = 30;
-        if (lbl) {
-            lbl.textContent = '30s';
-            lbl.style.color = '#16a34a';
-        }
-        if (dot) dot.style.background = '#16a34a';
-    }
-}
 
 // ─── Impressão Formal A4 ────────────────────────────────────────────────────
 function imprimirPainelA4() {

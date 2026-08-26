@@ -18,8 +18,10 @@ node_modules/
 .claude/
 .gemini/
 .agent/
+.agents/
 .impeccable/
 .opencode/
+
 __pycache__/
 *.pyc
 _inicial/dump_*.sql
@@ -41,3 +43,4 @@ PLANILHA QUE ATUALIZA/Item.csv
 log*.md*
 log_conversa.md
 troca de servidor.txt
+docs/INFORMATIVO.md

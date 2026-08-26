@@ -76,8 +76,8 @@ try {
         $atualizacoes[] = "Cache de produção ($mes) atualizado com " . count($dados['porDia'] ?? []) . " dias";
     }
 
-    // 2. Atualiza metas no banco de dados MySQL do Railway
-    if (is_array($metas)) {
+    // 2. Atualiza metas no banco de dados MySQL do Railway (apenas se explicitamente enviadas)
+    if (is_array($metas) && !empty($metas)) {
         $pdo = getDB();
         $stmtMeta = $pdo->prepare("
             INSERT INTO boletim_config_metas (

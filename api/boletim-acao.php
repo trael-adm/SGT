@@ -559,17 +559,22 @@ try {
         // ─── Buscar detalhes analíticos de peças para o modal interativo ────
         case 'buscar_detalhes_pecas': {
             require_once __DIR__ . '/../includes/boletim-planilha.php';
-            $mes      = trim((string) ($_REQUEST['mes'] ?? ''));
-            $dataDia  = trim((string) ($_REQUEST['data'] ?? ''));
-            $tipo     = trim((string) ($_REQUEST['tipo'] ?? ''));
-            $area     = trim((string) ($_REQUEST['area'] ?? 'distrib'));
-            $refresh  = !empty($_REQUEST['refresh']);
+            $mes      = trim((string) ($_POST['mes'] ?? $_GET['mes'] ?? ''));
+            $dataDia  = trim((string) ($_POST['data'] ?? $_GET['data'] ?? ''));
+            $tipo     = trim((string) ($_POST['tipo'] ?? $_GET['tipo'] ?? ''));
+            $area     = trim((string) ($_POST['area'] ?? $_GET['area'] ?? 'distrib'));
+            $refresh  = !empty($_POST['refresh']) || !empty($_GET['refresh']);
 
             if (!preg_match('/^\d{4}-\d{2}$/', $mes)) {
                 $mes = date('Y-m');
             }
 
-            $itens = boletimBuscarDetalhesProducao($mes, $dataDia ?: null, $tipo ?: null, $area, $refresh);
+            // Normalizar data se vier apenas o número do dia (ex: "3" -> "2026-08-03")
+            if (preg_match('/^\d{1,2}$/', $dataDia)) {
+                $dataDia = sprintf('%s-%02d', $mes, (int) $dataDia);
+            }
+
+            $itens = boletimBuscarDetalhesProducao($mes, $dataDia ?: null, null, $area, $refresh);
 
             $payload = [
                 'sucesso' => true,

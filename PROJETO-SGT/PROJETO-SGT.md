@@ -439,3 +439,17 @@ SGT/
 - Versão do sistema gerenciada em `config/versao.php` (`APP_VERSION`).
 - Histórico de versões mantido em `pages/changelog.php`.
 - Padrão oficial de mensagens de commit: `feat: vX.Y.Z — <descrição>` ou `fix: vX.Y.Z — <descrição>`.
+
+---
+
+## 14. Agent Skills & Automação de Engenharia
+
+### Issue Tracker
+Tarefas, especificações e tickets de trabalho são gerenciados localmente no diretório `scratch/`. Consulte [`docs/agents/issue-tracker.md`](file:///m:/APP/Sistema_SGT/www/SGT-dev/docs/agents/issue-tracker.md).
+
+### Triage Labels
+Vocabulário canônico de triagem de demandas: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. Consulte [`docs/agents/triage-labels.md`](file:///m:/APP/Sistema_SGT/www/SGT-dev/docs/agents/triage-labels.md).
+
+### Domain Docs
+Estrutura de documentação single-context baseada no glossário do [`CONTEXT.md`](file:///m:/APP/Sistema_SGT/www/SGT-dev/CONTEXT.md) e registros de decisões em `docs/adr/`. Consulte [`docs/agents/domain.md`](file:///m:/APP/Sistema_SGT/www/SGT-dev/docs/agents/domain.md).
+

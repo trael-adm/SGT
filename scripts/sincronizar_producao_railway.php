@@ -26,7 +26,7 @@ echo "Destino: $urlRailway/api/sync-boletim.php\n";
 echo "===============================================================\n\n";
 
 // 1. Extração do SQL Server local (Distribuição e Média Força)
-echo "[1/6] Consultando dados de produção no SQL Server (vsat.trael.local)... ";
+echo "[1/5] Consultando dados de produção no SQL Server (vsat.trael.local)... ";
 $dadosProducao = boletimConsultarSqlServerMes($mes);
 
 if ($dadosProducao === null || (empty($dadosProducao['porDia']) && empty($dadosProducao['nucleoPorDia']))) {
@@ -36,29 +36,27 @@ if ($dadosProducao === null || (empty($dadosProducao['porDia']) && empty($dadosP
 
 if (!empty($dadosProducao['porDia'])) {
     echo "OK! (" . count($dadosProducao['porDia']) . " dias de produção extraídos)\n";
+    // Atualizar cache local em storage/cache
+    try {
+        $cacheDir = __DIR__ . '/../storage/cache';
+        if (!is_dir($cacheDir)) @mkdir($cacheDir, 0775, true);
+        $localJson = $cacheDir . '/kardex_mes_' . $mes . '.json';
+        $localBin  = $cacheDir . '/kardex_mes_' . $mes . '.cache';
+        $envelope = [
+            'timestamp' => time(),
+            'sincronizado_em' => date('Y-m-d H:i:s'),
+            'fonte' => 'Sincronizador Local Trael (vsat.trael.local)',
+            'dados' => $dadosProducao,
+        ];
+        file_put_contents($localJson, json_encode($envelope, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        file_put_contents($localBin, serialize($envelope));
+    } catch (Throwable $eCache) {}
 } else {
     echo "FALHA! Nenhum dado de produção encontrado.\n";
 }
 
-// 2. Leitura das Metas do mês no banco local
-echo "[2/6] Lendo metas de produção configuradas no banco local... ";
-$metas = null;
-try {
-    $pdoLocal = getDB();
-    $stmt = $pdoLocal->prepare("SELECT * FROM boletim_config_metas WHERE `month` = ?");
-    $stmt->execute([$mes]);
-    $metas = $stmt->fetch(PDO::FETCH_ASSOC);
-    if ($metas) {
-        echo "OK! (Meta TPD: " . ($metas['meta_tpd_distribuicao'] ?? 0) . " un)\n";
-    } else {
-        echo "Vazio (usando metas padrão)\n";
-    }
-} catch (Throwable $e) {
-    echo "Erro ao ler metas: " . $e->getMessage() . "\n";
-}
-
-// 3. Leitura do Snapshot mais recente de Atraso de Distribuição
-echo "[3/6] Verificando snapshots de atraso de distribuição... ";
+// 2. Leitura do Snapshot mais recente de Atraso de Distribuição
+echo "[2/5] Verificando snapshots de atraso de distribuição... ";
 $snapshotCsv = null;
 $snapshotData = null;
 
@@ -75,8 +73,8 @@ if (!empty($snapFiles)) {
     echo "Nenhum snapshot recente encontrado.\n";
 }
 
-// 4. Extração do Fluxo de Pedidos & Esteira Industrial
-echo "[4/6] Extraindo esteira e planilha de Fluxo de Pedidos... ";
+// 3. Extração do Fluxo de Pedidos & Esteira Industrial
+echo "[3/5] Extraindo esteira e planilha de Fluxo de Pedidos... ";
 $fluxoPedidos = null;
 $fluxoPlanilha = null;
 try {
@@ -89,8 +87,8 @@ try {
     echo "Erro Fluxo: " . $e->getMessage() . "\n";
 }
 
-// 5. Extração de Acompanhamento (Pintura x Montagem)
-echo "[5/6] Extraindo dados de Acompanhamento de Produção... ";
+// 4. Extração de Acompanhamento (Pintura x Montagem)
+echo "[4/5] Extraindo dados de Acompanhamento de Produção... ";
 $acompanhamento = null;
 try {
     $acompanhamento = carregarAcompanhamentoProducao();
@@ -100,19 +98,19 @@ try {
     echo "Erro Acompanhamento: " . $e->getMessage() . "\n";
 }
 
-// 6. Envio do payload completo para o Railway via cURL
-echo "[6/6] Enviando payload consolidado para o Railway... ";
+// 5. Envio do payload completo para o Railway via cURL
+echo "[5/5] Enviando payload consolidado para o Railway... ";
 
 $payload = [
     'mes' => $mes,
     'dados' => sanitizarUtf8Recursivo($dadosProducao),
-    'metas' => sanitizarUtf8Recursivo($metas),
     'snapshot_data' => $snapshotData,
     'snapshot_csv' => $snapshotCsv,
     'fluxo_pedidos' => sanitizarUtf8Recursivo($fluxoPedidos),
     'fluxo_planilha' => sanitizarUtf8Recursivo($fluxoPlanilha),
     'acompanhamento' => sanitizarUtf8Recursivo($acompanhamento),
 ];
+
 
 $jsonPayload = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 
