@@ -112,6 +112,38 @@ function requireLogin(): void
     }
 }
 
+/**
+ * Gera ou obtém o token CSRF da sessão atual.
+ */
+function csrfToken(?string $formKey = null): string
+{
+    if (session_status() === PHP_SESSION_NONE) {
+        @session_start();
+    }
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    if ($formKey !== null) {
+        if (empty($_SESSION['csrf_tokens'][$formKey])) {
+            $_SESSION['csrf_tokens'][$formKey] = bin2hex(random_bytes(32));
+        }
+        return $_SESSION['csrf_tokens'][$formKey];
+    }
+    return $_SESSION['csrf_token'];
+}
+
+/**
+ * Valida o token CSRF enviado via POST ou header.
+ */
+function validarCsrf(?string $token = null, ?string $formKey = null): bool
+{
+    if ($token === null) {
+        $token = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    }
+    $esperado = csrfToken($formKey);
+    return hash_equals($esperado, (string) $token);
+}
+
 function requirePerfil(array $perfis): void
 {
     requireLogin();

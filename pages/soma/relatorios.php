@@ -182,6 +182,24 @@ $stmtTopParadas->execute($params);
 $topParadas = $stmtTopParadas->fetchAll();
 
 // 8. Desempenho por Operador
+$paramsOp = $params;
+$filtroOpSub = "st.deleted_at IS NULL AND st.data >= :op_data_inicio AND st.data <= :op_data_fim";
+$paramsOp['op_data_inicio'] = $dataInicio;
+$paramsOp['op_data_fim']    = $dataFim;
+
+if ($idEmpresa) {
+    $filtroOpSub .= " AND st.id_empresa = :op_id_empresa";
+    $paramsOp['op_id_empresa'] = $idEmpresa;
+}
+if ($turnoFiltro !== '') {
+    $filtroOpSub .= " AND st.turno = :op_turno";
+    $paramsOp['op_turno'] = $turnoFiltro;
+}
+if ($idSetor) {
+    $filtroOpSub .= " AND st.id_setor = :op_id_setor";
+    $paramsOp['op_id_setor'] = $idSetor;
+}
+
 $stmtOpRel = $db->prepare("
     SELECT 
         op.id, op.cod, op.nome,
@@ -189,14 +207,21 @@ $stmtOpRel = $db->prepare("
         COALESCE(SUM(t.minutos_disponiveis), 0) AS min_disp,
         COALESCE(SUM(t.minutos_produzidos), 0)  AS min_prod,
         COALESCE(SUM(t.minutos_paradas), 0)     AS min_parada,
-        (SELECT COALESCE(SUM(qtd), 0) FROM soma_registros_producao WHERE id_turno IN (SELECT id FROM soma_turnos WHERE id_operador = op.id AND {$whereSql})) AS volume_op
+        (
+            SELECT COALESCE(SUM(rp.qtd), 0)
+            FROM soma_registros_producao rp
+            INNER JOIN soma_turnos st ON st.id = rp.id_turno
+            WHERE st.id_operador = op.id
+              AND {$filtroOpSub}
+              AND rp.deleted_at IS NULL
+        ) AS volume_op
     FROM soma_operadores op
     INNER JOIN soma_turnos t ON t.id_operador = op.id AND {$whereSql}
     WHERE op.deleted_at IS NULL
     GROUP BY op.id, op.cod, op.nome
     ORDER BY min_prod DESC
 ");
-$stmtOpRel->execute($params);
+$stmtOpRel->execute($paramsOp);
 $operadoresRelatorio = $stmtOpRel->fetchAll();
 
 // Cadastros para Filtro
