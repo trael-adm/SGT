@@ -13,5 +13,6 @@ _inicial/dump*.sql
 _inicial/backup*.sql
 _inicial/dados*.sql
 PLANILHA QUE ATUALIZA/*.xlsx
+!PLANILHA QUE ATUALIZA/NS.OF.xlsx
 PLANILHA QUE ATUALIZA/Historico_Atraso.csv
 PLANILHA QUE ATUALIZA/Item.csv
