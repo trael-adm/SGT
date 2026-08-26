@@ -124,6 +124,33 @@ try {
         $atualizacoes[] = "Snapshot de atraso ($snapDate) gravado";
     }
 
+    // 4. Atualiza cache do Fluxo de Pedidos
+    $fluxoPedidos = $payload['fluxo_pedidos'] ?? null;
+    if (is_array($fluxoPedidos) && !empty($fluxoPedidos['pedidos'])) {
+        $cacheDir = __DIR__ . '/../storage/cache';
+        if (!is_dir($cacheDir)) @mkdir($cacheDir, 0775, true);
+        file_put_contents($cacheDir . '/fluxo_pedidos.json', json_encode($fluxoPedidos, JSON_UNESCAPED_UNICODE));
+        $atualizacoes[] = "Fluxo de Pedidos (" . count($fluxoPedidos['pedidos']) . " pedidos na esteira) atualizado";
+    }
+
+    // 5. Atualiza cache da Planilha de Produção do Fluxo
+    $fluxoPlanilha = $payload['fluxo_planilha'] ?? null;
+    if (is_array($fluxoPlanilha) && !empty($fluxoPlanilha['itens'])) {
+        $cacheDir = __DIR__ . '/../storage/cache';
+        if (!is_dir($cacheDir)) @mkdir($cacheDir, 0775, true);
+        file_put_contents($cacheDir . '/fluxo_planilha.json', json_encode($fluxoPlanilha, JSON_UNESCAPED_UNICODE));
+        $atualizacoes[] = "Planilha de Produção do Fluxo (" . count($fluxoPlanilha['itens']) . " ordens) atualizada";
+    }
+
+    // 6. Atualiza cache de Acompanhamento (Pintura x Montagem)
+    $acompanhamento = $payload['acompanhamento'] ?? null;
+    if (is_array($acompanhamento) && !empty($acompanhamento['itens'])) {
+        $cacheDir = __DIR__ . '/../storage/cache';
+        if (!is_dir($cacheDir)) @mkdir($cacheDir, 0775, true);
+        file_put_contents($cacheDir . '/acompanhamento.json', json_encode($acompanhamento, JSON_UNESCAPED_UNICODE));
+        $atualizacoes[] = "Acompanhamento de Produção (" . count($acompanhamento['itens']) . " trafos) atualizado";
+    }
+
     echo json_encode([
         'sucesso' => true,
         'mensagem' => 'Sincronização concluída com sucesso!',

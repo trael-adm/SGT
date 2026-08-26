@@ -85,8 +85,18 @@ function classificarAcompanhamento(string $pintura, string $montagemEletrica, st
 
 function carregarAcompanhamentoProducao(): array
 {
+    $cacheFile = __DIR__ . '/../storage/cache/acompanhamento.json';
     $pdo = getSqlServerDB();
     if (!$pdo) {
+        if (is_file($cacheFile)) {
+            $raw = @file_get_contents($cacheFile);
+            if ($raw !== false) {
+                $dados = @json_decode($raw, true);
+                if (is_array($dados) && isset($dados['sucesso']) && $dados['sucesso'] === true) {
+                    return $dados;
+                }
+            }
+        }
         return ['sucesso' => false, 'erro' => 'Não foi possível conectar ao SQL Server Trael.', 'itens' => []];
     }
 

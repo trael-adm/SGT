@@ -145,8 +145,19 @@ function carregarEsteiraPedidos(): array
         return $cache;
     }
 
+    $cacheFile = __DIR__ . '/../storage/cache/fluxo_pedidos.json';
+
     $pdo = getSqlServerDB();
     if (!$pdo) {
+        if (is_file($cacheFile)) {
+            $raw = @file_get_contents($cacheFile);
+            if ($raw !== false) {
+                $dados = @json_decode($raw, true);
+                if (is_array($dados) && isset($dados['sucesso']) && $dados['sucesso'] === true) {
+                    return $cache = $dados;
+                }
+            }
+        }
         return ['sucesso' => false, 'erro' => 'Não foi possível conectar ao SQL Server Trael.'];
     }
 
@@ -525,8 +536,18 @@ function carregarPlanilhaProducaoFluxo(
     ?string $statusFila = 'em_aberto', // 'todos', 'em_aberto', 'concluidos'
     ?string $filtroEmpresa = null // '1', '4' ou null (ambas)
 ): array {
+    $cacheFile = __DIR__ . '/../storage/cache/fluxo_planilha.json';
     $pdo = getSqlServerDB();
     if (!$pdo) {
+        if (is_file($cacheFile)) {
+            $raw = @file_get_contents($cacheFile);
+            if ($raw !== false) {
+                $dados = @json_decode($raw, true);
+                if (is_array($dados) && isset($dados['sucesso']) && $dados['sucesso'] === true) {
+                    return $dados;
+                }
+            }
+        }
         return ['sucesso' => false, 'erro' => 'Não foi possível conectar ao SQL Server Trael.'];
     }
 

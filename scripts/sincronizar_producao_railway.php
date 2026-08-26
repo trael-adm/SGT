@@ -11,6 +11,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../config/conexao.php';
 require_once __DIR__ . '/../includes/helpers.php';
 require_once __DIR__ . '/../includes/boletim-planilha.php';
+require_once __DIR__ . '/../includes/boletim-fluxo-pedidos.php';
+require_once __DIR__ . '/../includes/boletim-acompanhamento.php';
 
 $urlRailway = getenv('RAILWAY_URL') ?: 'https://sgt-production-10fe.up.railway.app';
 $syncToken  = getenv('SYNC_TOKEN') ?: 'trael_sgt_sync_token_2026';
@@ -23,8 +25,8 @@ echo "Mês de referência: $mes\n";
 echo "Destino: $urlRailway/api/sync-boletim.php\n";
 echo "===============================================================\n\n";
 
-// 1. Extração do SQL Server local
-echo "[1/4] Consultando dados de produção no SQL Server (vsat.trael.local)... ";
+// 1. Extração do SQL Server local (Distribuição e Média Força)
+echo "[1/6] Consultando dados de produção no SQL Server (vsat.trael.local)... ";
 $dadosProducao = boletimConsultarSqlServerMes($mes);
 
 if ($dadosProducao === null || (empty($dadosProducao['porDia']) && empty($dadosProducao['nucleoPorDia']))) {
@@ -39,7 +41,7 @@ if (!empty($dadosProducao['porDia'])) {
 }
 
 // 2. Leitura das Metas do mês no banco local
-echo "[2/4] Lendo metas de produção configuradas no banco local... ";
+echo "[2/6] Lendo metas de produção configuradas no banco local... ";
 $metas = null;
 try {
     $pdoLocal = getDB();
@@ -56,7 +58,7 @@ try {
 }
 
 // 3. Leitura do Snapshot mais recente de Atraso de Distribuição
-echo "[3/4] Verificando snapshots de atraso de distribuição... ";
+echo "[3/6] Verificando snapshots de atraso de distribuição... ";
 $snapshotCsv = null;
 $snapshotData = null;
 
@@ -73,8 +75,33 @@ if (!empty($snapFiles)) {
     echo "Nenhum snapshot recente encontrado.\n";
 }
 
-// 4. Envio do payload para o Railway via cURL
-echo "[4/4] Enviando payload consolidado para o Railway... ";
+// 4. Extração do Fluxo de Pedidos & Esteira Industrial
+echo "[4/6] Extraindo esteira e planilha de Fluxo de Pedidos... ";
+$fluxoPedidos = null;
+$fluxoPlanilha = null;
+try {
+    $fluxoPedidos = carregarEsteiraPedidos();
+    $fluxoPlanilha = carregarPlanilhaProducaoFluxo();
+    $qtdPed = count($fluxoPedidos['pedidos'] ?? []);
+    $qtdItens = count($fluxoPlanilha['itens'] ?? []);
+    echo "OK! ($qtdPed pedidos / $qtdItens ordens na esteira)\n";
+} catch (Throwable $e) {
+    echo "Erro Fluxo: " . $e->getMessage() . "\n";
+}
+
+// 5. Extração de Acompanhamento (Pintura x Montagem)
+echo "[5/6] Extraindo dados de Acompanhamento de Produção... ";
+$acompanhamento = null;
+try {
+    $acompanhamento = carregarAcompanhamentoProducao();
+    $qtdAcomp = count($acompanhamento['itens'] ?? []);
+    echo "OK! ($qtdAcomp transformadores em acompanhamento)\n";
+} catch (Throwable $e) {
+    echo "Erro Acompanhamento: " . $e->getMessage() . "\n";
+}
+
+// 6. Envio do payload completo para o Railway via cURL
+echo "[6/6] Enviando payload consolidado para o Railway... ";
 
 $payload = [
     'mes' => $mes,
@@ -82,6 +109,9 @@ $payload = [
     'metas' => $metas,
     'snapshot_data' => $snapshotData,
     'snapshot_csv' => $snapshotCsv,
+    'fluxo_pedidos' => $fluxoPedidos,
+    'fluxo_planilha' => $fluxoPlanilha,
+    'acompanhamento' => $acompanhamento,
 ];
 
 $ch = curl_init("$urlRailway/api/sync-boletim.php");
