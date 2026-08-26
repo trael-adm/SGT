@@ -74,24 +74,6 @@ if ($podeAuditSoma) {
 }
 ?>
 
-<!-- Barra de Cabeçalho do Módulo SOMA -->
-<div class="mb-6 bg-white border border-[#e2e6ed] rounded-xl p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-    <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-[#e8a020] text-[#1a3d2a] font-bold text-lg flex items-center justify-center shadow-sm flex-shrink-0">
-            S
-        </div>
-        <div>
-            <div class="flex items-center gap-2">
-                <h1 class="text-lg font-bold text-[#1a2133] leading-tight">SOMA — Cronoanálise Industrial</h1>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">
-                    Trael Transformadores
-                </span>
-            </div>
-            <p class="text-xs text-[#5a6480] mt-0.5">Gestão de tempos padrão, apontamentos de turno, perdas por parada e OEE em tempo real.</p>
-        </div>
-    </div>
-</div>
-
 <!-- Abas de Navegação do SOMA -->
 <div class="flex items-center gap-1.5 overflow-x-auto pb-2 border-b border-[#e2e6ed] mb-6">
     <?php foreach ($somaAbas as $aba): 

@@ -66,10 +66,6 @@ $base = defined('APP_URL') ? APP_URL : '';
                 Escanear Outra Folha
             </button>
         </div>
-
-        <button type="button" onclick="SOMA_LEITOR.carregarDemonstracaoFolha()" class="btn btn-outline text-xs py-1.5 px-3 flex items-center gap-1.5 bg-white border-[#e2e6ed] hover:border-[#e8a020] text-[#1a2133] shadow-sm font-semibold">
-            <span>📄</span> Exemplo de Folha (Bobinagem)
-        </button>
     </div>
 </div>
 
