@@ -13,8 +13,8 @@ COPY . .
 # Garante que o diretório de uploads existe e é gravável
 RUN mkdir -p uploads storage/cache && chmod -R 777 uploads storage
 
-# Configura limite de memória do PHP para processar planilhas grandes
-RUN echo "memory_limit = 512M" > /usr/local/etc/php/conf.d/memory-limit.ini
+# Configura limite de memória e tamanho de POST do PHP
+RUN echo "memory_limit = 512M\npost_max_size = 64M\nupload_max_filesize = 64M" > /usr/local/etc/php/conf.d/custom.ini
 
 # Railway injeta a variável PORT — usa 80 como fallback local
-CMD php -d memory_limit=512M -S 0.0.0.0:${PORT:-80} -t .
+CMD php -d memory_limit=512M -d post_max_size=64M -d upload_max_filesize=64M -S 0.0.0.0:${PORT:-80} -t .
