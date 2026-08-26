@@ -628,31 +628,50 @@ try {
             }
 
             // 3. Máquina (Ex: Máquina 40 / 40)
-            if (preg_match('/M[AÁ]QUINA\s*[\:\-\_]?\s*([A-Za-z0-9\-_]+)/i', $texto, $m)) {
-                $maqNum = trim($m[1]);
-                $resultado['nome_maquina'] = $maqNum;
-                foreach ($todasMaqs as $maq) {
-                    if (str_contains(strtoupper($maq['cod']), strtoupper($maqNum)) || str_contains(strtoupper($maq['nome']), strtoupper($maqNum))) {
-                        $resultado['id_maquina'] = (int)$maq['id'];
-                        $resultado['nome_maquina'] = $maq['nome'];
-                        break;
+            foreach ($todasMaqs as $maq) {
+                if (mb_stripos($texto, $maq['nome']) !== false || mb_stripos($texto, $maq['cod']) !== false) {
+                    $resultado['id_maquina'] = (int)$maq['id'];
+                    $resultado['nome_maquina'] = $maq['nome'];
+                    break;
+                }
+            }
+
+            if (empty($resultado['nome_maquina'])) {
+                if (preg_match('/(?:M[AÁ]QUINA|MAQ|POSTO|ATIVO)\s*[\:\-\_]?\s*([A-Za-z0-9\-_]+)/i', $texto, $m)) {
+                    $maqNum = trim($m[1]);
+                    $resultado['nome_maquina'] = $maqNum;
+                    foreach ($todasMaqs as $maq) {
+                        if (str_contains(strtoupper($maq['cod']), strtoupper($maqNum)) || str_contains(strtoupper($maq['nome']), strtoupper($maqNum))) {
+                            $resultado['id_maquina'] = (int)$maq['id'];
+                            $resultado['nome_maquina'] = $maq['nome'];
+                            break;
+                        }
                     }
                 }
             }
 
-            // 4. Operador / Bobinador(a) (Ex: Ana Paula D)
-            if (preg_match('/(?:BOBINADOR[A-Z\(\)]*|OPERADOR[A-Z\(\)]*|NOME)\s*[\:\-\_]?\s*([A-Za-zÀ-ÿ\s\.]+)/i', $texto, $m)) {
-                $opNome = trim($m[1]);
-                // Limpa sufixos de cabeçalho
-                $opNome = preg_replace('/\b(AT|BT|TURNO|DATA|HORA|INICIO|MÁQUINA|MAQUINA).*/i', '', $opNome);
-                $opNome = trim($opNome);
-                if (strlen($opNome) >= 3) {
-                    $resultado['nome_operador'] = $opNome;
-                    foreach ($todosOps as $op) {
-                        if (stripos($op['nome'], $opNome) !== false || stripos($opNome, $op['nome']) !== false) {
-                            $resultado['id_operador'] = (int)$op['id'];
-                            $resultado['nome_operador'] = $op['nome'];
-                            break;
+            // 4. Operador / Bobinador(a) / Responsável
+            foreach ($todosOps as $op) {
+                if (mb_stripos($texto, $op['nome']) !== false) {
+                    $resultado['id_operador'] = (int)$op['id'];
+                    $resultado['nome_operador'] = $op['nome'];
+                    break;
+                }
+            }
+
+            if (empty($resultado['nome_operador'])) {
+                if (preg_match('/(?:BOBINADOR[A-Z\(\)]*|OPERADOR[A-Z\(\)]*|PAGADOR|SACADO|BENEFICI[AÁ]RIO|RESPONS[AÁ]VEL|NOME)\s*[\:\-\_]?\s*([A-Za-zÀ-ÿ\s\.\-]{3,45})/i', $texto, $m)) {
+                    $opNome = trim($m[1]);
+                    $opNome = preg_replace('/\b(AT|BT|TURNO|DATA|HORA|INICIO|MÁQUINA|MAQUINA|CPF|CNPJ|VALOR|ENDERE[CÇ]O).*/i', '', $opNome);
+                    $opNome = trim($opNome);
+                    if (strlen($opNome) >= 3) {
+                        $resultado['nome_operador'] = $opNome;
+                        foreach ($todosOps as $op) {
+                            if (stripos($op['nome'], $opNome) !== false || stripos($opNome, $op['nome']) !== false) {
+                                $resultado['id_operador'] = (int)$op['id'];
+                                $resultado['nome_operador'] = $op['nome'];
+                                break;
+                            }
                         }
                     }
                 }

@@ -263,60 +263,42 @@ window.SOMA_LEITOR = (function () {
                 if (progressoContainer) progressoContainer.classList.add('hidden');
             }, 600);
 
-            if (json.sucesso && json.dados && (json.dados.nome_operador || json.dados.pecas?.length > 0)) {
+            if (json.sucesso && json.dados) {
                 preencherFormularioComDadosOCR(json.dados);
                 Toast.success('Folha lida com sucesso! Confira e compare os dados com o documento.');
             } else {
-                aplicarValoresFolhaPadrao();
-                Toast.info('Dados da folha interpretados para conferência.');
+                Toast.info('Documento carregado no visualizador lateral para conferência.');
             }
         } catch (err) {
-            console.warn('Parser fallback:', err);
+            console.warn('Parser warning:', err);
             if (progressoContainer) progressoContainer.classList.add('hidden');
-            aplicarValoresFolhaPadrao();
-            Toast.info('Dados extraídos da folha para conferência.');
+            Toast.info('Documento carregado no visualizador lateral para conferência.');
         }
-    }
-
-    function aplicarValoresFolhaPadrao() {
-        const dadosExemplo = {
-            data: '2026-08-14',
-            turno: 'D',
-            nome_operador: 'Ana Paula D',
-            nome_maquina: 'Máquina 40',
-            h_inicio: '07:30',
-            h_fim: '17:18',
-            minutos_disponiveis: 528,
-            pecas: [
-                { cod_peca: '423536', descricao_peca: 'Bobinagem AT Projeto 423536', qtd: 6, tp_padrao_min: 0.8 }
-            ],
-            paradas: [
-                { cod_motivo: '9', descricao_motivo: 'ALMOÇO', duracao_minutos: 60, observacao: 'Almoço das 12:20 às 13:20' },
-                { cod_motivo: '63', descricao_motivo: 'LIMPEZA DE MÁQUINA', duracao_minutos: 5, observacao: 'Limpeza das 17:10 às 17:15' }
-            ]
-        };
-        preencherFormularioComDadosOCR(dadosExemplo);
     }
 
     function preencherFormularioComDadosOCR(d) {
         // 1. Data do Turno
         const inputData = document.querySelector('input[name="data"]');
-        if (inputData && d.data) inputData.value = d.data;
+        if (inputData && d.data) {
+            inputData.value = d.data;
+        }
 
         // 2. Turno (Diurno / Noturno / Misto)
         const selectTurno = document.querySelector('select[name="turno"]');
-        if (selectTurno && d.turno) selectTurno.value = d.turno;
+        if (selectTurno && d.turno) {
+            selectTurno.value = d.turno;
+        }
 
         // 3. Operador
         const inputOp = document.getElementById('input-operador-nome');
         if (inputOp) {
-            inputOp.value = d.nome_operador || 'Ana Paula D';
+            inputOp.value = d.nome_operador || '';
         }
 
         // 4. Máquina
         const inputMaq = document.getElementById('input-maquina-nome');
         if (inputMaq) {
-            inputMaq.value = d.nome_maquina || 'Máquina 40';
+            inputMaq.value = d.nome_maquina || '';
         }
 
         // 5. Horários
@@ -338,7 +320,7 @@ window.SOMA_LEITOR = (function () {
                     window.adicionarLinhaPeca(p.cod_peca, p.descricao_peca, p.qtd, p.tp_padrao_min);
                 });
             } else {
-                window.adicionarLinhaPeca('423536', 'Bobinagem AT Projeto 423536', 6, 0.8);
+                window.adicionarLinhaPeca();
             }
         }
 
@@ -351,8 +333,7 @@ window.SOMA_LEITOR = (function () {
                     window.adicionarLinhaParada(pr.cod_motivo || pr.id_motivo, pr.duracao_minutos, pr.observacao);
                 });
             } else {
-                window.adicionarLinhaParada('9', 60, 'Almoço das 12:20 às 13:20');
-                window.adicionarLinhaParada('63', 5, 'Limpeza das 17:10 às 17:15');
+                window.adicionarLinhaParada();
             }
         }
 
