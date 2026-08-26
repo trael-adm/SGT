@@ -12,4 +12,6 @@ scratch/
 _inicial/dump*.sql
 _inicial/backup*.sql
 _inicial/dados*.sql
-storage/cache/*
+PLANILHA QUE ATUALIZA/*.xlsx
+PLANILHA QUE ATUALIZA/Historico_Atraso.csv
+PLANILHA QUE ATUALIZA/Item.csv
