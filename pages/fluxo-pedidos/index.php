@@ -28,18 +28,6 @@ layoutHeader($pageTitle);
                 <p>Circuito Executivo de Setores & Chão de Fábrica — Trael Transformadores</p>
             </div>
         </div>
-        <div class="top-actions" style="display:flex;align-items:center;gap:10px;">
-            <div id="chipAutoRefresh" onclick="window.alternarAutoRefreshFluxo()" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary,#94a3b8);background:var(--color-surface,#1a1e29);border:1px solid var(--color-border,#262c3d);border-radius:8px;padding:6px 12px;" title="Clique para pausar/retomar auto-refresh">
-                <span class="pulse-dot" style="width:8px;height:8px;background:#22c55e;border-radius:50%;display:inline-block;"></span>
-                <span>Auto-refresh: <strong id="labelTimerRefresh" style="color:var(--color-text-primary,#fff);font-family:monospace;">30s</strong></span>
-                <span style="opacity:0.4;">|</span>
-                <span>Atualizado: <strong id="labelLastUpdate" style="color:var(--color-text-primary,#fff);font-family:monospace;">--:--:--</strong></span>
-            </div>
-            <button class="btn btn-primary btn-sm" id="btnRefresh">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                <span id="btnRefreshLabel">Atualizar Dados</span>
-            </button>
-        </div>
     </header>
 
     <!-- Macro KPIs Executivos -->

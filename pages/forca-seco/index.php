@@ -499,17 +499,7 @@ layoutHeader($pageTitle);
                 <?= htmlspecialchars($labelFiltroData) ?>
             </span>
         </button>
-        <!-- Chip Auto-Refresh 30s (Padrão Retrabalho) -->
-        <div class="bo-ref-chip" id="chipAutoRefresh" onclick="alternarAutoRefresh()" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;" title="Clique para pausar/retomar auto-refresh">
-            <span class="pulse-dot" style="width:8px;height:8px;background:#22c55e;border-radius:50%;display:inline-block;"></span>
-            <span class="bo-ref-label">Auto-refresh:</span>
-            <span class="bo-ref-value font-mono" id="labelTimerRefresh">30s</span>
-        </div>
         <div style="display:flex;gap:8px;">
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-sync-banco" onclick="atualizarDoBanco('<?= htmlspecialchars($mes) ?>')" style="display:inline-flex;align-items:center;gap:6px;padding:8px 12px;font-weight:600;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                Atualizar do Banco
-            </button>
             <button type="button" class="btn btn-secondary btn-sm" id="btn-export-csv" onclick="baixarArquivoComSpinner(this, '<?= htmlspecialchars($base) ?>/api/boletim-exportar.php?mes=<?= htmlspecialchars($mes) ?>&area=forca', 'boletim_auditoria_media_forca_<?= htmlspecialchars($mes) ?>.csv')" style="display:inline-flex;align-items:center;gap:6px;padding:8px 12px;font-weight:600;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 Exportar Dados (CSV)
