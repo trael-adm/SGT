@@ -390,23 +390,39 @@ foreach ($usersDB as $u) {
     $uExc = $acessosPorUsuario[$uId] ?? [];
     
     $permsBase = $uPerId > 0 && isset($perfis[$uPerId]) ? $perfis[$uPerId]['perms'] : [];
+
+    // Se for Administrador (201, 202) ou perfil ADM: concede acesso a todas as telas do sistema
+    if (in_array($uPerId, [1, 201, 202], true) || str_contains((string)($u['perfil_cod'] ?? ''), 'ADM')) {
+        foreach ($SISTEMAS_ESTRUTURA as $sys) {
+            foreach ($sys['modulos'] as $mod) {
+                foreach ($mod['telas'] as $t) {
+                    if (!isset($permsBase[$t[0]]) || $permsBase[$t[0]] === 'off') {
+                        $permsBase[$t[0]] = 'total';
+                    }
+                }
+            }
+        }
+    }
+
     $permsEfetivas = sincronizarPermissoes(array_merge($permsBase, $uExc));
 
     $modulosAtivos = [];
     foreach ($SISTEMAS_ESTRUTURA as $sys) {
         $temSys = false;
         foreach ($sys['modulos'] as $mod) {
+            $temMod = false;
             foreach ($mod['telas'] as $t) {
                 $lvl = $permsEfetivas[$t[0]] ?? 'off';
                 if ($lvl !== 'off' && $lvl !== '') {
                     $temSys = true;
-                    if ($sys['id'] === 'retrabalho') {
-                        $modulosAtivos[] = $mod['nome'];
-                    }
+                    $temMod = true;
                 }
             }
+            if ($temMod && in_array($sys['id'], ['retrabalho', 'producao', 'soma'], true)) {
+                $modulosAtivos[] = $mod['nome'];
+            }
         }
-        if ($temSys && $sys['id'] !== 'retrabalho') {
+        if ($temSys && !in_array($sys['id'], ['retrabalho', 'producao', 'soma'], true)) {
             $modulosAtivos[] = $sys['nome'];
         }
     }
