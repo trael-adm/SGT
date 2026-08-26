@@ -518,6 +518,80 @@ function boletimConsultarSqlServerMes(string $mes): ?array
             }
         }
 
+        // Enriquecimento ultrarrápido em lote de Clientes e Pedidos para todo o analítico do mês
+        if (!empty($analitico)) {
+            $seriesMap = [];
+            foreach ($analitico as $idx => $item) {
+                $s = trim((string)($item['serie'] ?? ''));
+                if ($s !== '' && is_numeric($s)) {
+                    $seriesMap[$s][] = $idx;
+                }
+            }
+
+            if (!empty($seriesMap)) {
+                $numSeries = array_keys($seriesMap);
+                $chunks = array_chunk($numSeries, 200);
+                foreach ($chunks as $chunk) {
+                    $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+                    $sqlCli = "
+                        SELECT 
+                            cns.NumSerie,
+                            p.cdPedido,
+                            p.PedidoCliente,
+                            cli.Nome AS ClienteNome,
+                            cli.Apelido AS ClienteApelido,
+                            c.Tp_Mercado AS tp_mercado
+                        FROM dbo.CtrlNumSerie cns WITH(NOLOCK)
+                        JOIN dbo.It_Pedido it WITH(NOLOCK) ON it.id_it_pedido = cns.id_it_pedido
+                        JOIN dbo.Pedidos p WITH(NOLOCK) ON p.id_Ped = it.id_Ped
+                        JOIN dbo.Entidade cli WITH(NOLOCK) ON cli.Id_Ent = p.id_Cliente
+                        LEFT JOIN dbo.Clientes c WITH(NOLOCK) ON c.id_Cliente = cli.Id_Ent
+                        WHERE cns.NumSerie IN ($placeholders)
+                    ";
+                    try {
+                        $st = $pdo->prepare($sqlCli);
+                        $st->execute($chunk);
+                        while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
+                            $sKey = (string)$row['NumSerie'];
+                            if (isset($seriesMap[$sKey])) {
+                                $cliNome = trim((string)($row['ClienteApelido'] ?: $row['ClienteNome'] ?: ''));
+                                $pedNum  = trim((string)($row['cdPedido'] ?? ''));
+                                $tpMerc  = trim((string)($row['tp_mercado'] ?? ''));
+                                if ($pedNum === '' && !empty($row['PedidoCliente'])) {
+                                    $pedNum = trim((string)$row['PedidoCliente']);
+                                }
+                                $cliNormalizado = boletimNormalizarNomeCliente($cliNome, $tpMerc);
+                                foreach ($seriesMap[$sKey] as $targetIdx) {
+                                    if ($cliNome !== '') {
+                                        $analitico[$targetIdx]['cliente'] = $cliNormalizado;
+                                    }
+                                    if ($pedNum !== '') {
+                                        $analitico[$targetIdx]['pedido'] = $pedNum;
+                                    }
+                                    if (!empty($row['PedidoCliente'])) {
+                                        $analitico[$targetIdx]['pedido_cliente'] = (string)$row['PedidoCliente'];
+                                    }
+                                    if ($tpMerc !== '') {
+                                        $analitico[$targetIdx]['tp_mercado'] = $tpMerc;
+                                    }
+                                }
+                            }
+                        }
+                    } catch (Throwable $eEnrich) {
+                        // Tolerante a falhas
+                    }
+                }
+            }
+
+            // Normalização final para qualquer item sem cliente explícito
+            foreach ($analitico as &$itemRef) {
+                if (empty($itemRef['cliente']) || $itemRef['cliente'] === '—') {
+                    $itemRef['cliente'] = boletimNormalizarNomeCliente($itemRef['cliente'] ?? '', $itemRef['tp_mercado'] ?? null);
+                }
+            }
+            unset($itemRef);
+        }
+
         return [
             'porDia'              => $porDia,
             'nucleoPorDia'        => $nucleoPorDia,
@@ -531,6 +605,7 @@ function boletimConsultarSqlServerMes(string $mes): ?array
             'sincronizadoEm'      => date('d/m/Y H:i:s'),
             'fonte'               => 'SQL Server (Tempo Real - Turno Fábrica)',
         ];
+
     } catch (Throwable $e) {
         error_log('Erro na consulta do SQL Server: ' . $e->getMessage());
         return null;
