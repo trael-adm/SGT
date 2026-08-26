@@ -285,6 +285,10 @@ function getDB(): PDO
         try {
             $pdo->exec("ALTER TABLE reprovas ADD COLUMN tempo_padrao_minutos INT NOT NULL DEFAULT 60 AFTER setor_causador");
         } catch (\Throwable $e) {}
+
+        try {
+            $pdo->exec("ALTER TABLE retrabalho_materiais_catalogo ADD COLUMN custo_unitario DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER unidade");
+        } catch (\Throwable $e) {}
     }
 
     return $pdo;

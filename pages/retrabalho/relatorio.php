@@ -15,19 +15,56 @@ $base = defined('APP_URL') ? APP_URL : '';
 $podeVerValores = isAdmin() || podeEditar('ret.cus') || hasAcesso('ret.cus') || podeEditar('tab:retrabalho');
 
 // ─── Parâmetros Globais de Custos ────────────────────────────────────────────
-$configRows = $pdo->query("SELECT chave, valor FROM retrabalho_configuracoes")->fetchAll(PDO::FETCH_KEY_PAIR);
+$configRows = [];
+try {
+    $configRows = $pdo->query("SELECT chave, valor FROM retrabalho_configuracoes")->fetchAll(PDO::FETCH_KEY_PAIR);
+} catch (\Throwable $e) {
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS retrabalho_configuracoes (
+                chave VARCHAR(50) NOT NULL PRIMARY KEY,
+                valor VARCHAR(255) NOT NULL,
+                descricao VARCHAR(255) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+        $configRows = $pdo->query("SELECT chave, valor FROM retrabalho_configuracoes")->fetchAll(PDO::FETCH_KEY_PAIR);
+    } catch (\Throwable $e2) {}
+}
 $custoHoraHomem   = (float) ($configRows['custo_hora_homem'] ?? 45.00);
 $horasTrabalhoDia = (float) ($configRows['horas_trabalho_dia'] ?? 8.80);
 if ($horasTrabalhoDia <= 0) $horasTrabalhoDia = 8.80;
 
 // Catálogo de Materiais com Custos (para valorar peças usadas na triagem)
-$materiaisCatalogo = $pdo->query("
-    SELECT id, descricao, unidade, custo_unitario
-    FROM retrabalho_materiais_catalogo
-")->fetchAll(PDO::FETCH_ASSOC);
-
+$materiaisCatalogo = [];
 $catalogoLookup = [];
 $catalogoDescLookup = [];
+
+try {
+    $materiaisCatalogo = $pdo->query("
+        SELECT id, descricao, unidade, custo_unitario
+        FROM retrabalho_materiais_catalogo
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (\Throwable $e) {
+    try {
+        $pdo->exec("ALTER TABLE retrabalho_materiais_catalogo ADD COLUMN custo_unitario DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER unidade");
+        $materiaisCatalogo = $pdo->query("
+            SELECT id, descricao, unidade, custo_unitario
+            FROM retrabalho_materiais_catalogo
+        ")->fetchAll(PDO::FETCH_ASSOC);
+    } catch (\Throwable $e2) {
+        try {
+            $rowsSemCusto = $pdo->query("SELECT id, descricao, unidade FROM retrabalho_materiais_catalogo")->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($rowsSemCusto as $rsc) {
+                $rsc['custo_unitario'] = 0.00;
+                $materiaisCatalogo[] = $rsc;
+            }
+        } catch (\Throwable $e3) {
+            $materiaisCatalogo = [];
+        }
+    }
+}
 foreach ($materiaisCatalogo as $mc) {
     $id = (int) $mc['id'];
     $descNorm = mb_strtoupper(trim((string) $mc['descricao']));

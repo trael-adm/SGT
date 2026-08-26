@@ -15,19 +15,50 @@ $base = defined('APP_URL') ? APP_URL : '';
 $podeGravar = isAdmin() || podeEditar('ret.cus') || podeEditar('tab:retrabalho');
 
 // ─── Carregar Parâmetros Globais ─────────────────────────────────────────────
-$configRows = $pdo->query("SELECT chave, valor FROM retrabalho_configuracoes")->fetchAll(PDO::FETCH_KEY_PAIR);
+$configRows = [];
+try {
+    $configRows = $pdo->query("SELECT chave, valor FROM retrabalho_configuracoes")->fetchAll(PDO::FETCH_KEY_PAIR);
+} catch (\Throwable $e) {
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS retrabalho_configuracoes (
+                chave VARCHAR(50) NOT NULL PRIMARY KEY,
+                valor VARCHAR(255) NOT NULL,
+                descricao VARCHAR(255) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+        $configRows = $pdo->query("SELECT chave, valor FROM retrabalho_configuracoes")->fetchAll(PDO::FETCH_KEY_PAIR);
+    } catch (\Throwable $e2) {}
+}
 $custoHoraHomem   = (float) ($configRows['custo_hora_homem'] ?? 45.00);
 $horasTrabalhoDia = (float) ($configRows['horas_trabalho_dia'] ?? 8.80);
 
 // ─── Carregar Catálogo de Reprovas com Tempos ────────────────────────────────
-$reprovas = $pdo->query("
-    SELECT id, codigo, familia, descricao, local, setor_causador, tempo_padrao_minutos, ativo, ordem
-    FROM reprovas
-    ORDER BY 
-        CASE local WHEN 'LAB' THEN 1 WHEN 'IQF' THEN 2 ELSE 3 END,
-        ordem ASC, 
-        codigo ASC
-")->fetchAll(PDO::FETCH_ASSOC);
+$reprovas = [];
+try {
+    $reprovas = $pdo->query("
+        SELECT id, codigo, familia, descricao, local, setor_causador, tempo_padrao_minutos, ativo, ordem
+        FROM reprovas
+        ORDER BY 
+            CASE local WHEN 'LAB' THEN 1 WHEN 'IQF' THEN 2 ELSE 3 END,
+            ordem ASC, 
+            codigo ASC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (\Throwable $e) {
+    try {
+        $pdo->exec("ALTER TABLE reprovas ADD COLUMN tempo_padrao_minutos INT NOT NULL DEFAULT 60 AFTER setor_causador");
+        $reprovas = $pdo->query("
+            SELECT id, codigo, familia, descricao, local, setor_causador, tempo_padrao_minutos, ativo, ordem
+            FROM reprovas
+            ORDER BY 
+                CASE local WHEN 'LAB' THEN 1 WHEN 'IQF' THEN 2 ELSE 3 END,
+                ordem ASC, 
+                codigo ASC
+        ")->fetchAll(PDO::FETCH_ASSOC);
+    } catch (\Throwable $e2) {}
+}
 
 $pageTitle = 'Catálogo de Tempos & Custos de Retrabalho';
 layoutHeader($pageTitle);
