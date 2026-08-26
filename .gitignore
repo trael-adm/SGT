@@ -27,8 +27,14 @@ _inicial/dados_producao.sql
 _inicial/backup_*.sql
 _inicial/sessao_*.md
 _inicial/RESUMO-*.md
-storage/cache/
+storage/cache/*
+!storage/cache/kardex_mes_*.cache
+!storage/snapshots/
+!storage/snapshots/*.csv
 PLANILHA QUE ATUALIZA/~$*.xlsx
+PLANILHA QUE ATUALIZA/*.xlsx
+PLANILHA QUE ATUALIZA/Historico_Atraso.csv
+PLANILHA QUE ATUALIZA/Item.csv
 log*.md*
 log_conversa.md
 troca de servidor.txt

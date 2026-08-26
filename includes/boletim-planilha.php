@@ -15,8 +15,16 @@ declare(strict_types=1);
 require_once __DIR__ . '/../config/conexao.php';
 require_once __DIR__ . '/helpers.php';
 
-define('BOLETIM_KARDEX_CACHE_DIR', __DIR__ . '/../storage/cache');
-define('BOLETIM_KARDEX_ARQUIVO', __DIR__ . '/../PLANILHA Q ATUALIZA/Relação Kardex.xlsx');
+if (!defined('BOLETIM_KARDEX_CACHE_DIR')) {
+    define('BOLETIM_KARDEX_CACHE_DIR', __DIR__ . '/../storage/cache');
+}
+if (!defined('BOLETIM_KARDEX_ARQUIVO')) {
+    $caminhoPlanilha = __DIR__ . '/../PLANILHA QUE ATUALIZA/Relação Kardex.xlsx';
+    if (!is_file($caminhoPlanilha)) {
+        $caminhoPlanilha = __DIR__ . '/../PLANILHA Q ATUALIZA/Relação Kardex.xlsx';
+    }
+    define('BOLETIM_KARDEX_ARQUIVO', $caminhoPlanilha);
+}
 
 /**
  * Garante que strings ou arrays aninhados estejam em UTF-8 válido.

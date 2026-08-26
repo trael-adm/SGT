@@ -86,6 +86,31 @@ try {
         echo "  . Constraint admin_setores_ibfk_1 já removida ou inexistente.\n";
     }
 
+    // 7. Metas e Configurações de Produção
+    echo "\n7. Verificando tabela `boletim_config_metas`:\n";
+    $pdo->exec("CREATE TABLE IF NOT EXISTS boletim_config_metas (
+        `month`               VARCHAR(7) NOT NULL PRIMARY KEY,
+        meta_total            INT       NOT NULL DEFAULT 0,
+        meta_tpm              INT       NOT NULL DEFAULT 0,
+        meta_tpd_distribuicao INT       NOT NULL DEFAULT 0,
+        meta_enrolado         INT       NOT NULL DEFAULT 0,
+        meta_convencional     INT       NOT NULL DEFAULT 0,
+        meta_jctrif           INT       NOT NULL DEFAULT 0,
+        meta_tpd_forca        INT       NOT NULL DEFAULT 0,
+        meta_tps              INT       NOT NULL DEFAULT 0,
+        dias_uteis            INT       NOT NULL DEFAULT 0,
+        dias_trabalhados      INT       NOT NULL DEFAULT 0,
+        dias_customizados     TEXT      NULL,
+        created_at            TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at            TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    $pdo->exec("
+        INSERT IGNORE INTO boletim_config_metas (`month`, meta_tpd_distribuicao, meta_enrolado, meta_convencional, meta_jctrif, meta_tpm, meta_tpd_forca, meta_tps, dias_uteis)
+        VALUES ('2026-08', 5250, 3780, 1386, 84, 63, 252, 21, 21)
+    ");
+    echo "  [OK] Metas de produção sincronizadas para Agosto/2026.\n";
+
     echo "\n=======================================================\n";
     echo "🎉 SUCESSO: TODAS AS ALTERAÇÕES FORAM APLICADAS NO RAILWAY!\n";
     echo "=======================================================\n";

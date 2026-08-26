@@ -201,6 +201,11 @@ function getDB(): PDO
                     updated_at            TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             ");
+
+            $pdo->exec("
+                INSERT IGNORE INTO boletim_config_metas (`month`, meta_tpd_distribuicao, meta_enrolado, meta_convencional, meta_jctrif, meta_tpm, meta_tpd_forca, meta_tps, dias_uteis)
+                VALUES ('2026-08', 5250, 3780, 1386, 84, 63, 252, 21, 21)
+            ");
         } catch (\Throwable $e) {}
 
         try {
