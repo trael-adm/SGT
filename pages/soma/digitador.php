@@ -29,6 +29,14 @@ $somaAbaAtual = 'digitador';
 require dirname(__DIR__, 2) . '/includes/soma-subnav.php';
 ?>
 
+<!-- CDN do PDF.js para renderização de documentos PDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+    if (window.pdfjsLib) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+</script>
+
 <!-- CDN do Tesseract.js para OCR óptico -->
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
@@ -38,11 +46,11 @@ require dirname(__DIR__, 2) . '/includes/soma-subnav.php';
         <div class="flex items-center gap-2">
             <h2 class="text-lg font-bold text-[#1a2133]">Leitor de Folhas de Produção</h2>
             <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                ⚡ OCR Inteligente Trael
+                ⚡ OCR Inteligente Trael (Foto &amp; PDF)
             </span>
         </div>
         <p class="text-xs text-[#5a6480] mt-0.5">
-            Faça upload ou tire foto da folha física para extração automática de bobinador, máquina, peças e paradas.
+            Faça upload de foto (JPEG/PNG) ou documento PDF da folha física para extração automática de bobinador, máquina, peças e paradas.
         </p>
     </div>
 
@@ -62,24 +70,23 @@ require dirname(__DIR__, 2) . '/includes/soma-subnav.php';
 
 <!-- 1. ÁREA DE CAPTURA / UPLOAD DA FOLHA -->
 <div class="card p-5 mb-5 border-2 border-dashed border-[#cbd5e1] hover:border-[#e8a020] transition-colors rounded-2xl bg-gradient-to-b from-[#f8fafc] to-white" id="leitor-dropzone">
-    <input type="file" id="leitor-file-input" accept="image/*,.pdf" class="hidden">
+    <input type="file" id="leitor-file-input" accept="image/*,.pdf,application/pdf" class="hidden">
     <input type="file" id="leitor-camera-input" accept="image/*" capture="environment" class="hidden">
 
     <div class="text-center py-4">
         <div class="w-14 h-14 mx-auto mb-2.5 rounded-2xl bg-[#fff7ed] border border-[#ffedd5] flex items-center justify-center text-[#e8a020] shadow-sm">
             <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
             </svg>
         </div>
 
-        <h3 class="text-sm font-bold text-[#1a2133]">Arraste e solte a foto da folha física aqui</h3>
-        <p class="text-xs text-[#64748b] mt-0.5">Selecione uma foto da folha de Controle de Produção Individual ou use a câmera do aparelho.</p>
+        <h3 class="text-sm font-bold text-[#1a2133]">Arraste e solte a foto ou PDF da folha física aqui</h3>
+        <p class="text-xs text-[#64748b] mt-0.5">Selecione uma foto (.jpg, .png), documento PDF da folha de Controle de Produção Individual ou use a câmera.</p>
 
         <div class="mt-3.5 flex flex-wrap items-center justify-center gap-2.5">
             <button type="button" onclick="document.getElementById('leitor-file-input').click()" class="btn btn-primary text-xs py-2 px-4 shadow-sm flex items-center gap-2 bg-[#1a3d2a] hover:bg-[#132e20]">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-                Carregar Foto da Folha
+                Carregar Folha (Foto / PDF)
             </button>
 
             <button type="button" onclick="document.getElementById('leitor-camera-input').click()" class="btn btn-outline text-xs py-2 px-4 shadow-sm flex items-center gap-2 bg-white">

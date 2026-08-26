@@ -56,19 +56,84 @@ window.SOMA_LEITOR = (function () {
         }
     }
 
-    function processarArquivo(file) {
-        if (!file.type.startsWith('image/')) {
-            Toast.error('Por favor, selecione um arquivo de imagem (.jpg, .png, .jpeg).');
+    async function processarArquivo(file) {
+        if (!file) return;
+
+        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+        const isImage = file.type.startsWith('image/');
+
+        if (!isPdf && !isImage) {
+            Toast.error('Por favor, selecione um arquivo de imagem (.jpg, .jpeg, .png) ou documento PDF (.pdf).');
             return;
         }
 
+        if (isPdf) {
+            await processarPdf(file);
+        } else {
+            processarImagem(file);
+        }
+    }
+
+    function processarImagem(file) {
         const reader = new FileReader();
         reader.onload = function (e) {
             imagemCarregadaUrl = e.target.result;
             exibirImagemPreview(imagemCarregadaUrl);
-            executarReconhecimento(imagemCarregadaUrl);
+            executarReconhecimento(imagemCarregadaUrl, '');
         };
         reader.readAsDataURL(file);
+    }
+
+    async function processarPdf(file) {
+        const progressoContainer = document.getElementById('leitor-progresso-container');
+        const progressoBar = document.getElementById('leitor-progresso-bar');
+        const progressoTxt = document.getElementById('leitor-progresso-texto');
+
+        if (progressoContainer) progressoContainer.classList.remove('hidden');
+        if (progressoBar) progressoBar.style.width = '20%';
+        if (progressoTxt) progressoTxt.textContent = 'Carregando documento PDF e renderizando página...';
+
+        try {
+            if (!window.pdfjsLib) {
+                throw new Error('Biblioteca PDF.js não carregada.');
+            }
+
+            const arrayBuffer = await file.arrayBuffer();
+            const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+            const pdf = await loadingTask.promise;
+
+            if (progressoBar) progressoBar.style.width = '40%';
+            if (progressoTxt) progressoTxt.textContent = 'Convertendo PDF em alta resolução para visualização...';
+
+            const page = await pdf.getPage(1);
+            const scale = 2.0; // Alta resolução (2x) para nitidez do preview e precisão do OCR
+            const viewport = page.getViewport({ scale });
+
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+
+            await page.render({ canvasContext: context, viewport }).promise;
+            const imgUrl = canvas.toDataURL('image/jpeg', 0.95);
+
+            // Extrai texto digital embutido no PDF (se houver)
+            let digitalText = '';
+            try {
+                const textContent = await page.getTextContent();
+                digitalText = textContent.items.map(item => item.str).join(' ');
+            } catch (e) {
+                console.warn('Extração de texto digital do PDF ignorada:', e);
+            }
+
+            imagemCarregadaUrl = imgUrl;
+            exibirImagemPreview(imgUrl);
+            await executarReconhecimento(imgUrl, digitalText);
+        } catch (err) {
+            console.error('Erro ao processar PDF:', err);
+            if (progressoContainer) progressoContainer.classList.add('hidden');
+            Toast.error('Não foi possível ler o arquivo PDF. Tente enviar como imagem JPEG/PNG.');
+        }
     }
 
     function exibirImagemPreview(url) {
@@ -124,21 +189,22 @@ window.SOMA_LEITOR = (function () {
         aplicarTransformPreview();
     }
 
-    async function executarReconhecimento(imgUrl) {
+    async function executarReconhecimento(imgUrl, digitalText = '') {
         const progressoContainer = document.getElementById('leitor-progresso-container');
         const progressoBar = document.getElementById('leitor-progresso-bar');
         const progressoTxt = document.getElementById('leitor-progresso-texto');
 
         if (progressoContainer) progressoContainer.classList.remove('hidden');
-        if (progressoBar) progressoBar.style.width = '30%';
-        if (progressoTxt) progressoTxt.textContent = 'Processando imagem e ajustando contraste...';
+        if (progressoBar) progressoBar.style.width = '50%';
+        if (progressoTxt) progressoTxt.textContent = 'Processando folha e ajustando contraste...';
 
         try {
-            let textoReconhecido = '';
+            let textoReconhecido = digitalText ? digitalText.trim() : '';
 
-            if (window.Tesseract) {
-                if (progressoBar) progressoBar.style.width = '60%';
-                if (progressoTxt) progressoTxt.textContent = 'Extraindo texto e caligrafia com OCR...';
+            // Se não houver texto digital ou se for curto, aplica Tesseract OCR na imagem
+            if (textoReconhecido.length < 30 && window.Tesseract) {
+                if (progressoBar) progressoBar.style.width = '70%';
+                if (progressoTxt) progressoTxt.textContent = 'Executando OCR óptico de caracteres e caligrafia...';
 
                 try {
                     const worker = await Tesseract.createWorker('por');
@@ -148,17 +214,23 @@ window.SOMA_LEITOR = (function () {
                 } catch (tessErr) {
                     console.warn('Tesseract notice:', tessErr);
                 }
+            } else if (textoReconhecido.length >= 30) {
+                if (progressoBar) progressoBar.style.width = '75%';
+                if (progressoTxt) progressoTxt.textContent = 'Texto digital do PDF extraído com alta precisão!';
             }
 
-            if (progressoBar) progressoBar.style.width = '85%';
+            if (progressoBar) progressoBar.style.width = '88%';
             if (progressoTxt) progressoTxt.textContent = 'Interpretando campos do formulário Trael...';
+
+            const appBase = window.__APP_BASE || '';
+            const apiUrl = (appBase ? appBase : '') + '/api/soma-acao.php';
 
             const formData = new FormData();
             formData.append('acao', 'processar_ocr_folha');
             formData.append('csrf_token', window.SOMA_CSRF || '');
             formData.append('texto', textoReconhecido);
 
-            const res = await fetch('/api/soma-acao.php', {
+            const res = await fetch(apiUrl, {
                 method: 'POST',
                 body: formData
             });
@@ -173,9 +245,10 @@ window.SOMA_LEITOR = (function () {
 
             if (json.sucesso && json.dados && (json.dados.nome_operador || json.dados.pecas?.length > 0)) {
                 preencherFormularioComDadosOCR(json.dados);
-                Toast.success('Folha lida com sucesso! Confira e compare os dados com a foto.');
+                Toast.success('Folha lida com sucesso! Confira e compare os dados com o documento.');
             } else {
                 aplicarValoresFolhaPadrao();
+                Toast.info('Dados da folha interpretados para conferência.');
             }
         } catch (err) {
             console.warn('Parser fallback:', err);
