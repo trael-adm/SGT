@@ -151,7 +151,7 @@ $_sGrupos = [
     ],
     [
         'rotulo' => 'Gestão',
-        'esconder' => $_hideModuloProducao,
+        'esconder' => true, // Ocultado do módulo de produção a pedido do usuário
         'itens'  => [
             [
                 'href'  => '/pages/settings/index.php',
@@ -247,7 +247,7 @@ $_sGrupos = [
     ],
     [
         'rotulo' => 'Qualidade',
-        'esconder' => !hasAcesso('qua.tip') || $isAdminContext,
+        'esconder' => $_hideQualidade,
         'itens'  => [
             [
                 'href'  => '/pages/qualidade/reprovas.php',
