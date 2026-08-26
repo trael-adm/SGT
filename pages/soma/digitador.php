@@ -27,18 +27,23 @@ layoutHeader('SOMA — Leitor de Folha de Produção (OCR)', 'soma');
 
 $somaAbaAtual = 'digitador';
 require dirname(__DIR__, 2) . '/includes/soma-subnav.php';
+<?php
+$base = defined('APP_URL') ? APP_URL : '';
 ?>
 
-<!-- CDN do PDF.js para renderização de documentos PDF -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- Bibliotecas Locais para PDF e OCR com alta performance e sem bloqueio de CORS -->
+<script src="<?= htmlspecialchars($base) ?>/assets/js/pdf.min.js?v=<?= @filemtime(__DIR__ . '/../../assets/js/pdf.min.js') ?>"></script>
 <script>
     if (window.pdfjsLib) {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = '<?= htmlspecialchars($base) ?>/assets/js/pdf.worker.min.js?v=<?= @filemtime(__DIR__ . '/../../assets/js/pdf.worker.min.js') ?>';
     }
 </script>
-
-<!-- CDN do Tesseract.js para OCR óptico -->
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="<?= htmlspecialchars($base) ?>/assets/js/tesseract.min.js?v=<?= @filemtime(__DIR__ . '/../../assets/js/tesseract.min.js') ?>"></script>
+<script>
+    window.__APP_BASE = '<?= htmlspecialchars($base) ?>';
+    window.SOMA_BASE_URL = '<?= htmlspecialchars($base) ?>';
+    window.SOMA_CSRF = '<?= csrfToken() ?>';
+</script>
 
 <!-- CABEÇALHO DO MÓDULO -->
 <div class="mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">

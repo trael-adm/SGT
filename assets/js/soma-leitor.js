@@ -91,19 +91,37 @@ window.SOMA_LEITOR = (function () {
 
         if (progressoContainer) progressoContainer.classList.remove('hidden');
         if (progressoBar) progressoBar.style.width = '20%';
-        if (progressoTxt) progressoTxt.textContent = 'Carregando documento PDF e renderizando página...';
+        if (progressoTxt) progressoTxt.textContent = 'Carregando documento PDF e inicializando leitor...';
 
         try {
             if (!window.pdfjsLib) {
-                throw new Error('Biblioteca PDF.js não carregada.');
+                throw new Error('Biblioteca PDF.js não está disponível.');
             }
 
-            const arrayBuffer = await file.arrayBuffer();
-            const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-            const pdf = await loadingTask.promise;
+            let arrayBuffer;
+            if (file.arrayBuffer) {
+                arrayBuffer = await file.arrayBuffer();
+            } else {
+                arrayBuffer = await new Promise((resolve, reject) => {
+                    const fr = new FileReader();
+                    fr.onload = () => resolve(fr.result);
+                    fr.onerror = reject;
+                    fr.readAsArrayBuffer(file);
+                });
+            }
 
             if (progressoBar) progressoBar.style.width = '40%';
-            if (progressoTxt) progressoTxt.textContent = 'Convertendo PDF em alta resolução para visualização...';
+            if (progressoTxt) progressoTxt.textContent = 'Renderizando página da folha em alta resolução...';
+
+            const typedArray = new Uint8Array(arrayBuffer);
+            const loadingTask = pdfjsLib.getDocument({
+                data: typedArray,
+                verbosity: 0
+            });
+            const pdf = await loadingTask.promise;
+
+            if (progressoBar) progressoBar.style.width = '60%';
+            if (progressoTxt) progressoTxt.textContent = 'Processando gráficos e camadas de texto...';
 
             const page = await pdf.getPage(1);
             const scale = 2.0; // Alta resolução (2x) para nitidez do preview e precisão do OCR
@@ -121,7 +139,9 @@ window.SOMA_LEITOR = (function () {
             let digitalText = '';
             try {
                 const textContent = await page.getTextContent();
-                digitalText = textContent.items.map(item => item.str).join(' ');
+                if (textContent && textContent.items) {
+                    digitalText = textContent.items.map(item => item.str).join(' ');
+                }
             } catch (e) {
                 console.warn('Extração de texto digital do PDF ignorada:', e);
             }
@@ -132,7 +152,7 @@ window.SOMA_LEITOR = (function () {
         } catch (err) {
             console.error('Erro ao processar PDF:', err);
             if (progressoContainer) progressoContainer.classList.add('hidden');
-            Toast.error('Não foi possível ler o arquivo PDF. Tente enviar como imagem JPEG/PNG.');
+            Toast.error('Erro ao processar PDF: ' + (err.message || 'Falha na leitura do arquivo.'));
         }
     }
 
