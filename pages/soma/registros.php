@@ -14,7 +14,7 @@ requireLogin();
 
 $db = getDB();
 $usuario = currentUser();
-$podeExcluir = in_array((int) ($usuario['id_perfil'] ?? 0), [1, 2], true);
+$podeExcluir = isAdmin() || in_array((int) ($usuario['id_perfil'] ?? 0), [1, 2, 201, 202, 203, 204, 205, 206, 207, 212], true);
 
 // 1. Filtros de Período
 $periodo = trim((string) ($_GET['periodo'] ?? 'mes_atual'));

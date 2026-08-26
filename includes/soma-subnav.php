@@ -52,7 +52,10 @@ $somaAbas = [
     ],
 ];
 
-if (in_array($somaIdPerfil, [1, 2], true)) {
+$podeConfigSoma = isAdmin() || in_array($somaIdPerfil, [1, 2, 201, 202, 203, 204, 205, 206, 207, 212], true);
+$podeAuditSoma  = isAdmin() || in_array($somaIdPerfil, [1, 201, 202], true);
+
+if ($podeConfigSoma) {
     $somaAbas[] = [
         'id'    => 'settings',
         'label' => 'Configurações',
@@ -61,7 +64,7 @@ if (in_array($somaIdPerfil, [1, 2], true)) {
     ];
 }
 
-if ($somaIdPerfil === 1) {
+if ($podeAuditSoma) {
     $somaAbas[] = [
         'id'    => 'auditoria',
         'label' => 'Auditoria',

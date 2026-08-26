@@ -116,7 +116,29 @@ function requirePerfil(array $perfis): void
 {
     requireLogin();
     $user = currentUser();
-    if (!in_array((int) ($user['id_perfil'] ?? 0), $perfis, true)) {
+    $idPerfil = (int) ($user['id_perfil'] ?? 0);
+
+    // Administrador tem acesso total irrestrito (ID 1, 201 ou 202)
+    if (isAdmin() || in_array($idPerfil, [1, 201, 202], true)) {
+        return;
+    }
+
+    // Mapeamento automático de papéis legados para os perfis ativos do SGT
+    $perfisExpandidos = $perfis;
+    if (in_array(1, $perfis, true)) {
+        $perfisExpandidos = array_merge($perfisExpandidos, [1, 201, 202]);
+    }
+    if (in_array(2, $perfis, true)) {
+        $perfisExpandidos = array_merge($perfisExpandidos, [203, 204, 205, 206, 207, 212]);
+    }
+    if (in_array(3, $perfis, true)) {
+        $perfisExpandidos = array_merge($perfisExpandidos, [208, 209, 210]);
+    }
+    if (in_array(4, $perfis, true)) {
+        $perfisExpandidos = array_merge($perfisExpandidos, [211]);
+    }
+
+    if (!in_array($idPerfil, $perfisExpandidos, true)) {
         http_response_code(403);
         $base = defined('APP_URL') ? APP_URL : '';
         echo '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">'
