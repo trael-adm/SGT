@@ -8,6 +8,8 @@ declare(strict_types=1);
  * Pode ser executado manualmente via terminal ou agendado no Windows Task Scheduler a cada 10/15 minutos.
  */
 
+date_default_timezone_set('America/Cuiaba');
+
 require_once __DIR__ . '/../config/conexao.php';
 require_once __DIR__ . '/../includes/helpers.php';
 require_once __DIR__ . '/../includes/boletim-planilha.php';

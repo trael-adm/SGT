@@ -263,6 +263,28 @@ function getDB(): PDO
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             ");
         } catch (\Throwable $e) {}
+
+        try {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS retrabalho_configuracoes (
+                    chave VARCHAR(50) NOT NULL PRIMARY KEY,
+                    valor VARCHAR(255) NOT NULL,
+                    descricao VARCHAR(255) NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ");
+
+            $pdo->exec("
+                INSERT IGNORE INTO retrabalho_configuracoes (chave, valor, descricao) VALUES
+                ('custo_hora_homem', '45.00', 'Custo médio da hora de trabalho para retrabalho (R$/h)'),
+                ('horas_trabalho_dia', '8.80', 'Horas úteis de expediente padrão por dia')
+            ");
+        } catch (\Throwable $e) {}
+
+        try {
+            $pdo->exec("ALTER TABLE reprovas ADD COLUMN tempo_padrao_minutos INT NOT NULL DEFAULT 60 AFTER setor_causador");
+        } catch (\Throwable $e) {}
     }
 
     return $pdo;

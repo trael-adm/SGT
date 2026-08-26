@@ -268,7 +268,7 @@ function getNivelAcesso(string $recurso): string
         return 'off';
     }
     if ($recurso === 'tab:retrabalho') {
-        $lvls = [$perms['ret.pan'] ?? 'off', $perms['ret.rel'] ?? 'off', $perms['ret.dash'] ?? 'off', $perms['ret.pri'] ?? 'off'];
+        $lvls = [$perms['ret.pan'] ?? 'off', $perms['ret.rel'] ?? 'off', $perms['ret.dash'] ?? 'off', $perms['ret.pri'] ?? 'off', $perms['ret.cus'] ?? 'off'];
         if (in_array('total', $lvls, true)) return 'total';
         if (in_array('view', $lvls, true)) return 'view';
         return 'off';

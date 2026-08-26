@@ -6,6 +6,8 @@ declare(strict_types=1);
  * Recebe o payload consolidado de produção (Kardex, Metas e Atraso) e atualiza o Railway.
  */
 
+date_default_timezone_set('America/Cuiaba');
+
 require_once __DIR__ . '/../config/conexao.php';
 require_once __DIR__ . '/../includes/helpers.php';
 require_once __DIR__ . '/../includes/boletim-planilha.php';
