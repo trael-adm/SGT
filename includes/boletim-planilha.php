@@ -145,13 +145,17 @@ function boletimObterDadosMes(string $mes = '', bool $forcarRefresh = false): ar
 
     $cacheFile = BOLETIM_KARDEX_CACHE_DIR . '/kardex_mes_' . $mes . '.cache';
 
-    // Se não for forçado, tenta ler do cache
+    // 1. Se existir cache em disco com dados válidos, lê o cache
     if (!$forcarRefresh && is_file($cacheFile)) {
         $raw = @file_get_contents($cacheFile);
         if ($raw !== false) {
             $cached = @unserialize($raw, ['allowed_classes' => false]);
-            if (is_array($cached) && isset($cached['dados'])) {
-                // Se o cache tiver menos de 10 minutos para o mês atual, aproveita
+            if (is_array($cached) && !empty($cached['dados']) && (!empty($cached['dados']['porDia']) || !empty($cached['dados']['nucleoPorDia']))) {
+                // Se o SQL Server não estiver disponível (ex: Railway na nuvem), usa o cache diretamente
+                if (!getSqlServerDB()) {
+                    return $memo[$mes] = $cached['dados'];
+                }
+                // No ambiente local conectado à rede da fábrica, renova se tiver mais de 10 min
                 $idade = time() - ($cached['timestamp'] ?? 0);
                 if ($mes !== date('Y-m') || $idade < 600) {
                     return $memo[$mes] = $cached['dados'];
@@ -160,30 +164,35 @@ function boletimObterDadosMes(string $mes = '', bool $forcarRefresh = false): ar
         }
     }
 
-    // Tenta carregar direto do SQL Server
-    $dados = boletimConsultarSqlServerMes($mes);
+    // 2. Se tiver SQL Server disponível, consulta o banco da fábrica
+    $dados = null;
+    if (getSqlServerDB()) {
+        $dados = boletimConsultarSqlServerMes($mes);
+    }
 
-    // Se falhou no SQL Server, tenta ler do cache antigo ou do Excel
-    if ($dados === null) {
+    // 3. Se falhou ou não tem SQL Server (ex: Railway), tenta o cache existente antes de qualquer fallback
+    if ($dados === null || (empty($dados['porDia']) && empty($dados['nucleoPorDia']))) {
         if (is_file($cacheFile)) {
             $raw = @file_get_contents($cacheFile);
             $cached = $raw !== false ? @unserialize($raw, ['allowed_classes' => false]) : null;
-            if (is_array($cached) && isset($cached['dados'])) {
+            if (is_array($cached) && !empty($cached['dados']) && (!empty($cached['dados']['porDia']) || !empty($cached['dados']['nucleoPorDia']))) {
                 return $memo[$mes] = $cached['dados'];
             }
         }
         $dados = boletimFallbackPlanilhaExcel();
     }
 
-    // Salva no cache
-    if (!is_dir(BOLETIM_KARDEX_CACHE_DIR)) {
-        @mkdir(BOLETIM_KARDEX_CACHE_DIR, 0775, true);
+    // 4. Salva no cache apenas se tiver dados válidos para não sobrescrever com vazio
+    if (!empty($dados) && (!empty($dados['porDia']) || !empty($dados['nucleoPorDia']))) {
+        if (!is_dir(BOLETIM_KARDEX_CACHE_DIR)) {
+            @mkdir(BOLETIM_KARDEX_CACHE_DIR, 0775, true);
+        }
+        @file_put_contents($cacheFile, serialize([
+            'timestamp' => time(),
+            'sincronizado_em' => date('Y-m-d H:i:s'),
+            'dados' => $dados,
+        ]));
     }
-    @file_put_contents($cacheFile, serialize([
-        'timestamp' => time(),
-        'sincronizado_em' => date('Y-m-d H:i:s'),
-        'dados' => $dados,
-    ]));
 
     return $memo[$mes] = $dados;
 }
@@ -424,7 +433,7 @@ function boletimConsultarSqlServerMes(string $mes): ?array
                 'data_turno'           => $d,
                 'data_audit'           => $r['data_hora_audit'] ?: $r['data_mov'],
                 'data_mov'             => $r['data_mov'],
-                'operador'             => $r['operador_audit'] ?: 'PierServer',
+                'operador'             => $r['operador_audit'] ?? ($r['data_hora_audit'] ? 'Sistema' : 'PierServer'),
                 'area'                 => ($area === 'distrib') ? 'Distribuição' : 'Média Força',
                 'area_cod'             => $area,
                 'linha'                => $linha,
