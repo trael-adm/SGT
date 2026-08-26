@@ -143,22 +143,39 @@ function boletimObterDadosMes(string $mes = '', bool $forcarRefresh = false): ar
         return $memo[$mes];
     }
 
+    $jsonFile  = BOLETIM_KARDEX_CACHE_DIR . '/kardex_mes_' . $mes . '.json';
     $cacheFile = BOLETIM_KARDEX_CACHE_DIR . '/kardex_mes_' . $mes . '.cache';
 
-    // 1. Se existir cache em disco com dados válidos, lê o cache
-    if (!$forcarRefresh && is_file($cacheFile)) {
-        $raw = @file_get_contents($cacheFile);
-        if ($raw !== false) {
-            $cached = @unserialize($raw, ['allowed_classes' => false]);
-            if (is_array($cached) && !empty($cached['dados']) && (!empty($cached['dados']['porDia']) || !empty($cached['dados']['nucleoPorDia']))) {
-                // Se o SQL Server não estiver disponível (ex: Railway na nuvem), usa o cache diretamente
-                if (!getSqlServerDB()) {
-                    return $memo[$mes] = $cached['dados'];
+    // 1. Se existir cache em disco (JSON ou binário) com dados válidos, lê o cache
+    if (!$forcarRefresh) {
+        if (is_file($jsonFile)) {
+            $rawJson = @file_get_contents($jsonFile);
+            if ($rawJson !== false) {
+                $cachedJson = @json_decode($rawJson, true);
+                if (is_array($cachedJson) && !empty($cachedJson['dados']) && (!empty($cachedJson['dados']['porDia']) || !empty($cachedJson['dados']['nucleoPorDia']))) {
+                    if (!getSqlServerDB()) {
+                        return $memo[$mes] = $cachedJson['dados'];
+                    }
+                    $idade = time() - ($cachedJson['timestamp'] ?? 0);
+                    if ($mes !== date('Y-m') || $idade < 600) {
+                        return $memo[$mes] = $cachedJson['dados'];
+                    }
                 }
-                // No ambiente local conectado à rede da fábrica, renova se tiver mais de 10 min
-                $idade = time() - ($cached['timestamp'] ?? 0);
-                if ($mes !== date('Y-m') || $idade < 600) {
-                    return $memo[$mes] = $cached['dados'];
+            }
+        }
+
+        if (is_file($cacheFile)) {
+            $raw = @file_get_contents($cacheFile);
+            if ($raw !== false) {
+                $cached = @unserialize($raw, ['allowed_classes' => false]);
+                if (is_array($cached) && !empty($cached['dados']) && (!empty($cached['dados']['porDia']) || !empty($cached['dados']['nucleoPorDia']))) {
+                    if (!getSqlServerDB()) {
+                        return $memo[$mes] = $cached['dados'];
+                    }
+                    $idade = time() - ($cached['timestamp'] ?? 0);
+                    if ($mes !== date('Y-m') || $idade < 600) {
+                        return $memo[$mes] = $cached['dados'];
+                    }
                 }
             }
         }
@@ -172,6 +189,13 @@ function boletimObterDadosMes(string $mes = '', bool $forcarRefresh = false): ar
 
     // 3. Se falhou ou não tem SQL Server (ex: Railway), tenta o cache existente antes de qualquer fallback
     if ($dados === null || (empty($dados['porDia']) && empty($dados['nucleoPorDia']))) {
+        if (is_file($jsonFile)) {
+            $rawJson = @file_get_contents($jsonFile);
+            $cachedJson = $rawJson !== false ? @json_decode($rawJson, true) : null;
+            if (is_array($cachedJson) && !empty($cachedJson['dados']) && (!empty($cachedJson['dados']['porDia']) || !empty($cachedJson['dados']['nucleoPorDia']))) {
+                return $memo[$mes] = $cachedJson['dados'];
+            }
+        }
         if (is_file($cacheFile)) {
             $raw = @file_get_contents($cacheFile);
             $cached = $raw !== false ? @unserialize($raw, ['allowed_classes' => false]) : null;
