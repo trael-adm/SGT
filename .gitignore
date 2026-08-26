@@ -30,6 +30,8 @@ _inicial/RESUMO-*.md
 storage/cache/*
 !storage/cache/kardex_mes_*.cache
 !storage/cache/kardex_mes_*.json
+!storage/cache/fluxo_*.json
+!storage/cache/acompanhamento.json
 !storage/snapshots/
 !storage/snapshots/*.csv
 PLANILHA QUE ATUALIZA/~$*.xlsx

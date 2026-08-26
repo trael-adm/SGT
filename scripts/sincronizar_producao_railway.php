@@ -105,21 +105,23 @@ echo "[6/6] Enviando payload consolidado para o Railway... ";
 
 $payload = [
     'mes' => $mes,
-    'dados' => $dadosProducao,
-    'metas' => $metas,
+    'dados' => sanitizarUtf8Recursivo($dadosProducao),
+    'metas' => sanitizarUtf8Recursivo($metas),
     'snapshot_data' => $snapshotData,
     'snapshot_csv' => $snapshotCsv,
-    'fluxo_pedidos' => $fluxoPedidos,
-    'fluxo_planilha' => $fluxoPlanilha,
-    'acompanhamento' => $acompanhamento,
+    'fluxo_pedidos' => sanitizarUtf8Recursivo($fluxoPedidos),
+    'fluxo_planilha' => sanitizarUtf8Recursivo($fluxoPlanilha),
+    'acompanhamento' => sanitizarUtf8Recursivo($acompanhamento),
 ];
+
+$jsonPayload = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 
 $ch = curl_init("$urlRailway/api/sync-boletim.php");
 curl_setopt_array($ch, [
     CURLOPT_POST => true,
-    CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
+    CURLOPT_POSTFIELDS => $jsonPayload,
     CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_TIMEOUT => 45,
+    CURLOPT_TIMEOUT => 60,
     CURLOPT_SSL_VERIFYPEER => true,
     CURLOPT_HTTPHEADER => [
         'Content-Type: application/json',
