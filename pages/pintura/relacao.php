@@ -11,6 +11,8 @@ if (!hasAcesso('tab:pintura') && !hasAcesso('pin.ret') && !hasAcesso('admin')) {
     requireAcessoModulo('tab:pintura');
 }
 
+$canEdit = podeEditar('pin.ret') || isAdmin();
+
 $pdo  = getDB();
 $base = defined('APP_URL') ? APP_URL : '';
 
@@ -590,18 +592,24 @@ layoutHeader($pageTitle);
                         </td>
 
                         <td style="text-align:right;vertical-align:middle;">
-                            <?php if ($itemPrincipal['data_chegada'] === null): ?>
-                                <a class="rt-btn-chegada" href="<?= htmlspecialchars($base) ?>/pages/retrabalho/confirmar-chegada.php?id=<?= (int) $itemPrincipal['id'] ?>&origem=pintura" title="Confirmar chegada">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                                    Aguardando chegada
-                                </a>
-                            <?php elseif ($itemPrincipal['data_inicio'] === null): ?>
-                                <a class="rt-edit-btn" href="<?= htmlspecialchars($base) ?>/pages/retrabalho/iniciar-triagem.php?id=<?= (int) $itemPrincipal['id'] ?>&origem=pintura" title="Leitura de início da triagem">
-                                    Triagem
-                                </a>
+                            <?php if ($canEdit): ?>
+                                <?php if ($itemPrincipal['data_chegada'] === null): ?>
+                                    <a class="rt-btn-chegada" href="<?= htmlspecialchars($base) ?>/pages/retrabalho/confirmar-chegada.php?id=<?= (int) $itemPrincipal['id'] ?>&origem=pintura" title="Confirmar chegada">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                        Aguardando chegada
+                                    </a>
+                                <?php elseif ($itemPrincipal['data_inicio'] === null): ?>
+                                    <a class="rt-edit-btn" href="<?= htmlspecialchars($base) ?>/pages/retrabalho/iniciar-triagem.php?id=<?= (int) $itemPrincipal['id'] ?>&origem=pintura" title="Leitura de início da triagem">
+                                        Triagem
+                                    </a>
+                                <?php else: ?>
+                                    <a class="rt-edit-btn" href="<?= htmlspecialchars($base) ?>/pages/retrabalho/detalhe.php?id=<?= (int) $itemPrincipal['id'] ?>&origem=pintura" title="Ver / editar triagem">
+                                        Triagem
+                                    </a>
+                                <?php endif; ?>
                             <?php else: ?>
-                                <a class="rt-edit-btn" href="<?= htmlspecialchars($base) ?>/pages/retrabalho/detalhe.php?id=<?= (int) $itemPrincipal['id'] ?>&origem=pintura" title="Ver / editar triagem">
-                                    Triagem
+                                <a class="rt-edit-btn" style="background:#f1f5f9;color:#475569;border-color:#cbd5e1;" href="<?= htmlspecialchars($base) ?>/pages/retrabalho/detalhe.php?id=<?= (int) $itemPrincipal['id'] ?>&origem=pintura" title="Visualizar detalhes">
+                                    Visualizar
                                 </a>
                             <?php endif; ?>
                         </td>
@@ -637,9 +645,11 @@ layoutHeader($pageTitle);
                                                 </td>
                                                 <td style="padding:8px;text-align:center;"><?= htmlspecialchars(fmtDataBR($r['data_reprova'])) ?></td>
                                                 <td style="padding:8px;text-align:right;">
-                                                    <button type="button" class="btn-icon btn-icon-danger btn-icon-sm js-del-reprova" data-id="<?= (int) $r['id'] ?>" title="Excluir esta reprova">
-                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                                                    </button>
+                                                    <?php if ($canEdit): ?>
+                                                        <button type="button" class="btn-icon btn-icon-danger btn-icon-sm js-del-reprova" data-id="<?= (int) $r['id'] ?>" title="Excluir esta reprova">
+                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                                                        </button>
+                                                    <?php endif; ?>
                                                 </td>
                                             </tr>
                                         <?php endforeach; ?>

@@ -12,6 +12,9 @@ $base = defined('APP_URL') ? APP_URL : '';
 
 $id     = (int) ($_GET['id'] ?? 0);
 $origem = trim((string) ($_GET['origem'] ?? 'retrabalho'));
+$canEdit = ($origem === 'pintura') 
+    ? (podeEditar('pin.ret') || isAdmin()) 
+    : (($origem === 'painel') ? (podeEditar('ret.pan') || isAdmin()) : (podeEditar('ret.rel') || isAdmin()));
 $voltarUrl = ($origem === 'pintura') 
     ? $base . '/pages/pintura/relacao.php' 
     : $base . '/pages/retrabalho/relacao.php';
@@ -35,6 +38,23 @@ $registro = $stmt->fetch();
 $pageTitle = 'Confirmar Chegada — ' . $origemNome;
 require_once __DIR__ . '/../../includes/layout.php';
 layoutHeader($pageTitle);
+
+if (!$canEdit) {
+    ?>
+    <div class="card" style="max-width:600px;margin:32px auto;text-align:center;padding:32px;">
+        <div style="font-size:36px;margin-bottom:12px;">🔒</div>
+        <h2 style="font-size:18px;font-weight:700;color:#0f172a;margin-bottom:8px;">Apenas Consulta</h2>
+        <p style="font-size:13px;color:#64748b;margin-bottom:20px;">
+            Seu usuário possui permissão apenas de consulta e não pode confirmar a chegada de peças no retrabalho.
+        </p>
+        <a href="<?= htmlspecialchars($voltarUrl) ?>" class="btn btn-secondary">
+            &larr; Voltar para a Relação de <?= htmlspecialchars($origemNome) ?>
+        </a>
+    </div>
+    <?php
+    layoutFooter();
+    exit;
+}
 
 if (!$registro || $registro['data_chegada'] !== null) {
     ?>

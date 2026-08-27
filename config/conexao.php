@@ -206,6 +206,9 @@ function getDB(): PDO
                 INSERT IGNORE INTO boletim_config_metas (`month`, meta_tpd_distribuicao, meta_enrolado, meta_convencional, meta_jctrif, meta_tpm, meta_tpd_forca, meta_tps, dias_uteis)
                 VALUES ('2026-08', 5250, 3780, 1386, 84, 63, 252, 21, 21)
             ");
+            try {
+                $pdo->exec("ALTER TABLE boletim_config_metas ADD COLUMN metas_setores TEXT NULL");
+            } catch (\Throwable $e) {}
         } catch (\Throwable $e) {}
 
         try {

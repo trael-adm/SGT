@@ -10,6 +10,8 @@ if (!hasAcesso('tab:pintura') && !hasAcesso('pin.pai') && !hasAcesso('admin')) {
     requireAcessoModulo('tab:pintura');
 }
 
+$canEdit = podeEditar('pin.pai') || isAdmin();
+
 layoutHeader('Paint Check (Múltiplas Evidências)');
 ?>
 <!-- Dependências do Cropper.js -->
@@ -98,6 +100,15 @@ input:checked + .slider:before { transform: translateX(18px); }
 </style>
 
 <div class="pc-container">
+    <?php if (!$canEdit): ?>
+        <div style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;display:flex;align-items:center;gap:10px;">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <div>
+                <strong>Modo Somente Leitura:</strong> Validações e envios fotográficos desativados para o seu perfil.
+            </div>
+        </div>
+    <?php endif; ?>
+
     <!-- Cabeçalho Padrão SGT -->
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:6px;">
         <div>
@@ -106,10 +117,12 @@ input:checked + .slider:before { transform: translateX(18px); }
                 Inspeção visual e validação de evidências fotográficas por inteligência artificial
             </p>
         </div>
-        <button class="btn btn-primary" id="btnValidarTudo" onclick="validarTudo()" style="background:#16a34a;color:#fff;font-weight:700;padding:9px 20px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-            Validar Tudo
-        </button>
+        <?php if ($canEdit): ?>
+            <button class="btn btn-primary" id="btnValidarTudo" onclick="validarTudo()" style="background:#16a34a;color:#fff;font-weight:700;padding:9px 20px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                Validar Tudo
+            </button>
+        <?php endif; ?>
     </div>
 
     <!-- Passo 1: Configurações de Captura -->

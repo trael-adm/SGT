@@ -174,7 +174,7 @@ function retrabalhoSetoresTriagem(): array
         'radiador'        => 'Radiador',
         'pintura'         => 'Pintura',
         'laboratorio'     => 'Laboratório',
-        'inspecao_final'  => 'Inspeção Final',
+        'montagem_final'  => 'Montagem Final',
     ];
 }
 

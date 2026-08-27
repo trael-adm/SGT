@@ -12,6 +12,9 @@ $base = defined('APP_URL') ? APP_URL : '';
 
 $id     = (int) ($_GET['id'] ?? 0);
 $origem = trim((string) ($_GET['origem'] ?? 'retrabalho'));
+$canEdit = ($origem === 'pintura') 
+    ? (podeEditar('pin.ret') || isAdmin()) 
+    : (($origem === 'painel') ? (podeEditar('ret.pan') || isAdmin()) : (podeEditar('ret.rel') || isAdmin()));
 $voltarUrl = ($origem === 'pintura') 
     ? $base . '/pages/pintura/relacao.php' 
     : $base . '/pages/retrabalho/relacao.php';
@@ -62,8 +65,8 @@ if (!$dataInicio) {
     }
 }
 
-// OBRIGATÓRIO: Se a data de início ainda não foi lida/bipada, redireciona para a tela intermediária de leitura
-if (!$dataInicio) {
+// OBRIGATÓRIO: Se a data de início ainda não foi lida/bipada e o usuário PODE editar, redireciona para a tela intermediária de leitura
+if (!$dataInicio && $canEdit) {
     header('Location: ' . $base . '/pages/retrabalho/iniciar-triagem.php?id=' . $id . '&origem=' . urlencode($origem));
     exit;
 }
@@ -409,6 +412,15 @@ if (!function_exists('rtdBlocoReprova')) {
 
 <div class="rtd-wrap">
 
+<?php if (!$canEdit): ?>
+    <div style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;display:flex;align-items:center;gap:10px;">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        <div>
+            <strong>Modo Somente Leitura:</strong> Seu perfil possui acesso apenas de consulta para esta tela. Alterações, triagem e edições de registros estão desativadas.
+        </div>
+    </div>
+<?php endif; ?>
+
 <div style="margin-bottom:18px;">
     <h1 style="font-size:var(--font-size-xl,20px);font-weight:700;margin-top:2px;">Retrabalho — N° <?= htmlspecialchars($ns) ?></h1>
     <p class="text-secondary" style="font-size:13px;color:var(--color-text-secondary,#6b7280);margin-top:2px;">
@@ -434,7 +446,9 @@ if (!function_exists('rtdBlocoReprova')) {
             <div class="card-title">Reprovas registradas</div>
             <div class="card-subtitle" id="rtd-reprovas-subtitle"><?= count($itensAbertos) ?> reprova(s) registradas para este N° de série</div>
         </div>
-        <button type="button" class="btn btn-primary btn-sm" id="rtd-toggle-add" aria-expanded="false">+ Nova Reprova</button>
+        <?php if ($canEdit): ?>
+            <button type="button" class="btn btn-primary btn-sm" id="rtd-toggle-add" aria-expanded="false">+ Nova Reprova</button>
+        <?php endif; ?>
     </div>
     <div id="rtd-reprovas-lista">
     <?php foreach ($itensAbertos as $r): 
@@ -451,7 +465,7 @@ if (!function_exists('rtdBlocoReprova')) {
                         </span>
                     <?php endif; ?>
                 </div>
-                <?php if ($podeExcluir): ?>
+                <?php if ($podeExcluir && $canEdit): ?>
                     <button type="button" class="btn-icon btn-icon-danger btn-icon-sm js-remover-reprova" data-id="<?= (int) $r['id'] ?>" title="Excluir esta reprova adicionada no retrabalho">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                     </button>
@@ -464,19 +478,31 @@ if (!function_exists('rtdBlocoReprova')) {
                 <div class="form-group"><label class="form-label">Data da reprova</label><input class="form-control" value="<?= htmlspecialchars(fmtDataBR($r['data_reprova'])) ?>" disabled></div>
                 <div class="form-group">
                     <label class="form-label">Causa da Reprova *</label>
-                    <button type="button" class="btn btn-secondary btn-sm js-abrir-causa-raiz"
-                            data-id="<?= (int) $r['id'] ?>"
-                            data-causa-raiz="<?= htmlspecialchars($r['causa_raiz'] ?? '') ?>">
-                        <?= !empty($r['causa_raiz']) ? '✓ Ver / editar causa da reprova' : '+ Adicionar causa da reprova' ?>
-                    </button>
+                    <?php if ($canEdit): ?>
+                        <button type="button" class="btn btn-secondary btn-sm js-abrir-causa-raiz"
+                                data-id="<?= (int) $r['id'] ?>"
+                                data-causa-raiz="<?= htmlspecialchars($r['causa_raiz'] ?? '') ?>">
+                            <?= !empty($r['causa_raiz']) ? '✓ Ver / editar causa da reprova' : '+ Adicionar causa da reprova' ?>
+                        </button>
+                    <?php else: ?>
+                        <div style="font-size:13px;padding:6px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;min-height:36px;display:flex;align-items:center;">
+                            <?= !empty($r['causa_raiz']) ? htmlspecialchars($r['causa_raiz']) : '<span style="color:#94a3b8;">Não informada</span>' ?>
+                        </div>
+                    <?php endif; ?>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Correção *</label>
-                    <button type="button" class="btn btn-secondary btn-sm js-abrir-correcao"
-                            data-id="<?= (int) $r['id'] ?>"
-                            data-correcao="<?= htmlspecialchars($r['correcao'] ?? '') ?>">
-                        <?= !empty($r['correcao']) ? '✓ Ver / editar correção' : '+ Adicionar correção' ?>
-                    </button>
+                    <?php if ($canEdit): ?>
+                        <button type="button" class="btn btn-secondary btn-sm js-abrir-correcao"
+                                data-id="<?= (int) $r['id'] ?>"
+                                data-correcao="<?= htmlspecialchars($r['correcao'] ?? '') ?>">
+                            <?= !empty($r['correcao']) ? '✓ Ver / editar correção' : '+ Adicionar correção' ?>
+                        </button>
+                    <?php else: ?>
+                        <div style="font-size:13px;padding:6px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;min-height:36px;display:flex;align-items:center;">
+                            <?= !empty($r['correcao']) ? htmlspecialchars($r['correcao']) : '<span style="color:#94a3b8;">Não informada</span>' ?>
+                        </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -511,24 +537,32 @@ if (!function_exists('rtdBlocoReprova')) {
         <div class="rtd-item-form">
             <div class="form-group full">
                 <label class="form-label">Data de início do retrabalho</label>
-                <input type="text" id="rtd-inicio-display" class="form-control font-mono font-600" readonly
-                       value="<?= htmlspecialchars(date('d/m/y H:i', strtotime($dataInicio))) ?>" style="max-width:280px;background:#f8fafc;">
-                <p class="rtd-hint">Registrado automaticamente (dia e horário) via leitura de código de barras no início da triagem.</p>
+                <?php if ($dataInicio): ?>
+                    <input type="text" id="rtd-inicio-display" class="form-control font-mono font-600" readonly
+                           value="<?= htmlspecialchars(date('d/m/y H:i', strtotime($dataInicio))) ?>" style="max-width:280px;background:#f8fafc;">
+                    <p class="rtd-hint">Registrado automaticamente (dia e horário) via leitura de código de barras no início da triagem.</p>
+                <?php else: ?>
+                    <div style="font-size:13px;padding:8px 12px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:6px;color:#64748b;display:inline-flex;align-items:center;gap:6px;">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        Aguardando leitura de início da triagem pelo operador
+                    </div>
+                <?php endif; ?>
             </div>
             <div class="form-group full">
                 <label class="form-label">Materiais utilizados *</label>
-                <p class="rtd-hint" style="margin-top:-2px;margin-bottom:8px;">Busque por código ou descrição (aceita <code>%</code> como coringa, ex.: <code>isolador%25kva</code>) e informe a quantidade de cada item usado.</p>
-
-                <div class="rtd-material-busca">
-                    <div class="rtd-material-busca-input-wrap">
-                        <input type="text" id="rtd-material-busca" class="form-control" placeholder="Buscar material por código ou descrição…" autocomplete="off">
-                        <div id="rtd-material-sugestoes" class="rtd-material-sugestoes" style="display:none;"></div>
+                <?php if ($canEdit): ?>
+                    <p class="rtd-hint" style="margin-top:-2px;margin-bottom:8px;">Busque por código ou descrição (aceita <code>%</code> como coringa, ex.: <code>isolador%25kva</code>) e informe a quantidade de cada item usado.</p>
+                    <div class="rtd-material-busca">
+                        <div class="rtd-material-busca-input-wrap">
+                            <input type="text" id="rtd-material-busca" class="form-control" placeholder="Buscar material por código ou descrição…" autocomplete="off">
+                            <div id="rtd-material-sugestoes" class="rtd-material-sugestoes" style="display:none;"></div>
+                        </div>
+                        <div class="rtd-material-busca-acoes">
+                            <button type="button" class="btn btn-secondary btn-sm" id="rtd-material-manual-toggle" style="white-space:nowrap;">Não encontrei — adicionar manualmente</button>
+                            <button type="button" class="btn btn-secondary btn-sm" id="rtd-exportar-csv" style="white-space:nowrap;">Exportar CSV</button>
+                        </div>
                     </div>
-                    <div class="rtd-material-busca-acoes">
-                        <button type="button" class="btn btn-secondary btn-sm" id="rtd-material-manual-toggle" style="white-space:nowrap;">Não encontrei — adicionar manualmente</button>
-                        <button type="button" class="btn btn-secondary btn-sm" id="rtd-exportar-csv" style="white-space:nowrap;">Exportar CSV</button>
-                    </div>
-                </div>
+                <?php endif; ?>
 
                 <div id="rtd-material-manual" class="rtd-material-manual" style="display:none;">
                     <div class="rtd-item-form">
@@ -540,7 +574,7 @@ if (!function_exists('rtdBlocoReprova')) {
                     <button type="button" class="btn btn-primary btn-sm" id="rtd-material-manual-add" style="margin-top:8px;">+ Adicionar à lista</button>
                 </div>
 
-                <div class="rtd-material-tabela-wrap">
+                <div class="rtd-material-tabela-wrap" style="<?= ($canEdit || $materiaisExistentes) ? '' : 'display:none;' ?>">
                     <table class="rtd-material-tabela">
                         <colgroup>
                             <col style="width:100px;">
@@ -574,46 +608,83 @@ if (!function_exists('rtdBlocoReprova')) {
                         </tfoot>
                     </table>
                 </div>
-                <p id="rtd-material-vazio" class="rtd-hint" style="<?= $materiaisExistentes ? 'display:none;' : '' ?>">Nenhum material adicionado ainda.</p>
-                
-                <div style="margin-top: 14px;">
-                    <label class="rtd-setor-pill" style="margin:0;display:inline-flex;align-items:center;cursor:pointer;">
-                        <input type="checkbox" id="rtd-material-nenhum" name="nenhum_material" value="1">
-                        <span>Nenhum material foi utilizado</span>
-                    </label>
-                </div>
 
-                <p class="rtd-hint" style="margin-top:12px;margin-bottom:0;">
-                    Ao alterar as quantidades acima, o saldo dos materiais será debitado no sistema e o custo refletirá nos relatórios de retrabalho.
-                </p>
+                <?php if ($canEdit): ?>
+                    <p id="rtd-material-vazio" class="rtd-hint" style="<?= $materiaisExistentes ? 'display:none;' : '' ?>">Nenhum material adicionado ainda.</p>
+                    <div style="margin-top: 14px;">
+                        <label class="rtd-setor-pill" style="margin:0;display:inline-flex;align-items:center;cursor:pointer;">
+                            <input type="checkbox" id="rtd-material-nenhum" name="nenhum_material" value="1">
+                            <span>Nenhum material foi utilizado</span>
+                        </label>
+                    </div>
+                    <p class="rtd-hint" style="margin-top:12px;margin-bottom:0;">
+                        Ao alterar as quantidades acima, o saldo dos materiais será debitado no sistema e o custo refletirá nos relatórios de retrabalho.
+                    </p>
+                <?php else: ?>
+                    <?php if (empty($materiaisExistentes)): ?>
+                        <div style="font-size:13px;color:#64748b;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;padding:12px;text-align:center;">
+                            Nenhum material cadastrado para este retrabalho.
+                        </div>
+                    <?php endif; ?>
+                <?php endif; ?>
             </div>
             <div class="form-group full">
                 <label class="form-label">Setores de destino *</label>
-                <div class="rtd-setores">
-                    <?php
-                    $setoresChecked = array_filter(array_map('trim', explode(',', (string) ($itensAbertos[0]['setores_destino'] ?? ''))));
-                    if (in_array('montagem_final', $setoresChecked, true) && !in_array('inspecao_final', $setoresChecked, true)) {
-                        $setoresChecked[] = 'inspecao_final';
-                    }
-                    foreach (retrabalhoSetoresTriagem() as $chave => $nome):
-                        $checked = in_array($chave, $setoresChecked, true) ? 'checked' : '';
+                <?php if ($canEdit): ?>
+                    <div class="rtd-setores">
+                        <?php
+                        $setoresChecked = array_filter(array_map('trim', explode(',', (string) ($itensAbertos[0]['setores_destino'] ?? ''))));
+                        if (in_array('inspecao_final', $setoresChecked, true) && !in_array('montagem_final', $setoresChecked, true)) {
+                            $setoresChecked[] = 'montagem_final';
+                        }
+                        foreach (retrabalhoSetoresTriagem() as $chave => $nome):
+                            $checked = in_array($chave, $setoresChecked, true) ? 'checked' : '';
+                            ?>
+                            <label class="rtd-setor-pill">
+                                <input type="checkbox" name="setores_destino[]" value="<?= htmlspecialchars($chave) ?>" <?= $checked ?>>
+                                <span><?= htmlspecialchars($nome) ?></span>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                        <?php
+                        $setoresChecked = array_filter(array_map('trim', explode(',', (string) ($itensAbertos[0]['setores_destino'] ?? ''))));
+                        if (in_array('inspecao_final', $setoresChecked, true) && !in_array('montagem_final', $setoresChecked, true)) {
+                            $setoresChecked[] = 'montagem_final';
+                        }
+                        $todosSetores = retrabalhoSetoresTriagem();
+                        $temSetores = false;
+                        foreach ($setoresChecked as $sKey) {
+                            if (isset($todosSetores[$sKey])) {
+                                $temSetores = true;
+                                echo '<span style="background:#eff6ff;color:#1e40af;font-weight:600;font-size:12px;padding:5px 12px;border-radius:6px;border:1px solid #bfdbfe;">' . htmlspecialchars($todosSetores[$sKey]) . '</span>';
+                            }
+                        }
+                        if (!$temSetores) {
+                            echo '<span style="font-size:13px;color:#94a3b8;font-style:italic;">Nenhum setor de destino selecionado ainda.</span>';
+                        }
                         ?>
-                        <label class="rtd-setor-pill">
-                            <input type="checkbox" name="setores_destino[]" value="<?= htmlspecialchars($chave) ?>" <?= $checked ?>>
-                            <span><?= htmlspecialchars($nome) ?></span>
-                        </label>
-                    <?php endforeach; ?>
-                </div>
+                    </div>
+                <?php endif; ?>
             </div>
             <div class="form-group full">
                 <label class="form-label">Observações da Triagem (opcional)</label>
-                <textarea id="rtd-observacoes" class="form-control" rows="3" placeholder="Detalhes observados na triagem…"><?= htmlspecialchars($itensAbertos[0]['observacoes'] ?? '') ?></textarea>
+                <?php if ($canEdit): ?>
+                    <textarea id="rtd-observacoes" class="form-control" rows="3" placeholder="Detalhes observados na triagem…"><?= htmlspecialchars($itensAbertos[0]['observacoes'] ?? '') ?></textarea>
+                <?php else: ?>
+                    <div style="font-size:13px;padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;min-height:45px;white-space:pre-wrap;color:<?= !empty($itensAbertos[0]['observacoes']) ? '#1e293b' : '#94a3b8' ?>;">
+                        <?= !empty($itensAbertos[0]['observacoes']) ? htmlspecialchars($itensAbertos[0]['observacoes']) : 'Nenhuma observação informada.' ?>
+                    </div>
+                <?php endif; ?>
             </div>
             <div class="form-group full">
                 <label class="form-label">Evidências / Fotos do Retrabalho (opcional)</label>
-                <p class="rtd-hint" style="margin-top:-2px;margin-bottom:8px;">Selecione imagens ou PDF do problema identificado (máx. 8MB por arquivo).</p>
-                <input type="file" id="rtd-anexos" class="form-control" multiple accept="image/*,application/pdf">
-                <div id="rtd-anexos-preview" class="rtd-anexos-preview"></div>
+                <?php if ($canEdit): ?>
+                    <p class="rtd-hint" style="margin-top:-2px;margin-bottom:8px;">Selecione imagens ou PDF do problema identificado (máx. 8MB por arquivo).</p>
+                    <input type="file" id="rtd-anexos" class="form-control" multiple accept="image/*,application/pdf">
+                    <div id="rtd-anexos-preview" class="rtd-anexos-preview"></div>
+                <?php endif; ?>
                 <?php
                 // Lista anexos já gravados (qualquer reprova aberta do NS)
                 $idsAbertos = array_map(fn ($r) => (int) $r['id'], $itensAbertos);
@@ -630,7 +701,7 @@ if (!function_exists('rtdBlocoReprova')) {
                     $anexosGravados = $stmtAnexos->fetchAll();
                     if ($anexosGravados) {
                         echo '<div class="rtd-anexos-existentes" style="margin-top:12px;">';
-                        echo '<div style="font-size:12px;font-weight:600;color:#475569;margin-bottom:6px;">Anexos já vinculados:</div>';
+                        echo '<div style="font-size:12px;font-weight:600;color:#475569;margin-bottom:6px;">Anexos vinculados:</div>';
                         echo '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
                         foreach ($anexosGravados as $anx) {
                             $url = $base . '/uploads/retrabalho/' . rawurlencode($anx['nome_arquivo']);
@@ -647,7 +718,8 @@ if (!function_exists('rtdBlocoReprova')) {
                             echo '</div>';
                         }
                         echo '</div>';
-                        echo '</div>';
+                    } elseif (!$canEdit) {
+                        echo '<span style="font-size:13px;color:#94a3b8;font-style:italic;">Nenhuma evidência anexada.</span>';
                     }
                 }
                 ?>
@@ -655,9 +727,11 @@ if (!function_exists('rtdBlocoReprova')) {
         </div>
 
         <div id="rtd-add-erro" style="display:none;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:14px;grid-column:1 / -1;"></div>
-        <div class="rtd-item-foot">
-            <button type="submit" class="btn btn-primary" id="rtd-add-submit">Enviar</button>
-        </div>
+        <?php if ($canEdit): ?>
+            <div class="rtd-item-foot">
+                <button type="submit" class="btn btn-primary" id="rtd-add-submit">Enviar</button>
+            </div>
+        <?php endif; ?>
     </div>
 </form>
 
@@ -738,6 +812,7 @@ if (!function_exists('rtdBlocoReprova')) {
     window.RETRABALHO_ID_PROJETO = <?= json_encode($idProjeto) ?>;
     window.RETRABALHO_NS = <?= json_encode($ns) ?>;
     window.RETRABALHO_VOLTAR = <?= json_encode($voltarUrl) ?>;
+    window.RETRABALHO_CAN_EDIT = <?= json_encode($canEdit) ?>;
 </script>
 <?php $rtdJsVer = @filemtime(__DIR__ . '/../../assets/js/retrabalho-detalhe.js') ?: (defined('APP_VERSION') ? APP_VERSION : '1'); ?>
 <script src="<?= htmlspecialchars($base) ?>/assets/js/retrabalho-detalhe.js?v=<?= htmlspecialchars((string) $rtdJsVer) ?>"></script>

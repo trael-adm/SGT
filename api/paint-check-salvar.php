@@ -11,9 +11,9 @@ if (!isLoggedIn()) {
     exit;
 }
 
-if (!hasAcesso('pin.pai') && !hasAcesso('tab:pintura') && !hasAcesso('admin')) {
+if (!podeEditar('pin.pai') && !isAdmin()) {
     http_response_code(403);
-    echo json_encode(['error' => 'Sem permissão de acesso']);
+    echo json_encode(['error' => 'Apenas consulta: sem permissão para salvar inspeções']);
     exit;
 }
 

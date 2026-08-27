@@ -475,28 +475,48 @@ layoutHeader($pageTitle);
     .df-clear-link {
         display: block;
         text-align: center;
-        font-size: 0.78rem;
-        font-weight: 600;
-        color: #2563eb;
-        text-decoration: underline;
-        margin-top: 14px;
+    /* Estilos do Calendário Interativo no Modal */
+    .cal-day-btn {
+        height: 38px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--radius-sm, 4px);
+        font-family: inherit;
         cursor: pointer;
+        transition: all 0.15s ease;
+        user-select: none;
+        border: 1px solid transparent;
+        background: var(--color-surface-2, #f1f5f9);
+        color: var(--color-text-muted, #64748b);
     }
-    .df-clear-link:hover {
-        color: #1d4ed8;
+    .cal-day-btn.active {
+        background: #16a34a;
+        color: #ffffff;
+        border-color: #16a34a;
+        font-weight: 700;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    }
+    .cal-day-btn.active:hover {
+        filter: brightness(0.92);
+    }
+    .cal-day-btn.inactive {
+        background: var(--color-surface-2, #f1f5f9);
+        color: var(--color-text-muted, #94a3b8);
+        border-color: var(--color-border, #e2e8f0);
+        opacity: 0.55;
+    }
+    .cal-day-btn.inactive:hover {
+        opacity: 0.9;
+        border-color: var(--color-border-strong, #cbd5e1);
     }
 
-    /* ─── Estilos de Impressão (Folha A4 Paisagem / Retrato) ──────────────── */
-    @page {
-        size: A4 landscape;
-        margin: 8mm 6mm 6mm 6mm;
-    }
     @media print {
         body {
             background: #ffffff !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-            font-size: 11px !important;
+            color: #000000 !important;
+            font-size: 10pt !important;
         }
         .sidebar, .navbar, .no-print, .date-filter-overlay, .ps-pills-bar, button, #chipAutoRefresh, input, .app-sidebar, .app-header {
             display: none !important;
@@ -557,7 +577,17 @@ layoutHeader($pageTitle);
 
     <!-- Chips de Referência / Filtros -->
     <div class="ps-ref-row">
+        <!-- Botão Disparador do Modal de Métricas por Setor -->
+        <button type="button" class="btn btn-primary btn-sm" id="btn-abrir-metricas" onclick="abrirModalMetricas()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font-weight:700;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20v-6M6 20V10M18 20V4"/></svg>
+            Métricas
+        </button>
 
+        <div class="ps-ref-chip" style="gap:6px;">
+            <span class="pulse-dot"></span>
+            <span class="ps-ref-label">Sincronizado</span>
+            <span class="ps-ref-value" style="font-size:var(--font-size-sm);color:var(--color-text-secondary);"><?= htmlspecialchars(boletimKardexUltimaSincronizacao($dadosPainel['mes'])) ?></span>
+        </div>
 
         <!-- Botão Disparador do Modal de Filtro de Data (Estilo idêntico ao Meta Diária) -->
         <button type="button" class="ps-ref-chip" onclick="abrirFiltroDataModal()" style="cursor:pointer;transition:all 0.15s ease;background:var(--color-surface, #ffffff);border:1px solid var(--color-border, #e2e6ed);color:inherit;font-family:inherit;">
@@ -928,6 +958,214 @@ $dataInicio = $dadosPainel['data_inicio'];
 $dataFim = $dadosPainel['data_fim'];
 require_once __DIR__ . '/../../includes/modal-filtro-data.php';
 ?>
+
+<!-- ─── MODAL: MÉTRICAS & METAS POR SETOR / CALENDÁRIO DE PRODUÇÃO ──────── -->
+<div id="modal-metricas" class="modal-overlay" style="display:none;" onclick="if(event.target === this) fecharModalMetricas()">
+    <div class="modal" style="max-width:920px;width:95%;">
+        <div class="modal-header" style="background:var(--color-surface);border-bottom:1px solid var(--color-border);padding:16px 24px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+                <div style="width:36px;height:36px;border-radius:var(--radius-md, 6px);background:#e0f2fe;display:flex;align-items:center;justify-content:center;color:#0369a1;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20v-6M6 20V10M18 20V4"/></svg>
+                </div>
+                <div>
+                    <h3 class="modal-title" style="margin:0;font-size:var(--font-size-lg, 1.15rem);font-weight:700;">Métricas & Metas por Setor</h3>
+                    <p style="margin:0;font-size:var(--font-size-xs, 0.75rem);color:var(--color-text-muted);">Mês de Referência: <strong><?= date('m/Y', strtotime($dadosPainel['mes'] . '-01')) ?></strong> &bull; Setor Visualizado: <strong><?= htmlspecialchars($setorInfo['nome']) ?></strong></p>
+                </div>
+            </div>
+            <button type="button" class="modal-close" onclick="fecharModalMetricas()" aria-label="Fechar">&times;</button>
+        </div>
+
+        <form id="form-modal-metricas" onsubmit="salvarMetricasModal(event)">
+            <div class="modal-body" style="padding:20px 24px;display:grid;grid-template-columns:1.2fr 1fr;gap:24px;">
+                
+                <!-- Coluna 1: Metas Diárias dos 6 Setores -->
+                <div style="display:flex;flex-direction:column;gap:14px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                        <div>
+                            <h4 style="margin:0 0 2px 0;font-size:var(--font-size-sm, 0.875rem);font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--color-text-secondary);">
+                                🎯 Metas Diárias dos Setores (un/dia)
+                            </h4>
+                            <p style="margin:0;font-size:var(--font-size-xs, 0.75rem);color:var(--color-text-muted);">
+                                Informe a meta diária planejada para cada setor fabril:
+                            </p>
+                        </div>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="replicarMetaConsolidado()" title="Copiar meta do Consolidado para todos os outros setores" style="font-size:11px;padding:3px 8px;font-weight:600;display:inline-flex;align-items:center;gap:4px;">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                            Replicar Geral
+                        </button>
+                    </div>
+
+                    <div style="display:flex;flex-direction:column;gap:9px;max-height:360px;overflow-y:auto;padding-right:4px;">
+                        
+                        <!-- 1. CONSOLIDADO -->
+                        <div style="background:var(--color-surface-2, #f8fafc);border:1px solid #cbd5e1;border-radius:var(--radius-md, 6px);padding:8px 12px;border-left:4px solid #16a34a;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+                                <label for="modal-meta-consolidado" style="font-size:11.5px;font-weight:700;color:#0f172a;display:flex;align-items:center;gap:5px;">
+                                    <span>🏢 Consolidado (Todos os Setores)</span>
+                                </label>
+                                <span id="modal-calc-mes-consolidado" style="font-size:11px;font-weight:700;color:#16a34a;" class="font-mono">
+                                    = <?= number_format($dadosPainel['metas_por_setor']['CONSOLIDADO']['mensal'] ?? $dadosPainel['meta_total_mensal'], 0, ',', '.') ?> un/mês
+                                </span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <input type="number" step="any" id="modal-meta-consolidado" name="meta_dia_consolidado" value="<?= (float) ($dadosPainel['metas_por_setor']['CONSOLIDADO']['diaria'] ?? $dadosPainel['meta_diaria_global']) ?>" min="0" required class="form-control" style="font-weight:700;font-size:14px;padding:4px 8px;height:32px;" oninput="recalcularMetasModal()">
+                                <span style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;">un/dia</span>
+                            </div>
+                        </div>
+
+                        <!-- 2. PINTURA -->
+                        <div style="background:var(--color-surface-2, #f8fafc);border:1px solid var(--color-border, #e2e8f0);border-radius:var(--radius-md, 6px);padding:8px 12px;border-left:4px solid #ef4444;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+                                <label for="modal-meta-pintura" style="font-size:11.5px;font-weight:700;color:#ef4444;display:flex;align-items:center;gap:5px;">
+                                    <span>🎨 Pintura / Tanque</span>
+                                    <span class="badge" style="font-size:9px;padding:1px 4px;background:#fee2e2;color:#991b1b;">MTQ</span>
+                                </label>
+                                <span id="modal-calc-mes-pintura" style="font-size:11px;font-weight:700;color:#ef4444;" class="font-mono">
+                                    = <?= number_format($dadosPainel['metas_por_setor']['PINTURA']['mensal'] ?? 0, 0, ',', '.') ?> un/mês
+                                </span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <input type="number" step="any" id="modal-meta-pintura" name="meta_dia_pintura" value="<?= (float) ($dadosPainel['metas_por_setor']['PINTURA']['diaria'] ?? 0) ?>" min="0" required class="form-control" style="font-weight:700;font-size:14px;padding:4px 8px;height:32px;" oninput="recalcularMetasModal()">
+                                <span style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;">un/dia</span>
+                            </div>
+                        </div>
+
+                        <!-- 3. MONTAGEM ELETRICA -->
+                        <div style="background:var(--color-surface-2, #f8fafc);border:1px solid var(--color-border, #e2e8f0);border-radius:var(--radius-md, 6px);padding:8px 12px;border-left:4px solid #f59e0b;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+                                <label for="modal-meta-montagem-eletrica" style="font-size:11.5px;font-weight:700;color:#d97706;display:flex;align-items:center;gap:5px;">
+                                    <span>⚡ Montagem Elétrica / Parte Ativa</span>
+                                    <span class="badge" style="font-size:9px;padding:1px 4px;background:#fef3c7;color:#92400e;">ME</span>
+                                </label>
+                                <span id="modal-calc-mes-montagem-eletrica" style="font-size:11px;font-weight:700;color:#d97706;" class="font-mono">
+                                    = <?= number_format($dadosPainel['metas_por_setor']['MONTAGEM_ELETRICA']['mensal'] ?? 0, 0, ',', '.') ?> un/mês
+                                </span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <input type="number" step="any" id="modal-meta-montagem-eletrica" name="meta_dia_montagem_eletrica" value="<?= (float) ($dadosPainel['metas_por_setor']['MONTAGEM_ELETRICA']['diaria'] ?? 0) ?>" min="0" required class="form-control" style="font-weight:700;font-size:14px;padding:4px 8px;height:32px;" oninput="recalcularMetasModal()">
+                                <span style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;">un/dia</span>
+                            </div>
+                        </div>
+
+                        <!-- 4. MONTAGEM FINAL -->
+                        <div style="background:var(--color-surface-2, #f8fafc);border:1px solid var(--color-border, #e2e8f0);border-radius:var(--radius-md, 6px);padding:8px 12px;border-left:4px solid #8b5cf6;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+                                <label for="modal-meta-montagem-final" style="font-size:11.5px;font-weight:700;color:#7c3aed;display:flex;align-items:center;gap:5px;">
+                                    <span>📦 Montagem Final</span>
+                                    <span class="badge" style="font-size:9px;padding:1px 4px;background:#ede9fe;color:#5b21b6;">MFL</span>
+                                </label>
+                                <span id="modal-calc-mes-montagem-final" style="font-size:11px;font-weight:700;color:#7c3aed;" class="font-mono">
+                                    = <?= number_format($dadosPainel['metas_por_setor']['MONTAGEM_FINAL']['mensal'] ?? 0, 0, ',', '.') ?> un/mês
+                                </span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <input type="number" step="any" id="modal-meta-montagem-final" name="meta_dia_montagem_final" value="<?= (float) ($dadosPainel['metas_por_setor']['MONTAGEM_FINAL']['diaria'] ?? 0) ?>" min="0" required class="form-control" style="font-weight:700;font-size:14px;padding:4px 8px;height:32px;" oninput="recalcularMetasModal()">
+                                <span style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;">un/dia</span>
+                            </div>
+                        </div>
+
+                        <!-- 5. BOBINAGEM -->
+                        <div style="background:var(--color-surface-2, #f8fafc);border:1px solid var(--color-border, #e2e8f0);border-radius:var(--radius-md, 6px);padding:8px 12px;border-left:4px solid #3b82f6;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+                                <label for="modal-meta-bobinagem" style="font-size:11.5px;font-weight:700;color:#2563eb;display:flex;align-items:center;gap:5px;">
+                                    <span>🔄 Bobinagem / Enrolamento</span>
+                                    <span class="badge" style="font-size:9px;padding:1px 4px;background:#dbeafe;color:#1e40af;">BOB</span>
+                                </label>
+                                <span id="modal-calc-mes-bobinagem" style="font-size:11px;font-weight:700;color:#2563eb;" class="font-mono">
+                                    = <?= number_format($dadosPainel['metas_por_setor']['BOBINAGEM']['mensal'] ?? 0, 0, ',', '.') ?> un/mês
+                                </span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <input type="number" step="any" id="modal-meta-bobinagem" name="meta_dia_bobinagem" value="<?= (float) ($dadosPainel['metas_por_setor']['BOBINAGEM']['diaria'] ?? 0) ?>" min="0" required class="form-control" style="font-weight:700;font-size:14px;padding:4px 8px;height:32px;" oninput="recalcularMetasModal()">
+                                <span style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;">un/dia</span>
+                            </div>
+                        </div>
+
+                        <!-- 6. LABORATORIO -->
+                        <div style="background:var(--color-surface-2, #f8fafc);border:1px solid var(--color-border, #e2e8f0);border-radius:var(--radius-md, 6px);padding:8px 12px;border-left:4px solid #10b981;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+                                <label for="modal-meta-laboratorio" style="font-size:11.5px;font-weight:700;color:#059669;display:flex;align-items:center;gap:5px;">
+                                    <span>🔬 Laboratório / Ensaios</span>
+                                    <span class="badge" style="font-size:9px;padding:1px 4px;background:#d1fae5;color:#065f46;">LAB</span>
+                                </label>
+                                <span id="modal-calc-mes-laboratorio" style="font-size:11px;font-weight:700;color:#059669;" class="font-mono">
+                                    = <?= number_format($dadosPainel['metas_por_setor']['LABORATORIO']['mensal'] ?? 0, 0, ',', '.') ?> un/mês
+                                </span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <input type="number" step="any" id="modal-meta-laboratorio" name="meta_dia_laboratorio" value="<?= (float) ($dadosPainel['metas_por_setor']['LABORATORIO']['diaria'] ?? 0) ?>" min="0" required class="form-control" style="font-weight:700;font-size:14px;padding:4px 8px;height:32px;" oninput="recalcularMetasModal()">
+                                <span style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;">un/dia</span>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- Card Resumo do Cálculo -->
+                    <div style="margin-top:auto;background:var(--color-accent-light, #fef3dc);border:1px solid #fcd34d;border-radius:var(--radius-md, 6px);padding:12px 14px;">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:11.5px;color:#7a4f08;">
+                            <span>Dias de Produção Ativos:</span>
+                            <strong id="modal-resumo-dias-uteis" class="font-mono"><?= (int) $dadosPainel['total_dias_uteis'] ?> dias</strong>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:11.5px;color:#7a4f08;">
+                            <span>Setor Atual (<?= htmlspecialchars($setorInfo['nome']) ?>):</span>
+                            <strong id="modal-resumo-setor-atual" class="font-mono"><?= number_format($dadosPainel['meta_diaria'], 1, ',', '.') ?> un/dia</strong>
+                        </div>
+                        <div style="border-top:1px dashed #eab308;padding-top:6px;display:flex;justify-content:space-between;align-items:baseline;">
+                            <span style="font-size:11.5px;font-weight:700;color:#7a4f08;text-transform:uppercase;">Meta Prevista do Mês:</span>
+                            <span id="modal-resumo-mes" style="font-size:16px;font-weight:800;color:#7a4f08;" class="font-mono"><?= number_format($dadosPainel['meta_setor'], 0, ',', '.') ?> un</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Coluna 2: Calendário de Dias de Produção & Feriados -->
+                <div style="display:flex;flex-direction:column;gap:12px;border-left:1px solid var(--color-border, #e2e8f0);padding-left:24px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                        <div>
+                            <h4 style="margin:0 0 2px 0;font-size:var(--font-size-sm, 0.875rem);font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--color-text-secondary);">
+                                📅 Dias de Produção & Feriados
+                            </h4>
+                            <p style="margin:0;font-size:var(--font-size-xs, 0.75rem);color:var(--color-text-muted);">
+                                Clique nos dias para ativar/desativar produção:
+                            </p>
+                        </div>
+                        <div style="display:flex;gap:4px;">
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="modalMarcarSegSex()" style="font-size:11px;padding:3px 7px;">Seg-Sex</button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="modalMarcarTodos()" style="font-size:11px;padding:3px 7px;">Todos</button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="modalLimparTodos()" style="font-size:11px;padding:3px 7px;">Limpar</button>
+                        </div>
+                    </div>
+
+                    <!-- Grade do Calendário -->
+                    <div style="background:var(--color-surface, #fff);border:1px solid var(--color-border, #e2e8f0);border-radius:var(--radius-md, 6px);padding:10px;">
+                        <div style="display:grid;grid-template-columns:repeat(7, 1fr);gap:4px;text-align:center;font-size:10px;font-weight:700;color:var(--color-text-muted);margin-bottom:6px;">
+                            <div>DOM</div><div>SEG</div><div>TER</div><div>QUA</div><div>QUI</div><div>SEX</div><div>SÁB</div>
+                        </div>
+                        <div id="modal-grade-calendario" style="display:grid;grid-template-columns:repeat(7, 1fr);gap:4px;"></div>
+                    </div>
+
+                    <div style="display:flex;align-items:center;gap:14px;font-size:11px;color:var(--color-text-muted);">
+                        <div style="display:flex;align-items:center;gap:4px;">
+                            <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#16a34a;"></span>
+                            <span>Dia de Produção</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:4px;">
+                            <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:var(--color-surface-2, #f1f5f9);border:1px solid var(--color-border, #e2e8f0);"></span>
+                            <span>Feriado / Folga</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer" style="background:var(--color-surface);padding:14px 24px;border-top:1px solid var(--color-border);display:flex;justify-content:flex-end;gap:10px;">
+                <button type="button" class="btn btn-secondary" onclick="fecharModalMetricas()">Cancelar</button>
+                <button type="submit" class="btn btn-primary" id="btn-salvar-metricas-modal" style="font-weight:700;display:inline-flex;align-items:center;gap:6px;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                    Salvar Métricas & Calendário
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
 
 <!-- Scripts de Gráficos (Chart.js + Plugin DataLabels) -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -1409,6 +1647,199 @@ function exportarTabelaSetorCSV() {
     link.href = URL.createObjectURL(blob);
     link.download = 'painel_setor_' + new Date().toISOString().slice(0, 10) + '.csv';
     link.click();
+}
+
+// ─── Modal de Métricas & Metas por Setor ─────────────────────────────────────
+const TODOS_DIAS_CALENDARIO = <?= json_encode($dadosPainel['todos_dias_calendario'], JSON_UNESCAPED_UNICODE) ?>;
+const PRIMEIRO_DIA_SEMANA_MES = <?= (int) $dadosPainel['primeiro_dia_semana'] ?>;
+const MES_ATUAL_PAINEL = <?= json_encode($dadosPainel['mes']) ?>;
+const SETOR_ATUAL_CHAVE = <?= json_encode($dadosPainel['setor_chave']) ?>;
+const BOLETIM_API_URL = <?= json_encode($base . '/api/boletim-acao.php') ?>;
+
+function abrirModalMetricas() {
+    const modal = document.getElementById('modal-metricas');
+    if (!modal) return;
+    renderizarCalendarioModal();
+    recalcularMetasModal();
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+}
+
+function fecharModalMetricas() {
+    const modal = document.getElementById('modal-metricas');
+    if (!modal) return;
+    modal.style.display = 'none';
+    document.body.style.overflow = '';
+}
+
+function renderizarCalendarioModal() {
+    const container = document.getElementById('modal-grade-calendario');
+    if (!container) return;
+    container.innerHTML = '';
+
+    // Células em branco antes do dia 1
+    for (let b = 0; b < PRIMEIRO_DIA_SEMANA_MES; b++) {
+        const blank = document.createElement('div');
+        blank.style.cssText = 'height:38px;';
+        container.appendChild(blank);
+    }
+
+    // Renderiza cada dia do mês
+    (TODOS_DIAS_CALENDARIO || []).forEach(function(item) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'cal-day-btn ' + (item.ativo ? 'active' : 'inactive');
+        btn.dataset.date = item.date;
+        btn.dataset.fimDeSemana = item.fimDeSemana ? '1' : '0';
+        btn.innerHTML = '<span style="font-size:12px;font-weight:700;">' + item.dia + '</span>';
+        btn.onclick = function() {
+            this.classList.toggle('active');
+            this.classList.toggle('inactive');
+            recalcularMetasModal();
+        };
+        container.appendChild(btn);
+    });
+}
+
+function modalMarcarSegSex() {
+    document.querySelectorAll('#modal-grade-calendario .cal-day-btn').forEach(function(btn) {
+        if (btn.dataset.fimDeSemana === '0') {
+            btn.classList.add('active');
+            btn.classList.remove('inactive');
+        } else {
+            btn.classList.add('inactive');
+            btn.classList.remove('active');
+        }
+    });
+    recalcularMetasModal();
+}
+
+function modalMarcarTodos() {
+    document.querySelectorAll('#modal-grade-calendario .cal-day-btn').forEach(function(btn) {
+        btn.classList.add('active');
+        btn.classList.remove('inactive');
+    });
+    recalcularMetasModal();
+}
+
+function modalLimparTodos() {
+    document.querySelectorAll('#modal-grade-calendario .cal-day-btn').forEach(function(btn) {
+        btn.classList.add('inactive');
+        btn.classList.remove('active');
+    });
+    recalcularMetasModal();
+}
+
+function recalcularMetasModal() {
+    const diasAtivos = document.querySelectorAll('#modal-grade-calendario .cal-day-btn.active').length;
+
+    const setoresIds = [
+        { id: 'modal-meta-consolidado', calcId: 'modal-calc-mes-consolidado', key: 'CONSOLIDADO' },
+        { id: 'modal-meta-pintura', calcId: 'modal-calc-mes-pintura', key: 'PINTURA' },
+        { id: 'modal-meta-montagem-eletrica', calcId: 'modal-calc-mes-montagem-eletrica', key: 'MONTAGEM_ELETRICA' },
+        { id: 'modal-meta-montagem-final', calcId: 'modal-calc-mes-montagem-final', key: 'MONTAGEM_FINAL' },
+        { id: 'modal-meta-bobinagem', calcId: 'modal-calc-mes-bobinagem', key: 'BOBINAGEM' },
+        { id: 'modal-meta-laboratorio', calcId: 'modal-calc-mes-laboratorio', key: 'LABORATORIO' },
+    ];
+
+    let metaSetorAtualDiaria = 0;
+    let metaSetorAtualMensal = 0;
+    let metaConsolidadoMensal = 0;
+
+    setoresIds.forEach(st => {
+        const inp = document.getElementById(st.id);
+        const val = inp ? (parseFloat(inp.value) || 0) : 0;
+        const totalMes = Math.round(val * diasAtivos);
+        const calcEl = document.getElementById(st.calcId);
+        if (calcEl) {
+            calcEl.textContent = '= ' + totalMes.toLocaleString('pt-BR') + ' un/mês';
+        }
+
+        if (st.key === 'CONSOLIDADO') {
+            metaConsolidadoMensal = totalMes;
+        }
+        if (st.key === SETOR_ATUAL_CHAVE) {
+            metaSetorAtualDiaria = val;
+            metaSetorAtualMensal = totalMes;
+        }
+    });
+
+    if (SETOR_ATUAL_CHAVE === 'CONSOLIDADO' || !metaSetorAtualMensal) {
+        metaSetorAtualMensal = metaConsolidadoMensal;
+    }
+
+    const elResumoDiasUteis = document.getElementById('modal-resumo-dias-uteis');
+    const elResumoSetorAtual = document.getElementById('modal-resumo-setor-atual');
+    const elResumoMes = document.getElementById('modal-resumo-mes');
+
+    if (elResumoDiasUteis) elResumoDiasUteis.textContent = diasAtivos + ' dias';
+    if (elResumoSetorAtual) elResumoSetorAtual.textContent = metaSetorAtualDiaria.toLocaleString('pt-BR', { minimumFractionDigits: 1 }) + ' un/dia';
+    if (elResumoMes) elResumoMes.textContent = metaSetorAtualMensal.toLocaleString('pt-BR') + ' un';
+}
+
+function replicarMetaConsolidado() {
+    const valConsolidado = parseFloat(document.getElementById('modal-meta-consolidado')?.value) || 0;
+    const setoresInputs = [
+        'modal-meta-pintura',
+        'modal-meta-montagem-eletrica',
+        'modal-meta-montagem-final',
+        'modal-meta-bobinagem',
+        'modal-meta-laboratorio'
+    ];
+    setoresInputs.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = valConsolidado;
+    });
+    recalcularMetasModal();
+}
+
+async function salvarMetricasModal(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btn-salvar-metricas-modal');
+    const origHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="animate-spin"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> Salvando...';
+    }
+
+    try {
+        const diasSelecionados = [];
+        document.querySelectorAll('#modal-grade-calendario .cal-day-btn.active').forEach(function(b) {
+            if (b.dataset.date) diasSelecionados.push(b.dataset.date);
+        });
+
+        const formData = new FormData();
+        formData.append('acao', 'metas_setor_salvar');
+        formData.append('month', MES_ATUAL_PAINEL);
+        formData.append('dias_producao', JSON.stringify(diasSelecionados));
+        formData.append('meta_dia_consolidado', document.getElementById('modal-meta-consolidado')?.value || '0');
+        formData.append('meta_dia_pintura', document.getElementById('modal-meta-pintura')?.value || '0');
+        formData.append('meta_dia_montagem_eletrica', document.getElementById('modal-meta-montagem-eletrica')?.value || '0');
+        formData.append('meta_dia_montagem_final', document.getElementById('modal-meta-montagem-final')?.value || '0');
+        formData.append('meta_dia_bobinagem', document.getElementById('modal-meta-bobinagem')?.value || '0');
+        formData.append('meta_dia_laboratorio', document.getElementById('modal-meta-laboratorio')?.value || '0');
+
+        const res = await fetch(BOLETIM_API_URL, {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+        if (data.sucesso) {
+            window.location.reload();
+        } else {
+            alert(data.erro || 'Erro ao salvar métricas por setor.');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+            }
+        }
+    } catch (err) {
+        alert('Erro de comunicação ao salvar as métricas no servidor.');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+        }
+    }
 }
 </script>
 

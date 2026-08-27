@@ -96,16 +96,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
                         <label style="margin-left:6px;">Empresa:</label>
                         <select id="filtroEmpresa" class="select-filter">
-                            <option value="" selected>Ambas</option>
-                            <option value="1">Empresa 1</option>
-                            <option value="4">Empresa 4</option>
+                            <option value="" ${state.empresa === '' ? 'selected' : ''}>Ambas</option>
+                            <option value="1" ${state.empresa === '1' ? 'selected' : ''}>Empresa 1</option>
+                            <option value="4" ${state.empresa === '4' ? 'selected' : ''}>Empresa 4</option>
                         </select>
 
                         <label style="margin-left:6px;">Fila:</label>
                         <select id="filtroStatusFila" class="select-filter">
-                            <option value="em_aberto" selected>Em Aberto</option>
-                            <option value="concluidos">Concluídos</option>
-                            <option value="todos">Todos os Registros</option>
+                            <option value="em_aberto" ${state.statusFila === 'em_aberto' ? 'selected' : ''}>Em Aberto</option>
+                            <option value="concluidos" ${state.statusFila === 'concluidos' ? 'selected' : ''}>Concluídos</option>
+                            <option value="todos" ${state.statusFila === 'todos' ? 'selected' : ''}>Todos os Registros</option>
                         </select>
 
                         <button class="btn btn-primary btn-sm" id="btnAplicarFiltros">Filtrar</button>
@@ -142,6 +142,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     montarCabecalhoProducao();
                     renderizarProducao();
                 });
+            });
+
+            // Atualização imediata ao mudar os selects
+            ['filtroEmpresa', 'filtroStatusFila', 'filtroMes', 'filtroAno', 'filtroSemana'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.addEventListener('change', () => {
+                        state.dtInicio = document.getElementById('filtroDtInicio').value;
+                        state.dtFim = document.getElementById('filtroDtFim').value;
+                        state.mes = document.getElementById('filtroMes').value;
+                        state.ano = document.getElementById('filtroAno').value;
+                        state.semana = document.getElementById('filtroSemana').value;
+                        state.empresa = document.getElementById('filtroEmpresa').value;
+                        state.statusFila = document.getElementById('filtroStatusFila').value;
+                        carregarSetor();
+                    });
+                }
             });
 
             document.getElementById('btnAplicarFiltros').addEventListener('click', () => {
@@ -299,6 +316,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             <button class="excel-th-filter-btn ${temFiltroAtivo('data') ? 'has-filter' : ''}" onclick="window.abrirPopupFiltro(event, 'data')" title="Filtrar Data">▾</button>
                         </div>
                     </th>
+                    <th style="width:44px; min-width:42px; text-align:center;" title="Sequência do Plano Mestre">
+                        <div class="th-content" style="justify-content:center;">
+                            <span class="th-title" onclick="window.ordenarColuna('seq')">SEQ</span>
+                            <button class="excel-th-filter-btn ${temFiltroAtivo('seq') ? 'has-filter' : ''}" onclick="window.abrirPopupFiltro(event, 'seq')" title="Filtrar Sequência">▾</button>
+                        </div>
+                    </th>
                     <th style="width:115px; min-width:110px;">
                         <div class="th-content">
                             <span class="th-title" onclick="window.ordenarColuna('projeto')">PROJETO</span>
@@ -376,6 +399,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             <button class="excel-th-filter-btn ${temFiltroAtivo('data') ? 'has-filter' : ''}" onclick="window.abrirPopupFiltro(event, 'data')" title="Filtrar Data">▾</button>
                         </div>
                     </th>
+                    <th style="width:44px; min-width:42px; text-align:center;" title="Sequência do Plano Mestre">
+                        <div class="th-content" style="justify-content:center;">
+                            <span class="th-title" onclick="window.ordenarColuna('seq')">SEQ</span>
+                            <button class="excel-th-filter-btn ${temFiltroAtivo('seq') ? 'has-filter' : ''}" onclick="window.abrirPopupFiltro(event, 'seq')" title="Filtrar Sequência">▾</button>
+                        </div>
+                    </th>
                     <th style="width:115px; min-width:110px;">
                         <div class="th-content">
                             <span class="th-title" onclick="window.ordenarColuna('projeto')">PROJETO</span>
@@ -440,9 +469,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const lotesMap = new Map();
 
         lista.forEach(t => {
-            // Chave do lote: Pedido + Empresa + Projeto + Data PCP + Potência
+            // Chave do lote: Pedido + Empresa + Projeto + Data PCP + Potência + Seq
             const emp = t.empresa || '1';
-            const key = `${t.pedido}__${emp}__${t.projeto}__${t.data}__${t.pot}`;
+            const seqVal = (t.seq !== undefined && t.seq !== null && t.seq !== 0 && t.seq !== '0') ? t.seq : (t.seq_plano || 0);
+            const key = `${t.pedido}__${emp}__${t.projeto}__${t.data}__${t.pot}__${seqVal}`;
             if (!lotesMap.has(key)) {
                 lotesMap.set(key, {
                     id: key,
@@ -450,6 +480,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     empresa: emp,
                     data: t.data,
                     data_raw: t.data_raw,
+                    seq: (seqVal > 0 ? seqVal : '—'),
+                    seq_num: Number(seqVal) || 0,
                     projeto: t.projeto,
                     desc_projeto: t.desc_projeto,
                     cliente: t.cliente,
@@ -519,6 +551,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let lista = [...state.dadosProducao.itens];
 
+        // 0. Aplicar Filtros da Barra Superior (Empresa, Status de Fila, Período)
+        if (state.empresa === '1' || state.empresa === '4') {
+            lista = lista.filter(it => String(it.empresa || '1') === state.empresa);
+        }
+        if (state.statusFila === 'em_aberto') {
+            lista = lista.filter(it => !it.is_concluido);
+        } else if (state.statusFila === 'concluidos') {
+            lista = lista.filter(it => it.is_concluido);
+        }
+        if (state.dtInicio) {
+            lista = lista.filter(it => it.data_raw && it.data_raw.substring(0, 10) >= state.dtInicio);
+        }
+        if (state.dtFim) {
+            lista = lista.filter(it => it.data_raw && it.data_raw.substring(0, 10) <= state.dtFim);
+        }
+        if (state.mes) {
+            const mesNum = parseInt(state.mes, 10);
+            lista = lista.filter(it => {
+                if (!it.data_raw) return false;
+                const d = new Date(it.data_raw);
+                return (d.getMonth() + 1) === mesNum;
+            });
+        }
+        if (state.ano) {
+            const anoNum = parseInt(state.ano, 10);
+            lista = lista.filter(it => {
+                if (!it.data_raw) return false;
+                const d = new Date(it.data_raw);
+                return d.getFullYear() === anoNum;
+            });
+        }
+        if (state.semana) {
+            const semNum = parseInt(state.semana, 10);
+            lista = lista.filter(it => (parseInt(it.sem, 10) || 0) === semNum);
+        }
+
         // 1. Contagem das 10 Células Pendentes (para os quadradinhos de topo)
         const celulas = ['CH', 'BT', 'AT', 'CNC', 'SOL', 'MN', 'PIN', 'ME', 'MF', 'LAB'];
         const contagemPend = {};
@@ -557,6 +625,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (col === 'pedido') val = String(item.pedido || '');
                 else if (col === 'empresa') val = String(item.empresa || '1');
                 else if (col === 'data') val = String(item.data || '');
+                else if (col === 'seq') val = String((item.seq && item.seq !== 0 && item.seq !== '0') ? item.seq : (item.seq_plano || ''));
                 else if (col === 'projeto') val = String(item.projeto);
                 else if (col === 'cliente') val = String(item.cliente);
                 else if (col === 'pot') val = String(item.pot);
@@ -588,7 +657,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 lotes.sort((a, b) => {
                     let vA = a[col] ?? (a.celulasStatus && a.celulasStatus[col.toUpperCase()] ? a.celulasStatus[col.toUpperCase()].status : '');
                     let vB = b[col] ?? (b.celulasStatus && b.celulasStatus[col.toUpperCase()] ? b.celulasStatus[col.toUpperCase()].status : '');
-                    if (col === 'nr_serie') {
+                    if (col === 'seq') {
+                        vA = Number(a.seq_num) || 0;
+                        vB = Number(b.seq_num) || 0;
+                    } else if (col === 'nr_serie') {
                         vA = Number(a.ns_inicial) || 0;
                         vB = Number(b.ns_inicial) || 0;
                     }
@@ -597,6 +669,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             } else {
                 lotes.sort((a, b) => {
+                    let dA = a.data_raw || '';
+                    let dB = b.data_raw || '';
+                    if (dA !== dB) return dA.localeCompare(dB);
+                    let sA = Number(a.seq_num) || 0;
+                    let sB = Number(b.seq_num) || 0;
+                    if (sA !== sB) return sA - sB;
                     let pA = Number(a.pedido) || 0;
                     let pB = Number(b.pedido) || 0;
                     if (pA !== pB) return pA - pB;
@@ -616,7 +694,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             if (lotes.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="22" class="text-center text-muted" style="padding:40px;">Nenhum lote encontrado com os filtros selecionados.</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="23" class="text-center text-muted" style="padding:40px;">Nenhum lote encontrado com os filtros selecionados.</td></tr>`;
                 return;
             }
 
@@ -646,6 +724,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <td style="font-weight:800; color:#16a34a; text-align:center;">${lote.pedido}</td>
                         <td style="text-align:center;"><span class="badge ${lote.empresa === '4' ? 'badge-info' : 'badge-neutral'}" style="font-size:0.75rem; padding:2px 6px; font-weight:700;">${lote.empresa}</span></td>
                         <td style="text-align:center; font-family:var(--font-mono);">${lote.data}</td>
+                        <td style="text-align:center; font-family:var(--font-mono); font-weight:700; color:#334155;">${lote.seq && lote.seq !== '—' ? lote.seq : '<span class="text-muted">—</span>'}</td>
                         <td class="col-proj" title="${lote.projeto}">${lote.projeto}</td>
                         <td style="max-width:160px; overflow:hidden; text-overflow:ellipsis;" title="${lote.cliente}">${lote.cliente}</td>
                         <td style="text-align:center; font-weight:800; color:var(--color-accent);">${lote.qtde}</td>
@@ -688,7 +767,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     html += `
                         <tr class="order-subrow">
-                            <td colspan="22">
+                            <td colspan="23">
                                 <div class="sub-card-wrap">
                                     <div class="sub-card-header">
                                         <div class="sub-card-title">
@@ -721,7 +800,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                                 <th style="width:36px; text-align:center;">ME</th>
                                                 <th style="width:36px; text-align:center;">MF</th>
                                                 <th style="width:36px; text-align:center;">LAB</th>
-                                                <th style="text-align:center; width:95px;">STATUS</th>
+                                                <th style="width:36px; text-align:center; width:95px;">STATUS</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -749,11 +828,21 @@ document.addEventListener('DOMContentLoaded', () => {
             lista.sort((a, b) => {
                 let vA = a[col] ?? (a.setores ? a.setores[col.toUpperCase()] : '');
                 let vB = b[col] ?? (b.setores ? b.setores[col.toUpperCase()] : '');
+                if (col === 'seq') {
+                    vA = Number(a.seq || a.seq_plano) || 0;
+                    vB = Number(b.seq || b.seq_plano) || 0;
+                }
                 if (typeof vA === 'string') return vA.localeCompare(vB) * asc;
                 return (vA - vB) * asc;
             });
         } else {
             lista.sort((a, b) => {
+                let dA = a.data_raw || '';
+                let dB = b.data_raw || '';
+                if (dA !== dB) return dA.localeCompare(dB);
+                let sA = Number(a.seq || a.seq_plano) || 0;
+                let sB = Number(b.seq || b.seq_plano) || 0;
+                if (sA !== sB) return sA - sB;
                 let pA = Number(a.pedido) || 0;
                 let pB = Number(b.pedido) || 0;
                 if (pA !== pB) return pA - pB;
@@ -773,17 +862,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (lista.length === 0) {
-            tableBody.innerHTML = `<tr><td colspan="21" class="text-center text-muted" style="padding:40px;">Nenhum transformador encontrado com os filtros selecionados.</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="22" class="text-center text-muted" style="padding:40px;">Nenhum transformador encontrado com os filtros selecionados.</td></tr>`;
             return;
         }
 
         tableBody.innerHTML = lista.map(item => {
             const s = item.setores;
+            const seqVal = (item.seq && item.seq !== 0 && item.seq !== '0') ? item.seq : ((item.seq_plano && item.seq_plano !== 0) ? item.seq_plano : null);
             return `
                 <tr>
                     <td style="font-weight:800; color:#16a34a; text-align:center;">${item.pedido}</td>
                     <td style="text-align:center;"><span class="badge ${item.empresa === '4' ? 'badge-info' : 'badge-neutral'}" style="font-size:0.75rem; padding:2px 6px; font-weight:700;">${item.empresa || '1'}</span></td>
                     <td style="text-align:center; font-family:var(--font-mono);">${item.data}</td>
+                    <td style="text-align:center; font-family:var(--font-mono); font-weight:700; color:#334155;">${seqVal !== null ? seqVal : '<span class="text-muted">—</span>'}</td>
                     <td class="col-proj" title="${item.projeto}">${item.projeto}</td>
                     <td style="max-width:160px; overflow:hidden; text-overflow:ellipsis;" title="${item.cliente}">${item.cliente}</td>
                     <td style="text-align:center; font-weight:700;">${item.qtde}</td>
@@ -837,6 +928,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (coluna === 'pedido' || coluna === 'cdPedido') val = String(item.pedido || item.cdPedido);
             else if (coluna === 'empresa') val = String(item.empresa || '1');
             else if (coluna === 'data' || coluna === 'dt_pedido') val = String(item.data || item.dt_pedido);
+            else if (coluna === 'seq') val = String((item.seq && item.seq !== 0 && item.seq !== '0') ? item.seq : (item.seq_plano || ''));
             else if (coluna === 'dt_entrega') val = String(item.dt_entrega || '');
             else if (coluna === 'projeto' || coluna === 'produto') {
                 if (item.projeto) val = String(item.projeto);

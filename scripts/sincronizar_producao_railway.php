@@ -57,22 +57,39 @@ if (!empty($dadosProducao['porDia'])) {
     echo "FALHA! Nenhum dado de produção encontrado.\n";
 }
 
-// 2. Leitura do Snapshot mais recente de Atraso de Distribuição
-echo "[2/5] Verificando snapshots de atraso de distribuição... ";
+// 2. Extração dos registros de Atraso de Distribuição (Base de Dados / Snapshot)
+echo "[2/5] Consultando registros de atraso de distribuição... ";
 $snapshotCsv = null;
 $snapshotData = null;
+$atrasoRegistros = null;
 
-$snapFiles = glob(__DIR__ . '/../storage/snapshots/snapshot_*.csv');
-if (!empty($snapFiles)) {
-    rsort($snapFiles);
-    $latestSnap = $snapFiles[0];
-    if (preg_match('/snapshot_(\d{4}-\d{2}-\d{2})\.csv$/', $latestSnap, $m)) {
-        $snapshotData = $m[1];
-        $snapshotCsv = file_get_contents($latestSnap);
-        echo "OK! (Snapshot $snapshotData encontrado - " . round(strlen($snapshotCsv) / 1024, 1) . " KB)\n";
+try {
+    $pdoLocal = getDB();
+    boletimGarantirTabelasAtraso($pdoLocal);
+    $stmtAtraso = $pdoLocal->query("
+        SELECT * FROM atraso_distribuicao_registros 
+        WHERE data_extracao = (SELECT MAX(data_extracao) FROM atraso_distribuicao_registros)
+    ");
+    $atrasoRegistros = $stmtAtraso->fetchAll(PDO::FETCH_ASSOC);
+    if (!empty($atrasoRegistros)) {
+        $snapshotData = $atrasoRegistros[0]['data_extracao'] ?? date('Y-m-d');
+        echo "OK! (" . count($atrasoRegistros) . " ordens extraídas do banco MySQL - Data: $snapshotData)\n";
     }
-} else {
-    echo "Nenhum snapshot recente encontrado.\n";
+} catch (Throwable $eDbAtraso) {}
+
+if (empty($atrasoRegistros)) {
+    $snapFiles = glob(__DIR__ . '/../storage/snapshots/snapshot_*.csv');
+    if (!empty($snapFiles)) {
+        rsort($snapFiles);
+        $latestSnap = $snapFiles[0];
+        if (preg_match('/snapshot_(\d{4}-\d{2}-\d{2})\.csv$/', $latestSnap, $m)) {
+            $snapshotData = $m[1];
+            $snapshotCsv = file_get_contents($latestSnap);
+            echo "OK! (Snapshot CSV $snapshotData encontrado - " . round(strlen($snapshotCsv) / 1024, 1) . " KB)\n";
+        }
+    } else {
+        echo "Nenhum registro de atraso encontrado.\n";
+    }
 }
 
 // 3. Extração do Fluxo de Pedidos & Esteira Industrial
@@ -108,6 +125,7 @@ $payload = [
     'dados' => sanitizarUtf8Recursivo($dadosProducao),
     'snapshot_data' => $snapshotData,
     'snapshot_csv' => $snapshotCsv,
+    'atraso_registros' => sanitizarUtf8Recursivo($atrasoRegistros),
     'fluxo_pedidos' => sanitizarUtf8Recursivo($fluxoPedidos),
     'fluxo_planilha' => sanitizarUtf8Recursivo($fluxoPlanilha),
     'acompanhamento' => sanitizarUtf8Recursivo($acompanhamento),

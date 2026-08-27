@@ -33,10 +33,33 @@ $userId = (int) (currentUser()['id'] ?? 0);
 // Verificação de permissão de escrita para ações de modificação
 $isReadAction = in_array($acao, ['buscar_material', 'detalhes', 'historico', 'obter_lote', 'reprovas_disponiveis', 'buscar_projetos'], true);
 if (!$isReadAction) {
-    if (!podeEditar('tab:retrabalho') && !podeEditar('ret.pan') && !podeEditar('ret.rel') && !podeEditar('lab.lis') && !podeEditar('iqf.lis') && !isAdmin()) {
-        http_response_code(403);
-        echo json_encode(['sucesso' => false, 'erro' => 'Apenas consulta: você não tem permissão para realizar lançamentos ou alterações no retrabalho.']);
-        exit;
+    if (in_array($acao, ['aprovar_retorno', 'reprovar_retorno', 'excluir_retorno'], true)) {
+        if (!podeEditar('lab.ret') && !podeEditar('iqf.ret') && !isAdmin()) {
+            http_response_code(403);
+            echo json_encode(['sucesso' => false, 'erro' => 'Apenas consulta: sem permissão para gerenciar retornos.']);
+            exit;
+        }
+    } else {
+        $origemReq = trim((string) ($_POST['origem'] ?? ''));
+        if ($origemReq === 'pintura') {
+            if (!podeEditar('pin.ret') && !isAdmin()) {
+                http_response_code(403);
+                echo json_encode(['sucesso' => false, 'erro' => 'Apenas consulta: sem permissão para alterações em pintura.']);
+                exit;
+            }
+        } elseif ($origemReq === 'painel') {
+            if (!podeEditar('ret.pan') && !isAdmin()) {
+                http_response_code(403);
+                echo json_encode(['sucesso' => false, 'erro' => 'Apenas consulta: sem permissão para alterações no retrabalho operacional.']);
+                exit;
+            }
+        } else {
+            if (!podeEditar('ret.rel') && !podeEditar('ret.pan') && !podeEditar('lab.lis') && !podeEditar('iqf.lis') && !isAdmin()) {
+                http_response_code(403);
+                echo json_encode(['sucesso' => false, 'erro' => 'Apenas consulta: você não tem permissão para realizar lançamentos ou alterações no retrabalho.']);
+                exit;
+            }
+        }
     }
 }
 
@@ -201,30 +224,35 @@ if (!function_exists('sincronizarRetornosProducaoEtapas')) {
      * Cria a pendência em producao_etapas com status 'aguardando_retorno' para as
      * estações de produção suportadas ('LAB' para 'laboratorio' e 'IQF' para 'inspecao_final')
      * quando o transformador é direcionado a elas na Triagem ou Edição do Retrabalho.
+     * 
+     * Se ambos 'inspecao_final' e 'laboratorio' foram marcados, a peça vai primeiramente
+     * para a Inspeção Final (etapa intermediária). Ao ser aprovada na IQF, ela avança
+     * automaticamente para o Laboratório (setor de origem).
      */
     function sincronizarRetornosProducaoEtapas(PDO $pdo, string $ns, int $idProjeto, ?string $setoresDestinoStr, int $userId): void
     {
         $setoresDestino = $setoresDestinoStr !== null ? explode(',', $setoresDestinoStr) : [];
-        
-        $mapaEstacoes = [
-            'laboratorio'    => 'LAB',
-            'inspecao_final' => 'IQF',
-        ];
 
-        foreach ($mapaEstacoes as $setorSlug => $estacaoSigla) {
-            if (in_array($setorSlug, $setoresDestino, true)) {
-                $jaAguardando = $pdo->prepare("
-                    SELECT id FROM producao_etapas
-                    WHERE ns_transformador = ? AND estacao = ? AND status = 'aguardando_retorno' AND deleted_at IS NULL
-                ");
-                $jaAguardando->execute([$ns, $estacaoSigla]);
-                if (!$jaAguardando->fetch()) {
-                    $pdo->prepare("
-                        INSERT INTO producao_etapas
-                            (ns_transformador, id_projeto, estacao, status, data_inicio, id_responsavel, id_criador)
-                        VALUES (?, ?, ?, 'aguardando_retorno', NOW(), ?, ?)
-                    ")->execute([$ns, $idProjeto, $estacaoSigla, $userId, $userId]);
-                }
+        if (in_array('inspecao_final', $setoresDestino, true) || in_array('montagem_final', $setoresDestino, true)) {
+            $estacoesParaCriar = ['IQF'];
+        } elseif (in_array('laboratorio', $setoresDestino, true)) {
+            $estacoesParaCriar = ['LAB'];
+        } else {
+            $estacoesParaCriar = [];
+        }
+
+        foreach ($estacoesParaCriar as $estacaoSigla) {
+            $jaAguardando = $pdo->prepare("
+                SELECT id FROM producao_etapas
+                WHERE ns_transformador = ? AND estacao = ? AND status = 'aguardando_retorno' AND deleted_at IS NULL
+            ");
+            $jaAguardando->execute([$ns, $estacaoSigla]);
+            if (!$jaAguardando->fetch()) {
+                $pdo->prepare("
+                    INSERT INTO producao_etapas
+                        (ns_transformador, id_projeto, estacao, status, data_inicio, id_responsavel, id_criador)
+                    VALUES (?, ?, ?, 'aguardando_retorno', NOW(), ?, ?)
+                ")->execute([$ns, $idProjeto, $estacaoSigla, $userId, $userId]);
             }
         }
     }
@@ -1039,6 +1067,7 @@ try {
                 SELECT id, estacao FROM producao_etapas
                 WHERE ns_transformador = ? AND id_projeto = ? AND estacao IN ('LAB', 'IQF')
                   AND status = 'aguardando_retorno' AND deleted_at IS NULL
+                ORDER BY id DESC
                 LIMIT 1
             ");
             $stmtRet->execute([$ns, $idProjeto]);
@@ -1049,6 +1078,87 @@ try {
                 exit;
             }
 
+            $estacaoAprovacao = $etapaRet['estacao']; // 'IQF' ou 'LAB'
+
+            // Identifica se a origem da reprovação foi no Laboratório (LAB)
+            // (ex.: peça reprovada no LAB -> retrabalho enviou para IQF -> ao aprovar na IQF deve cair no LAB)
+            $origemTeveLab = false;
+            $stmtOrigens = $pdo->prepare("
+                SELECT r.estacao AS ret_estacao, rep.local AS rep_local
+                FROM retrabalhos r
+                LEFT JOIN reprovas rep ON rep.id = r.id_reprova
+                WHERE r.ns_transformador = ? AND r.id_projeto = ? AND r.deleted_at IS NULL
+                  AND r.status != 'finalizado'
+            ");
+            $stmtOrigens->execute([$ns, $idProjeto]);
+            $origensRows = $stmtOrigens->fetchAll(PDO::FETCH_ASSOC);
+
+            if (empty($origensRows)) {
+                $stmtOrigens2 = $pdo->prepare("
+                    SELECT r.estacao AS ret_estacao, rep.local AS rep_local
+                    FROM retrabalhos r
+                    LEFT JOIN reprovas rep ON rep.id = r.id_reprova
+                    WHERE r.ns_transformador = ? AND r.id_projeto = ? AND r.deleted_at IS NULL
+                    ORDER BY r.id DESC LIMIT 10
+                ");
+                $stmtOrigens2->execute([$ns, $idProjeto]);
+                $origensRows = $stmtOrigens2->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            foreach ($origensRows as $row) {
+                $retEst = strtoupper(trim((string)($row['ret_estacao'] ?? '')));
+                $repLoc = strtoupper(trim((string)($row['rep_local'] ?? '')));
+                if ($retEst === 'LAB' || str_contains($repLoc, 'LAB')) {
+                    $origemTeveLab = true;
+                    break;
+                }
+            }
+
+            $pdo->beginTransaction();
+
+            // Se foi aprovado na Inspeção Final (IQF), mas a reprova originou do Laboratório (LAB),
+            // a peça deve avançar para o Laboratório (setor de origem) ao invés de finalizar direto.
+            if ($estacaoAprovacao === 'IQF' && $origemTeveLab) {
+                // 1. Remove a pendência de retorno da Inspeção Final
+                $pdo->prepare("
+                    UPDATE producao_etapas SET deleted_at = NOW()
+                    WHERE ns_transformador = ? AND estacao = 'IQF' AND status = 'aguardando_retorno' AND deleted_at IS NULL
+                ")->execute([$ns]);
+
+                // 2. Cria a pendência de retorno no Laboratório (se ainda não existir)
+                $stmtLab = $pdo->prepare("
+                    SELECT id FROM producao_etapas
+                    WHERE ns_transformador = ? AND estacao = 'LAB' AND status = 'aguardando_retorno' AND deleted_at IS NULL
+                ");
+                $stmtLab->execute([$ns]);
+                if (!$stmtLab->fetch()) {
+                    $pdo->prepare("
+                        INSERT INTO producao_etapas
+                            (ns_transformador, id_projeto, estacao, status, data_inicio, id_responsavel, id_criador)
+                        VALUES (?, ?, 'LAB', 'aguardando_retorno', NOW(), ?, ?)
+                    ")->execute([$ns, $idProjeto, $userId, $userId]);
+                }
+
+                // 3. Atualiza setores_destino para incluir 'laboratorio'
+                $pdo->prepare("
+                    UPDATE retrabalhos 
+                    SET setores_destino = IF(setores_destino IS NULL OR setores_destino = '', 'laboratorio', 
+                                             IF(FIND_IN_SET('laboratorio', setores_destino), setores_destino, CONCAT(setores_destino, ',laboratorio')))
+                    WHERE ns_transformador = ? AND id_projeto = ? AND deleted_at IS NULL AND status != 'finalizado'
+                ")->execute([$ns, $idProjeto]);
+
+                $pdo->commit();
+
+                echo json_encode([
+                    'sucesso'         => true,
+                    'proxima_estacao' => 'LAB',
+                    'mensagem'        => 'Transformador aprovado na Inspeção Final e encaminhado para o Laboratório (setor de origem).'
+                ]);
+                break;
+            }
+
+            // Caso padrão (aprovado no Laboratório, ou aprovado na IQF e originado na IQF):
+            // Encerra a pendência de retorno e finaliza os retrabalhos abertos.
             $agora = date('Y-m-d H:i:s');
             $hoje  = date('Y-m-d');
             $pdo->prepare("
@@ -1056,15 +1166,17 @@ try {
                 WHERE ns_transformador = ? AND status = 'aguardando_retorno' AND deleted_at IS NULL
             ")->execute([$ns]);
 
-            // data_finalizacao = data em que o retorno foi confirmado aprovado (esta ação)
-            // — mesmo campo preenchido manualmente no fluxo de causa raiz, mas aqui é
-            // automático, já que a aprovação no Laboratório/IQF é o que encerra o retrabalho.
             $pdo->prepare("
                 UPDATE retrabalhos SET status = 'finalizado', concluido_em = ?, data_finalizacao = ?
                 WHERE ns_transformador = ? AND id_projeto = ? AND deleted_at IS NULL AND status != 'finalizado'
             ")->execute([$agora, $hoje, $ns, $idProjeto]);
 
-            echo json_encode(['sucesso' => true, 'mensagem' => 'Retorno aprovado e finalizado.']);
+            $pdo->commit();
+
+            echo json_encode([
+                'sucesso'  => true,
+                'mensagem' => 'Retorno aprovado e finalizado com sucesso.'
+            ]);
             break;
         }
 

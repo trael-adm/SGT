@@ -195,16 +195,64 @@ function boletimCalcularPainelSetor(
     $countDiasTrabalhados = max(1, count($diasTrabalhadosAteCorte));
     $diasRestantes = max(0, $totalDiasUteisMes - (int) count(array_filter($diasUteisMes, fn($d) => $d <= $dataCorte)));
 
-    // Meta diária teórica
-    $metaDiaria = round($metaTotalDistrib / $totalDiasUteisMes, 1);
-    $metaDiariaEnr = round($metaEnr / $totalDiasUteisMes, 1);
-    $metaDiariaEmp = round($metaEmp / $totalDiasUteisMes, 1);
-    $metaDiariaJc  = round($metaJc / $totalDiasUteisMes, 1);
+    // Metas personalizadas por setor salvas na configuração (JSON)
+    $metasSetoresRaw = $configMeta['metas_setores'] ?? null;
+    $metasSetoresConfig = !empty($metasSetoresRaw) ? json_decode($metasSetoresRaw, true) : [];
 
-    // Meta proporcional do setor
-    $fatorSetor = $setorInfo['peso'];
-    $metaSetor = (int) round($metaTotalDistrib * $fatorSetor);
-    $metaDiariaSetor = round($metaSetor / $totalDiasUteisMes, 1);
+    // Mapeamento das metas diárias e mensais para cada setor
+    $metasPorSetor = [];
+    foreach ($setores as $chave => $st) {
+        $metaDiariaVal = null;
+        $metaMensalVal = null;
+
+        if (isset($metasSetoresConfig[$chave])) {
+            if (is_array($metasSetoresConfig[$chave])) {
+                $metaDiariaVal = isset($metasSetoresConfig[$chave]['diaria']) ? (float) $metasSetoresConfig[$chave]['diaria'] : null;
+                $metaMensalVal = isset($metasSetoresConfig[$chave]['mensal']) ? (int) $metasSetoresConfig[$chave]['mensal'] : null;
+            } elseif (is_numeric($metasSetoresConfig[$chave])) {
+                $metaDiariaVal = (float) $metasSetoresConfig[$chave];
+                $metaMensalVal = (int) round($metaDiariaVal * $totalDiasUteisMes);
+            }
+        }
+
+        if ($metaDiariaVal === null || $metaDiariaVal <= 0) {
+            $metaMensalVal = $metaTotalDistrib;
+            $metaDiariaVal = $totalDiasUteisMes > 0 ? round($metaTotalDistrib / $totalDiasUteisMes, 1) : 0;
+        }
+        if ($metaMensalVal === null || $metaMensalVal <= 0) {
+            $metaMensalVal = (int) round($metaDiariaVal * $totalDiasUteisMes);
+        }
+
+        $metasPorSetor[$chave] = [
+            'diaria' => $metaDiariaVal,
+            'mensal' => $metaMensalVal,
+        ];
+    }
+
+    // Meta diária teórica global e por núcleo
+    $metaDiariaGlobal = round($metaTotalDistrib / $totalDiasUteisMes, 1);
+    $metaDiariaEnr    = round($metaEnr / $totalDiasUteisMes, 1);
+    $metaDiariaEmp    = round($metaEmp / $totalDiasUteisMes, 1);
+    $metaDiariaJc     = round($metaJc / $totalDiasUteisMes, 1);
+
+    // Meta específica do setor selecionado
+    $metaSetor       = $metasPorSetor[$setorChaveUpper]['mensal'];
+    $metaDiariaSetor = $metasPorSetor[$setorChaveUpper]['diaria'];
+
+    // Grade do calendário mensal para o modal
+    $todosDiasCalendario = [];
+    $primeiroDiaSemanaMes = (int) date('w', mktime(0, 0, 0, $mesNum, 1, $ano));
+    for ($i = 1; $i <= $diasNoMes; $i++) {
+        $dataStr = sprintf('%04d-%02d-%02d', $ano, $mesNum, $i);
+        $diaSemana = (int) date('w', strtotime($dataStr));
+        $todosDiasCalendario[] = [
+            'dia'         => $i,
+            'date'        => $dataStr,
+            'diaSemana'   => $diaSemana,
+            'fimDeSemana' => ($diaSemana === 0 || $diaSemana === 6),
+            'ativo'       => in_array($dataStr, $diasUteisMes, true),
+        ];
+    }
 
     // ─── Dados de Produção Real do Kardex ──────────────────────────────────
     $dadosKardex = boletimObterDadosMes($mes);
@@ -239,17 +287,17 @@ function boletimCalcularPainelSetor(
             'enr'          => $enr,
             'emp'          => $emp,
             'jc'           => $jc,
-            'meta_diaria'  => $metaDiaria,
-            'status'       => ($totalDia >= $metaDiaria) ? 'positivo' : 'alerta',
+            'meta_diaria'  => $metaDiariaSetor,
+            'status'       => ($totalDia >= $metaDiariaSetor) ? 'positivo' : 'alerta',
             'passado'      => ($d <= $dataCorte),
         ];
     }
 
     // Eficiência Geral de Produção (%)
-    // Meta proporcional acumulada até a data de corte
-    $metaAcumuladaCorte = (int) round($metaDiaria * $countDiasTrabalhados);
+    // Meta proporcional acumulada até a data de corte (usando a meta diária do setor)
+    $metaAcumuladaCorte = (int) round($metaDiariaSetor * $countDiasTrabalhados);
     $eficienciaGeral = ($metaAcumuladaCorte > 0) ? round(($prodTotalPeriodo / $metaAcumuladaCorte) * 100, 1) : 0.0;
-    $eficienciaSobreMetaTotal = ($metaTotalDistrib > 0) ? round(($prodTotalPeriodo / $metaTotalDistrib) * 100, 1) : 0.0;
+    $eficienciaSobreMetaTotal = ($metaSetor > 0) ? round(($prodTotalPeriodo / $metaSetor) * 100, 1) : 0.0;
 
     // ─── Dados de Acumulado / Snapshot (Ordens em Fila e Atrasos) ───────────
     $resSnapshot = boletimCarregarSnapshot();
@@ -276,8 +324,8 @@ function boletimCalcularPainelSetor(
         }
     }
 
-    // Nova Meta / Saldo Pendente
-    $saldoPendente = max(0, $metaTotalDistrib - $prodTotalPeriodo);
+    // Nova Meta / Saldo Pendente (baseado na meta do setor)
+    $saldoPendente = max(0, $metaSetor - $prodTotalPeriodo);
     $novaMetaDiaria = ($diasRestantes > 0) ? round($saldoPendente / $diasRestantes, 1) : $saldoPendente;
 
     // ─── Programado vs Produzido por Linha ──────────────────────────────────
@@ -309,9 +357,9 @@ function boletimCalcularPainelSetor(
             'data'        => $d,
             'label'       => $infoDia['label'],
             'total'       => $infoDia['total'],
-            'meta'        => $metaDiaria,
+            'meta'        => $metaDiariaSetor,
             // Cores: Verde (#16a34a) quando >= Meta, Vermelho (#dc2626) quando < Meta
-            'cor_barra'   => ($infoDia['total'] >= $metaDiaria) ? '#16a34a' : '#dc2626',
+            'cor_barra'   => ($infoDia['total'] >= $metaDiariaSetor) ? '#16a34a' : '#dc2626',
             'status'      => $infoDia['status'],
             'passado'     => $infoDia['passado'],
         ];
@@ -321,7 +369,7 @@ function boletimCalcularPainelSetor(
     $analiseGargalos = boletimCalcularGargalosSetores($dataCorte, $itensSnapshot);
 
     // ─── 6. Acompanhamento de Produção: Em Aberto no Setor × Programado PCP ──
-    $graficoAcompanhamento = boletimCalcularAcompanhamentoVsProgramado($dataCorte, $itensSnapshot, $metaDiaria);
+    $graficoAcompanhamento = boletimCalcularAcompanhamentoVsProgramado($dataCorte, $itensSnapshot, $metaDiariaSetor);
 
     return [
         'sucesso'                    => true,
@@ -340,8 +388,13 @@ function boletimCalcularPainelSetor(
         'dias_restantes'             => $diasRestantes,
         'meta_setor'                 => $metaSetor,
         'meta_total_mensal'          => $metaTotalDistrib,
-        'meta_diaria'                => $metaDiaria,
+        'meta_diaria'                => $metaDiariaSetor,
+        'meta_diaria_global'         => $metaDiariaGlobal,
         'meta_acumulada_corte'       => $metaAcumuladaCorte,
+        'metas_por_setor'            => $metasPorSetor,
+        'metas_setores_config'       => $metasSetoresConfig,
+        'todos_dias_calendario'      => $todosDiasCalendario,
+        'primeiro_dia_semana'        => $primeiroDiaSemanaMes,
         'producao_total'             => $prodTotalPeriodo,
         'eficiencia_geral'           => $eficienciaGeral,
         'eficiencia_sobre_meta'      => $eficienciaSobreMetaTotal,

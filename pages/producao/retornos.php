@@ -7,6 +7,8 @@ require_once __DIR__ . '/../../includes/helpers.php';
 
 requireAcessoModulo('producao');
 
+$canEdit = podeEditar('lab.ret') || isAdmin();
+
 $pdo  = getDB();
 $base = defined('APP_URL') ? APP_URL : '';
 
@@ -70,13 +72,13 @@ if ($retornos) {
         INNER JOIN (
             SELECT ns_transformador, MAX(id) AS max_id
             FROM retrabalhos
-            WHERE deleted_at IS NULL AND setores_destino IS NOT NULL AND FIND_IN_SET('laboratorio', setores_destino)
+            WHERE deleted_at IS NULL AND (estacao = 'LAB' OR (setores_destino IS NOT NULL AND FIND_IN_SET('laboratorio', setores_destino)))
             GROUP BY ns_transformador
         ) AS ultimos ON r.ns_transformador = ultimos.ns_transformador
         LEFT JOIN retrabalhos r_max ON r_max.id = ultimos.max_id
         LEFT JOIN reprovas rep ON rep.id = r.id_reprova
         WHERE r.deleted_at IS NULL
-          AND r.setores_destino IS NOT NULL AND FIND_IN_SET('laboratorio', r.setores_destino)
+          AND (r.estacao = 'LAB' OR (r.setores_destino IS NOT NULL AND FIND_IN_SET('laboratorio', r.setores_destino)))
           AND r.ns_transformador IN ($ph)
           AND IFNULL(r.id_lote, r.id) = IFNULL(r_max.id_lote, r_max.id)
         ORDER BY r.data_reprova DESC, r.id DESC
@@ -275,27 +277,31 @@ layoutHeader($pageTitle);
                             <td><?= $classe !== null ? htmlspecialchars($classe) . ' kV' : '—' ?></td>
                             <td><?= htmlspecialchars(retFmtDataHora($r['data_inicio'])) ?></td>
                             <td style="text-align:right;">
-                                <div style="display:flex; gap:6px; justify-content:flex-end; align-items:center;">
-                                    <button type="button" class="btn btn-success btn-sm js-aprovar-retorno"
-                                            data-id_projeto="<?= (int) $r['id_projeto'] ?>"
-                                            data-ns_transformador="<?= htmlspecialchars($r['ns_transformador']) ?>">
-                                        Aprovado
-                                    </button>
-                                    <button type="button" class="btn btn-danger btn-sm js-reprovar-retorno"
-                                            data-id_projeto="<?= (int) $r['id_projeto'] ?>"
-                                            data-ns_transformador="<?= htmlspecialchars($r['ns_transformador']) ?>"
-                                            data-projeto_codigo="<?= htmlspecialchars($r['projeto_codigo'] ?? '') ?>"
-                                            data-projeto_descricao="<?= htmlspecialchars($r['projeto_descricao'] ?? '') ?>"
-                                            data-pedido_numero="<?= htmlspecialchars($r['pedido_numero'] ?? '') ?>">
-                                        Reprovar
-                                    </button>
-                                    <button type="button" class="btn-icon btn-icon-danger js-excluir-retorno"
-                                            title="Excluir retorno"
-                                            data-id_projeto="<?= (int) $r['id_projeto'] ?>"
-                                            data-ns_transformador="<?= htmlspecialchars($r['ns_transformador']) ?>">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                                    </button>
-                                </div>
+                                <?php if ($canEdit): ?>
+                                    <div style="display:flex; gap:6px; justify-content:flex-end; align-items:center;">
+                                        <button type="button" class="btn btn-success btn-sm js-aprovar-retorno"
+                                                data-id_projeto="<?= (int) $r['id_projeto'] ?>"
+                                                data-ns_transformador="<?= htmlspecialchars($r['ns_transformador']) ?>">
+                                            Aprovado
+                                        </button>
+                                        <button type="button" class="btn btn-danger btn-sm js-reprovar-retorno"
+                                                data-id_projeto="<?= (int) $r['id_projeto'] ?>"
+                                                data-ns_transformador="<?= htmlspecialchars($r['ns_transformador']) ?>"
+                                                data-projeto_codigo="<?= htmlspecialchars($r['projeto_codigo'] ?? '') ?>"
+                                                data-projeto_descricao="<?= htmlspecialchars($r['projeto_descricao'] ?? '') ?>"
+                                                data-pedido_numero="<?= htmlspecialchars($r['pedido_numero'] ?? '') ?>">
+                                            Reprovar
+                                        </button>
+                                        <button type="button" class="btn-icon btn-icon-danger js-excluir-retorno"
+                                                title="Excluir retorno"
+                                                data-id_projeto="<?= (int) $r['id_projeto'] ?>"
+                                                data-ns_transformador="<?= htmlspecialchars($r['ns_transformador']) ?>">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                        </button>
+                                    </div>
+                                <?php else: ?>
+                                    <span style="color:#94a3b8;font-size:12px;">—</span>
+                                <?php endif; ?>
                             </td>
                         </tr>
                         <tr class="ret-detail-row" id="<?= htmlspecialchars($detId) ?>">

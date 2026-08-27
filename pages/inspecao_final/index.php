@@ -7,6 +7,8 @@ require_once __DIR__ . '/../../includes/helpers.php';
 
 requireAcessoModulo('inspecao_final');
 
+$canEdit = podeEditar('iqf.reg') || isAdmin();
+
 $pdo  = getDB();
 $base = defined('APP_URL') ? APP_URL : '';
 
@@ -47,12 +49,19 @@ if ($itemAtualLab) {
     $itemAtualLab['data_inicio'] = isoComOffset($itemAtualLab['data_inicio']);
 }
 
-$pageTitle = 'Tela de Produção';
+$pageTitle = 'Inspeção Final (IQF)';
 require_once __DIR__ . '/../../includes/layout.php';
 layoutHeader($pageTitle);
 ?>
 
-
+<?php if (!$canEdit): ?>
+    <div style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:13px;display:flex;align-items:center;gap:10px;">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        <div>
+            <strong>Modo Somente Leitura:</strong> Visualização em tempo real da estação de trabalho. Leituras e registros de transformadores estão desativados para o seu perfil.
+        </div>
+    </div>
+<?php endif; ?>
 
 <div class="station-grid">
 
@@ -122,6 +131,7 @@ layoutHeader($pageTitle);
 
 </div>
 
+<?php if ($canEdit): ?>
 <button class="fab fab--secondary" id="uploadImageBtn" type="button" aria-label="Carregar imagem com QR Code">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
 </button>
@@ -130,6 +140,7 @@ layoutHeader($pageTitle);
 <button class="fab" id="fabBtn" type="button" aria-haspopup="dialog" aria-label="Ler QR Code do transformador">
     <?= _sidebarIcon('scan-eye') ?>
 </button>
+<?php endif; ?>
 
 <div class="scan-overlay" id="scanOverlay" role="dialog" aria-modal="true" aria-label="Leitor de QR Code">
     <div class="scan-overlay__bar">

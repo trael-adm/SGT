@@ -80,8 +80,10 @@ $SISTEMAS_ESTRUTURA = [
                 'telas' => [
                     ['ret.dash', 'Dashboard'],
                     ['ret.pan', 'Retrabalho Operacional'],
-                    ['ret.rel', 'Relação de Retrabalhos']
+                    ['ret.rel', 'Relação de Retrabalhos'],
+                    ['ret.cus', 'Parâmetros & Custos']
                 ]
+
             ],
             [
                 'id' => 'pin',

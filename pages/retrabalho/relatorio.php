@@ -105,8 +105,7 @@ $setoresDisponiveis = [
     'radiador'        => 'Radiadores',
     'pintura'         => 'Pintura',
     'montagem_final'  => 'Montagem Final',
-    'laboratorio'     => 'Laboratório',
-    'inspecao_final'  => 'Inspeção Final'
+    'laboratorio'     => 'Laboratório'
 ];
 
 // ─── Query Base de Retrabalhos ───────────────────────────────────────────────
@@ -139,9 +138,15 @@ if ($fStatus === 'finalizado') {
     $where[] = "r.status NOT IN ('finalizado', 'aprovado')";
 }
 
-if ($fSetor !== '' && isset($setoresDisponiveis[$fSetor])) {
-    $where[] = 'r.setores_destino LIKE :setor_like';
-    $params['setor_like'] = '%' . $fSetor . '%';
+if ($fSetor !== '') {
+    if ($fSetor === 'montagem_final' || $fSetor === 'inspecao_final') {
+        $where[] = '(r.setores_destino LIKE :setor_mf OR r.setores_destino LIKE :setor_iqf)';
+        $params['setor_mf']  = '%montagem_final%';
+        $params['setor_iqf'] = '%inspecao_final%';
+    } elseif (isset($setoresDisponiveis[$fSetor])) {
+        $where[] = 'r.setores_destino LIKE :setor_like';
+        $params['setor_like'] = '%' . $fSetor . '%';
+    }
 }
 
 if ($fBusca !== '') {
@@ -338,12 +343,23 @@ foreach ($registros as $r) {
     $analiseReprovas[$codReprova]['custo_pecas'] += $custoPecasItem;
     $analiseReprovas[$codReprova]['custo_total'] += $custoTotalItem;
 
-    // 5. Agrupamento por Setor de Destino
+    // 5. Agrupamento por Setor de Destino (Montagem Final e Inspeção Final unificados)
     $setoresDestStr = trim((string) ($r['setores_destino'] ?? ''));
     $listaSetores = $setoresDestStr !== '' ? explode(',', $setoresDestStr) : ['nao_definido'];
+    $listaSetoresNormalizados = [];
     foreach ($listaSetores as $slugSetor) {
         $slugSetor = trim($slugSetor);
         if ($slugSetor === '') continue;
+        if ($slugSetor === 'inspecao_final') {
+            $slugSetor = 'montagem_final';
+        }
+        $listaSetoresNormalizados[$slugSetor] = true;
+    }
+    if (empty($listaSetoresNormalizados)) {
+        $listaSetoresNormalizados['nao_definido'] = true;
+    }
+
+    foreach (array_keys($listaSetoresNormalizados) as $slugSetor) {
         $nomeSetor = $setoresDisponiveis[$slugSetor] ?? ($slugSetor === 'nao_definido' ? 'Não definido' : ucfirst(str_replace('_', ' ', $slugSetor)));
 
         if (!isset($analiseSetores[$slugSetor])) {
@@ -472,12 +488,11 @@ if ($outrosQtd > 0) {
 
 // Gráfico 2: Setores de Destino com Paleta de Cores Harmônica e Exclusiva
 $mapaCoresSetores = [
-    'inspecao_final'  => '#133a27', // Verde Floresta Trael
+    'montagem_final'  => '#133a27', // Verde Floresta Trael (principal)
     'nao_definido'    => '#94a3b8', // Slate / Cinza Neutro
     'pintura'         => '#e8a020', // Gold Trael
     'laboratorio'     => '#0284c7', // Azul Elétrico
     'solda'           => '#7c3aed', // Roxo Moderno
-    'montagem_final'  => '#dc2626', // Rubi / Vermelho
     'bobinagem_at'    => '#059669', // Esmeralda
     'bobinagem_bt'    => '#0d9488', // Teal
     'radiador'        => '#ea580c', // Laranja
@@ -1471,8 +1486,15 @@ layoutHeader($pageTitle);
                                     $destStr = (string) ($reg['setores_destino'] ?? '');
                                     if ($destStr !== ''):
                                         $dList = explode(',', $destStr);
+                                        $dListUnicos = [];
                                         foreach ($dList as $dItem):
-                                            $lbl = $setoresDisponiveis[trim($dItem)] ?? trim($dItem);
+                                            $dSlug = trim($dItem);
+                                            if ($dSlug === '') continue;
+                                            if ($dSlug === 'inspecao_final') $dSlug = 'montagem_final';
+                                            $dListUnicos[$dSlug] = true;
+                                        endforeach;
+                                        foreach (array_keys($dListUnicos) as $dSlug):
+                                            $lbl = $setoresDisponiveis[$dSlug] ?? ($dSlug === 'nao_definido' ? 'Não definido' : ucfirst(str_replace('_', ' ', $dSlug)));
                                     ?>
                                         <span class="badge-tag ger" style="margin: 1px;"><?= htmlspecialchars($lbl) ?></span>
                                     <?php 

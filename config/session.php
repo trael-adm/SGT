@@ -100,7 +100,8 @@ function isAdmin(): bool
     if (!isLoggedIn()) return false;
     $user = currentUser();
     if (in_array((int) ($user['id_perfil'] ?? 0), [1, 201, 202], true)) return true;
-    return hasAcesso('admin') || hasAcesso('adm.usu') || hasAcesso('adm.per');
+    $perms = getPermissoesUsuario();
+    return ($perms['admin'] ?? 'off') === 'total';
 }
 
 function requireLogin(): void
@@ -143,6 +144,15 @@ function validarCsrf(?string $token = null, ?string $formKey = null): bool
     $esperado = csrfToken($formKey);
     return hash_equals($esperado, (string) $token);
 }
+
+/**
+ * Alias de compatibilidade para validarCsrf.
+ */
+function validarCsrfToken(?string $token = null, ?string $formKey = null): bool
+{
+    return validarCsrf($token, $formKey);
+}
+
 
 function requirePerfil(array $perfis): void
 {
@@ -280,7 +290,7 @@ function getNivelAcesso(string $recurso): string
         return 'off';
     }
     if ($recurso === 'admin') {
-        $lvl = $perms['adm.usu'] ?? ($perms['adm.per'] ?? ($perms['admin'] ?? 'off'));
+        $lvl = $perms['admin'] ?? 'off';
         return ($lvl === 'total' || $lvl === 'view') ? $lvl : 'off';
     }
 
@@ -288,6 +298,7 @@ function getNivelAcesso(string $recurso): string
     if ($lvl === 'off' || $lvl === '' || $lvl === null) {
         if ($recurso === 'pcp.pri') $lvl = $perms['ret.pri'] ?? 'off';
         elseif ($recurso === 'ret.pri') $lvl = $perms['pcp.pri'] ?? 'off';
+        elseif ($recurso === 'ret.cus') $lvl = $perms['ret.rel'] ?? ($perms['ret.pan'] ?? 'off');
         elseif ($recurso === 'ana.aco') $lvl = $perms['ana.his'] ?? 'off';
         elseif ($recurso === 'ana.his') $lvl = $perms['ana.aco'] ?? 'off';
         elseif ($recurso === 'adm.usu') $lvl = $perms['adm.per'] ?? 'off';

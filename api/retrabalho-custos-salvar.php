@@ -13,8 +13,8 @@ if (!isLoggedIn()) {
     exit;
 }
 
-// Permissão: Admin ou podeEditar(ret.cus) / tab:retrabalho
-if (!isAdmin() && !podeEditar('ret.cus') && !podeEditar('tab:retrabalho')) {
+// Permissão: Admin ou podeEditar(ret.cus)
+if (!isAdmin() && !podeEditar('ret.cus')) {
     http_response_code(403);
     echo json_encode(['sucesso' => false, 'erro' => 'Você não tem permissão para alterar os custos e parâmetros de retrabalho.']);
     exit;
@@ -28,13 +28,33 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 // Validação de CSRF Token
 $token = (string) ($_POST['csrf_token'] ?? '');
-if (!validarCsrfToken($token)) {
+if (!validarCsrf($token)) {
     http_response_code(400);
     echo json_encode(['sucesso' => false, 'erro' => 'Token de segurança inválido ou expirado. Recarregue a página e tente novamente.']);
     exit;
 }
 
 $pdo = getDB();
+
+// Garantir defensivamente que a tabela e a coluna existam
+try {
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS retrabalho_configuracoes (
+            chave VARCHAR(50) NOT NULL PRIMARY KEY,
+            valor VARCHAR(255) NOT NULL,
+            descricao VARCHAR(255) NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+} catch (\Throwable $e) {}
+
+try {
+    $colunasReprovas = $pdo->query("SHOW COLUMNS FROM reprovas LIKE 'tempo_padrao_minutos'")->fetchAll();
+    if (empty($colunasReprovas)) {
+        $pdo->exec("ALTER TABLE reprovas ADD COLUMN tempo_padrao_minutos INT NOT NULL DEFAULT 60 AFTER setor_causador");
+    }
+} catch (\Throwable $e) {}
 
 try {
     $pdo->beginTransaction();
@@ -61,7 +81,11 @@ try {
     // 2. Salvar Custo Hora-Homem e Horas Dia (se enviados)
     if (isset($_POST['custo_hora_homem'])) {
         $custoHoraStr = trim((string) $_POST['custo_hora_homem']);
-        $custoHora = (float) str_replace(',', '.', $custoHoraStr);
+        // Limpar formato pt-BR: 'R$ 1.250,50' -> '1250.50'
+        $custoHoraStr = str_replace(['R$', 'r$', ' ', "\xc2\xa0"], '', $custoHoraStr);
+        $custoHoraStr = str_replace('.', '', $custoHoraStr);
+        $custoHoraStr = str_replace(',', '.', $custoHoraStr);
+        $custoHora = (float) $custoHoraStr;
         if ($custoHora < 0) $custoHora = 0.0;
 
         $stmtCfg = $pdo->prepare("
@@ -79,7 +103,11 @@ try {
 
     if (isset($_POST['horas_trabalho_dia'])) {
         $horasDiaStr = trim((string) $_POST['horas_trabalho_dia']);
-        $horasDia = (float) str_replace(',', '.', $horasDiaStr);
+        // Limpar formato pt-BR: '8,80 h/dia' -> '8.80'
+        $horasDiaStr = str_replace(['h/dia', 'h', 'H', ' ', "\xc2\xa0"], '', $horasDiaStr);
+        $horasDiaStr = str_replace('.', '', $horasDiaStr);
+        $horasDiaStr = str_replace(',', '.', $horasDiaStr);
+        $horasDia = (float) $horasDiaStr;
         if ($horasDia <= 0) $horasDia = 8.80;
 
         $stmtCfg = $pdo->prepare("

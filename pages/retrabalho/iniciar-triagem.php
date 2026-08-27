@@ -12,12 +12,20 @@ $base = defined('APP_URL') ? APP_URL : '';
 
 $id     = (int) ($_GET['id'] ?? 0);
 $origem = trim((string) ($_GET['origem'] ?? 'retrabalho'));
+$canEdit = ($origem === 'pintura') 
+    ? (podeEditar('pin.ret') || isAdmin()) 
+    : (($origem === 'painel') ? (podeEditar('ret.pan') || isAdmin()) : (podeEditar('ret.rel') || isAdmin()));
 $voltarUrl = ($origem === 'pintura') 
     ? $base . '/pages/pintura/relacao.php' 
     : $base . '/pages/retrabalho/relacao.php';
 
 $origemNome = ($origem === 'pintura') ? 'Pintura' : 'Retrabalho';
 $destinoUrl = $base . '/pages/retrabalho/detalhe.php?id=' . $id . '&origem=' . urlencode($origem);
+
+if (!$canEdit) {
+    header('Location: ' . $destinoUrl);
+    exit;
+}
 
 $stmt = $pdo->prepare("
     SELECT r.id, r.id_projeto, r.ns_transformador, r.data_chegada, r.data_inicio,

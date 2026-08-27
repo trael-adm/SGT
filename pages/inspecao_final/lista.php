@@ -7,6 +7,8 @@ require_once __DIR__ . '/../../includes/helpers.php';
 
 requireAcessoModulo('inspecao_final');
 
+$canEdit = podeEditar('iqf.lis') || isAdmin();
+
 $pdo  = getDB();
 $base = defined('APP_URL') ? APP_URL : '';
 
@@ -298,19 +300,23 @@ layoutHeader($pageTitle);
                             <?php endif; ?>
                         </td>
                         <td style="text-align:right;">
-                            <div style="display:flex; gap:6px; align-items:center; justify-content:flex-end;">
-                                <button type="button" class="btn btn-danger btn-sm js-reprovar"
-                                        data-id_projeto="<?= (int) $r['id_projeto'] ?>"
-                                        data-ns_transformador="<?= htmlspecialchars((string) $r['ns_transformador']) ?>"
-                                        data-projeto_codigo="<?= htmlspecialchars((string) ($r['projeto_codigo'] ?? '')) ?>"
-                                        data-projeto_descricao="<?= htmlspecialchars((string) ($r['projeto_descricao'] ?? '')) ?>"
-                                        data-pedido_numero="<?= htmlspecialchars((string) ($r['pedido_numero'] ?? '')) ?>">
-                                    Reprovar
-                                </button>
-                                <button type="button" class="btn-icon btn-icon-danger js-excluir-registro" title="Excluir registro" data-ns_transformador="<?= htmlspecialchars((string) $r['ns_transformador']) ?>">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                                </button>
-                            </div>
+                            <?php if ($canEdit): ?>
+                                <div style="display:flex; gap:6px; align-items:center; justify-content:flex-end;">
+                                    <button type="button" class="btn btn-danger btn-sm js-reprovar"
+                                            data-id_projeto="<?= (int) $r['id_projeto'] ?>"
+                                            data-ns_transformador="<?= htmlspecialchars((string) $r['ns_transformador']) ?>"
+                                            data-projeto_codigo="<?= htmlspecialchars((string) ($r['projeto_codigo'] ?? '')) ?>"
+                                            data-projeto_descricao="<?= htmlspecialchars((string) ($r['projeto_descricao'] ?? '')) ?>"
+                                            data-pedido_numero="<?= htmlspecialchars((string) ($r['pedido_numero'] ?? '')) ?>">
+                                        Reprovar
+                                    </button>
+                                    <button type="button" class="btn-icon btn-icon-danger js-excluir-registro" title="Excluir registro" data-ns_transformador="<?= htmlspecialchars((string) $r['ns_transformador']) ?>">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                                    </button>
+                                </div>
+                            <?php else: ?>
+                                <span style="color:#94a3b8;font-size:12px;">—</span>
+                            <?php endif; ?>
                         </td>
                     </tr>
                 <?php endforeach; endif; ?>

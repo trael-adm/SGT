@@ -11,20 +11,19 @@ requireLogin();
 $usuario = currentUser();
 $base    = defined('APP_URL') ? APP_URL : '';
 
-// ─── Parâmetros de Filtro ───────────────────────────────────────────────────
-$snapshotsDisponiveis = boletimListarSnapshotsDisponiveis();
-$ultimoSnapshotData = !empty($snapshotsDisponiveis) ? (string) array_key_first($snapshotsDisponiveis) : date('Y-m-d');
+// ─── Parâmetros de Filtro (Base de Dados MySQL) ─────────────────────────────
+$datasDisponiveis = boletimListarDatasExtracaoAtraso();
+$ultimaDataExtracao = !empty($datasDisponiveis) ? (string) array_key_first($datasDisponiveis) : date('Y-m-d');
 
-$snapshotSel = trim((string) ($_GET['snapshot'] ?? $ultimoSnapshotData));
-if (!isset($snapshotsDisponiveis[$snapshotSel]) && !empty($snapshotsDisponiveis)) {
-    $snapshotSel = (string) array_key_first($snapshotsDisponiveis);
+$dataExtracaoSel = trim((string) ($_GET['data_extracao'] ?? $ultimaDataExtracao));
+if (!isset($datasDisponiveis[$dataExtracaoSel]) && !empty($datasDisponiveis)) {
+    $dataExtracaoSel = (string) array_key_first($datasDisponiveis);
 }
 
-// Data de corte: padrão é a data do snapshot menos 1 dia ou a data máxima do snapshot
+// Data de corte: padrão é a data da extração menos 1 dia (D-1)
 $dataCorte = trim((string) ($_GET['data_corte'] ?? ''));
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataCorte)) {
-    // Se a data do snapshot for 2026-08-25, o último dia útil de produção lançado é 2026-08-24
-    $dataCorte = date('Y-m-d', strtotime($snapshotSel . ' -1 day'));
+    $dataCorte = date('Y-m-d', strtotime($dataExtracaoSel . ' -1 day'));
     if ((int) date('N', strtotime($dataCorte)) > 5) {
         $dataCorte = boletimAjustarDataFimDeSemanaParaSexta($dataCorte);
     }
@@ -50,8 +49,8 @@ if (is_array($mesesFiltroRaw)) {
     }
 }
 
-// ─── Carrega Métricas Consolidadas ──────────────────────────────────────────
-$resultado = boletimCalcularMetricasAtraso($dataCorte, $mesesFiltro, $snapshotSel);
+// ─── Carrega Métricas Consolidadas via Banco de Dados ───────────────────────
+$resultado = boletimCalcularMetricasAtraso($dataCorte, $mesesFiltro, $dataExtracaoSel);
 $metricas  = $resultado['sucesso'] ? $resultado : null;
 $erroMsg   = !$resultado['sucesso'] ? ($resultado['erro'] ?? 'Erro ao processar dados de atraso.') : null;
 
@@ -254,7 +253,7 @@ layoutHeader('Atraso Distribuição');
         <div class="flex items-center gap-3">
             <?php if ($metricas): ?>
             <span class="text-xs text-[#94a3b8] bg-[#0f1219] px-3 py-1.5 rounded-md border border-[#262c3d]">
-                <strong class="text-slate-200">Snapshot:</strong> <?= htmlspecialchars($metricas['snapshot_info']['basename'] ?? '') ?> 
+                <strong class="text-slate-200">Base Sincronizada:</strong> <?= date('d/m/Y', strtotime($metricas['data_extracao'])) ?> 
                 <span class="text-[#64748b] ml-1">(<?= number_format($metricas['total_ordens'], 0, ',', '.') ?> ordens em atraso)</span>
             </span>
             <?php endif; ?>
@@ -276,7 +275,7 @@ layoutHeader('Atraso Distribuição');
     <?php if ($metricas): ?>
     <!-- ─── Filtros e Data Principal (Conforme Painel PowerBI) ────────────────── -->
     <form method="GET" id="filtroForm" class="mb-6">
-        <input type="hidden" name="snapshot" value="<?= htmlspecialchars($snapshotSel) ?>">
+        <input type="hidden" name="data_extracao" value="<?= htmlspecialchars($dataExtracaoSel) ?>">
         <input type="hidden" name="meses" id="inputMesesFiltro" value="<?= htmlspecialchars(implode(',', $mesesFiltro)) ?>">
 
         <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-stretch">
@@ -288,7 +287,7 @@ layoutHeader('Atraso Distribuição');
                     <?= htmlspecialchars($metricas['data_corte_formatada']) ?>
                 </div>
                 <span class="text-xs text-[#94a3b8] mt-1">
-                    <?= date('Y', strtotime($dataCorte)) ?> &bull; <?= $metricas['dias_trabalhados'] ?> dias úteis trabalhados
+                    <?= date('Y', strtotime($dataCorte)) ?> &bull; <?= $metricas['dias_trabalhados_d1'] ?> dias úteis até D-1
                 </span>
             </div>
 
@@ -304,13 +303,13 @@ layoutHeader('Atraso Distribuição');
                                onchange="document.getElementById('filtroForm').submit();">
                     </div>
 
-                    <!-- Seletor de Snapshot (se houver mais de 1) -->
+                    <!-- Seletor de Sincronização da Base -->
                     <div>
-                        <label class="block text-xs font-medium text-[#94a3b8] mb-1">Arquivo Snapshot (PCP):</label>
-                        <select name="snapshot" class="atraso-filter-select w-full" onchange="document.getElementById('filtroForm').submit();">
-                            <?php foreach ($snapshotsDisponiveis as $snapData => $snapInfo): ?>
-                            <option value="<?= htmlspecialchars($snapData) ?>" <?= $snapData === $snapshotSel ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($snapInfo['basename']) ?>
+                        <label class="block text-xs font-medium text-[#94a3b8] mb-1">Data da Sincronização:</label>
+                        <select name="data_extracao" class="atraso-filter-select w-full" onchange="document.getElementById('filtroForm').submit();">
+                            <?php foreach ($datasDisponiveis as $dIso => $info): ?>
+                            <option value="<?= htmlspecialchars($dIso) ?>" <?= $dIso === $dataExtracaoSel ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($info['label']) ?>
                             </option>
                             <?php endforeach; ?>
                         </select>
@@ -519,9 +518,9 @@ layoutHeader('Atraso Distribuição');
 
                 <select id="tabelaFiltroLinha" class="atraso-filter-select text-xs" onchange="filtrarTabelaDetalhes()">
                     <option value="">Todas as Linhas</option>
-                    <option value="MONOFASICO">Monofásico</option>
-                    <option value="CONVENCIONAL">Convencional</option>
-                    <option value="JC_TRIF">JC-TRIF</option>
+                    <option value="Monofásico">Monofásico</option>
+                    <option value="Convencional">Convencional</option>
+                    <option value="JC-TRIF">JC-TRIF</option>
                 </select>
             </div>
         </div>
@@ -542,33 +541,46 @@ layoutHeader('Atraso Distribuição');
                     </tr>
                 </thead>
                 <tbody id="tabelaCorpo">
-                    <?php foreach ($metricas['itens_detalhados'] as $idx => $it): ?>
-                    <tr data-linha="<?= htmlspecialchars($it['linha']) ?>" 
-                        data-texto="<?= htmlspecialchars(strtolower($it['pedido'] . ' ' . $it['cliente'] . ' ' . $it['referencia'] . ' ' . $it['descricao'])) ?>">
-                        <td class="font-mono text-slate-300 font-medium"><?= htmlspecialchars($it['pedido']) ?></td>
-                        <td class="font-medium text-white"><?= htmlspecialchars($it['cliente_apelido'] ?: $it['cliente']) ?></td>
-                        <td class="font-mono text-slate-300"><?= htmlspecialchars($it['referencia']) ?></td>
-                        <td class="text-xs text-slate-300" title="<?= htmlspecialchars($it['descricao']) ?>">
-                            <?= htmlspecialchars(strlen($it['descricao']) > 50 ? substr($it['descricao'], 0, 47) . '...' : $it['descricao']) ?>
+                    <?php foreach ($metricas['itens_detalhados'] as $idx => $it): 
+                        $pedStr   = (string)($it['cd_pedido'] ?? $it['pedido'] ?? '-');
+                        $cliStr   = (string)($it['cliente_apelido'] ?? $it['cliente_nome'] ?? $it['cliente'] ?? '-');
+                        $refStr   = (string)($it['cd_referencia'] ?? $it['referencia'] ?? '-');
+                        $descStr  = (string)($it['ds_produto'] ?? $it['descricao'] ?? '-');
+                        $kvaNum   = (float)($it['potencia_kva'] ?? 0);
+                        $kvaStr   = $kvaNum > 0 ? number_format($kvaNum, 0, ',', '.') . ' kVA' : '-';
+                        $linhaStr = (string)($it['linha'] ?? 'Convencional');
+                        $dtProg   = (string)($it['data_programada'] ?? '');
+                        $dtProgFmt = $dtProg ? date('d/m/Y', strtotime($dtProg)) : '-';
+                        $diasAtr  = (int)($it['dias_atraso_individual'] ?? 0);
+                        $qtdNum   = (int)($it['quantidade'] ?? 1);
+                        $buscaStr = strtolower("$pedStr $cliStr $refStr $descStr $linhaStr");
+                    ?>
+                    <tr data-linha="<?= htmlspecialchars($linhaStr) ?>" 
+                        data-texto="<?= htmlspecialchars($buscaStr) ?>">
+                        <td class="font-mono text-slate-300 font-medium"><?= htmlspecialchars($pedStr) ?></td>
+                        <td class="font-medium text-white"><?= htmlspecialchars($cliStr) ?></td>
+                        <td class="font-mono text-slate-300"><?= htmlspecialchars($refStr) ?></td>
+                        <td class="text-xs text-slate-300" title="<?= htmlspecialchars($descStr) ?>">
+                            <?= htmlspecialchars(strlen($descStr) > 50 ? substr($descStr, 0, 47) . '...' : $descStr) ?>
                         </td>
-                        <td class="font-mono text-right text-slate-200"><?= htmlspecialchars($it['potencia_str'] ?: ($it['potencia_kva'] . ' kVA')) ?></td>
+                        <td class="font-mono text-right text-slate-200"><?= htmlspecialchars($kvaStr) ?></td>
                         <td class="text-center">
-                            <?php if ($it['linha'] === 'MONOFASICO'): ?>
-                                <span class="badge-linha badge-mono">Monofásico</span>
-                            <?php elseif ($it['linha'] === 'JC_TRIF'): ?>
-                                <span class="badge-linha badge-jc">JC-TRIF</span>
+                            <?php if ($linhaStr === 'Monofásico' || $linhaStr === 'MONOFASICO'): ?>
+                                <span class="badge-linha-mono">Monofásico</span>
+                            <?php elseif ($linhaStr === 'JC-TRIF' || $linhaStr === 'JC_TRIF'): ?>
+                                <span class="badge-linha-jc">JC-TRIF</span>
                             <?php else: ?>
-                                <span class="badge-linha badge-conv">Convencional</span>
+                                <span class="badge-linha-conv">Convencional</span>
                             <?php endif; ?>
                         </td>
                         <td class="text-center font-mono text-xs text-slate-300">
-                            <?= date('d/m/Y', strtotime($it['data_programada'])) ?>
+                            <?= htmlspecialchars($dtProgFmt) ?>
                         </td>
                         <td class="text-center font-mono font-bold text-[#ff6b6b]">
-                            +<?= $it['dias_atraso_individual'] ?> d
+                            +<?= $diasAtr ?> d
                         </td>
                         <td class="text-right font-mono font-bold text-white">
-                            <?= number_format($it['quantidade'], 0, ',', '.') ?>
+                            <?= number_format($qtdNum, 0, ',', '.') ?>
                         </td>
                     </tr>
                     <?php endforeach; ?>

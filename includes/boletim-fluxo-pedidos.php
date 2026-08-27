@@ -544,7 +544,79 @@ function carregarPlanilhaProducaoFluxo(
             if ($raw !== false) {
                 $dados = @json_decode($raw, true);
                 if (is_array($dados) && isset($dados['sucesso']) && $dados['sucesso'] === true) {
-                    return $dados;
+                    $itens = $dados['itens'] ?? [];
+
+                    // Filtrar em memória se estiver servindo do cache
+                    if ($filtroEmpresa !== null && $filtroEmpresa !== '') {
+                        $itens = array_values(array_filter($itens, function ($it) use ($filtroEmpresa) {
+                            return (string) ($it['empresa'] ?? '1') === (string) $filtroEmpresa;
+                        }));
+                    }
+                    if ($statusFila === 'em_aberto') {
+                        $itens = array_values(array_filter($itens, function ($it) {
+                            return empty($it['is_concluido']);
+                        }));
+                    } elseif ($statusFila === 'concluidos') {
+                        $itens = array_values(array_filter($itens, function ($it) {
+                            return !empty($it['is_concluido']);
+                        }));
+                    }
+                    if (!empty($dtInicio)) {
+                        $itens = array_values(array_filter($itens, function ($it) use ($dtInicio) {
+                            return !empty($it['data_raw']) && substr($it['data_raw'], 0, 10) >= $dtInicio;
+                        }));
+                    }
+                    if (!empty($dtFim)) {
+                        $itens = array_values(array_filter($itens, function ($it) use ($dtFim) {
+                            return !empty($it['data_raw']) && substr($it['data_raw'], 0, 10) <= $dtFim;
+                        }));
+                    }
+                    if (!empty($mes) && $mes > 0) {
+                        $itens = array_values(array_filter($itens, function ($it) use ($mes) {
+                            if (empty($it['data_raw'])) return false;
+                            return (int) date('m', strtotime($it['data_raw'])) === $mes;
+                        }));
+                    }
+                    if (!empty($ano) && $ano > 0) {
+                        $itens = array_values(array_filter($itens, function ($it) use ($ano) {
+                            if (empty($it['data_raw'])) return false;
+                            return (int) date('Y', strtotime($it['data_raw'])) === $ano;
+                        }));
+                    }
+                    if (!empty($semana) && $semana > 0) {
+                        $itens = array_values(array_filter($itens, function ($it) use ($semana) {
+                            return (int) ($it['sem'] ?? 0) === $semana;
+                        }));
+                    }
+                    if (!empty($filtroPedido)) {
+                        $itens = array_values(array_filter($itens, function ($it) use ($filtroPedido) {
+                            return stripos((string) ($it['pedido'] ?? ''), $filtroPedido) !== false;
+                        }));
+                    }
+                    if (!empty($filtroProjeto)) {
+                        $itens = array_values(array_filter($itens, function ($it) use ($filtroProjeto) {
+                            return stripos((string) ($it['projeto'] ?? ''), $filtroProjeto) !== false || stripos((string) ($it['desc_projeto'] ?? ''), $filtroProjeto) !== false;
+                        }));
+                    }
+                    if (!empty($filtroNS)) {
+                        $itens = array_values(array_filter($itens, function ($it) use ($filtroNS) {
+                            return stripos((string) ($it['nr_serie'] ?? ''), $filtroNS) !== false;
+                        }));
+                    }
+                    if ($limite !== null && $limite > 0) {
+                        $itens = array_slice($itens, 0, $limite);
+                    }
+
+                    $totalConcluidos = count(array_filter($itens, fn($x) => !empty($x['is_concluido'])));
+                    $totalPendentes = count($itens) - $totalConcluidos;
+
+                    return [
+                        'sucesso'          => true,
+                        'total'            => count($itens),
+                        'total_concluidos' => $totalConcluidos,
+                        'total_pendentes'  => $totalPendentes,
+                        'itens'            => $itens,
+                    ];
                 }
             }
         }
@@ -624,6 +696,7 @@ function carregarPlanilhaProducaoFluxo(
             cli.Apelido AS ClienteApelido,
             m.cd_Referencia AS Projeto,
             m.ds_Prod AS DescricaoProjeto,
+            ISNULL(seq_info.SeqPlano, 0) AS SeqPlano,
             pot.PotenciaKVA,
             cl.ds_classeTensaoTrafo AS ClasseTensao,
             tp.ds_TpEnrolamentoNucleo AS TipoNucleo,
@@ -658,8 +731,15 @@ function carregarPlanilhaProducaoFluxo(
         LEFT JOIN dbo.TipoEnrolamentoNucleo tp WITH(NOLOCK) ON esp.id_TpEnrolamentoNucleo = tp.id_TpEnrolamentoNucleo
         LEFT JOIN dbo.NormaTrafo norm WITH(NOLOCK) ON esp.id_normaTrafo = norm.id_normaTrafo
         LEFT JOIN dbo.TipoConstrutivoTrafo tc WITH(NOLOCK) ON esp.id_tpConstrTrafo = tc.id_tpConstrTrafo
+        OUTER APPLY (
+            SELECT TOP 1 cip.SeqPlano
+            FROM dbo.CtrlItemPedidoPCP cip WITH(NOLOCK)
+            WHERE cip.id_it_pedido = it.id_it_pedido
+              AND cip.PierSitReg = 'ATV'
+            ORDER BY cip.IDCtrlItPedidoPCP DESC
+        ) AS seq_info
         WHERE $whereStr
-        ORDER BY p.dt_Pedido ASC, p.cdPedido ASC, cns.NumSerie ASC
+        ORDER BY prog.DataHoraProducaoAux ASC, ISNULL(seq_info.SeqPlano, 0) ASC, p.cdPedido ASC, cns.NumSerie ASC
     ";
 
     try {
@@ -800,11 +880,15 @@ function carregarPlanilhaProducaoFluxo(
         if ($isConcluido) $totalConcluidos++;
         else $totalPendentes++;
 
+        $seq = (int) ($r['SeqPlano'] ?? 0);
+
         $trafosFinais[] = [
             'pedido'       => trim((string) $r['Pedido']),
             'empresa'      => trim((string) ($r['EmpDestino'] ?? '1')) ?: '1',
             'data'         => $dtProg,
             'data_raw'     => $r['DataHoraProducaoAux'],
+            'seq'          => $seq,
+            'seq_plano'    => $seq,
             'projeto'      => trim((string) $r['Projeto']),
             'desc_projeto' => trim((string) $r['DescricaoProjeto']),
             'cliente'      => trim((string) ($r['ClienteApelido'] ?: $r['Cliente'])),

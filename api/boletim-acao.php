@@ -535,6 +535,108 @@ try {
             break;
         }
 
+        // ─── Salvar metas por Setor Fabril (Painel por Setor / Fábrica) ────────────
+        case 'metas_setor_salvar': {
+            if (!$podeEditarBoletim) {
+                http_response_code(403);
+                echo json_encode(['sucesso' => false, 'erro' => 'Você não tem permissão para alterar as metas.']);
+                exit;
+            }
+
+            $month = trim((string) ($_POST['month'] ?? ''));
+            if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+                http_response_code(400);
+                echo json_encode(['sucesso' => false, 'erro' => 'Mês inválido.']);
+                exit;
+            }
+
+            // Dias de produção selecionados pelo usuário (calendário interativo)
+            $diasCustomizados = null;
+            $diasProducaoPost = $_POST['dias_producao'] ?? null;
+            if (is_string($diasProducaoPost)) {
+                $diasProducaoPost = json_decode($diasProducaoPost, true);
+            }
+
+            if (is_array($diasProducaoPost) && !empty($diasProducaoPost)) {
+                $diasValidos = [];
+                foreach ($diasProducaoPost as $dp) {
+                    $dp = trim((string) $dp);
+                    if (str_starts_with($dp, $month . '-') && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dp)) {
+                        $diasValidos[] = $dp;
+                    }
+                }
+                sort($diasValidos);
+                if (!empty($diasValidos)) {
+                    $diasUteis = count($diasValidos);
+                    $diasCustomizados = json_encode($diasValidos);
+                } else {
+                    require_once __DIR__ . '/../includes/helpers.php';
+                    $diasUteis = boletimDiasUteisDoMes($month);
+                }
+            } else {
+                require_once __DIR__ . '/../includes/helpers.php';
+                $diasUteis = boletimDiasUteisDoMes($month);
+            }
+
+            if ($diasUteis <= 0) {
+                $diasUteis = 22;
+            }
+
+            // Metas diárias informadas para cada setor
+            $diaConsolidado   = max(0.0, (float) ($_POST['meta_dia_consolidado'] ?? $_POST['meta_dia_geral'] ?? 0));
+            $diaPintura       = max(0.0, (float) ($_POST['meta_dia_pintura'] ?? 0));
+            $diaMontEletrica  = max(0.0, (float) ($_POST['meta_dia_montagem_eletrica'] ?? 0));
+            $diaMontFinal     = max(0.0, (float) ($_POST['meta_dia_montagem_final'] ?? 0));
+            $diaBobinagem     = max(0.0, (float) ($_POST['meta_dia_bobinagem'] ?? 0));
+            $diaLaboratorio   = max(0.0, (float) ($_POST['meta_dia_laboratorio'] ?? 0));
+
+            // Metas mensais calculadas com base nos dias de produção
+            $metaConsolidado  = (int) round($diaConsolidado  * $diasUteis);
+            $metaPintura      = (int) round($diaPintura      * $diasUteis);
+            $metaMontEletrica = (int) round($diaMontEletrica * $diasUteis);
+            $metaMontFinal    = (int) round($diaMontFinal    * $diasUteis);
+            $metaBobinagem    = (int) round($diaBobinagem    * $diasUteis);
+            $metaLaboratorio  = (int) round($diaLaboratorio  * $diasUteis);
+
+            $metaTotalDistrib = $metaConsolidado > 0 ? $metaConsolidado : ($metaMontFinal > 0 ? $metaMontFinal : 5250);
+
+            $metasSetores = [
+                'CONSOLIDADO'       => ['diaria' => $diaConsolidado, 'mensal' => $metaConsolidado],
+                'PINTURA'           => ['diaria' => $diaPintura, 'mensal' => $metaPintura],
+                'MONTAGEM_ELETRICA' => ['diaria' => $diaMontEletrica, 'mensal' => $metaMontEletrica],
+                'MONTAGEM_FINAL'    => ['diaria' => $diaMontFinal, 'mensal' => $metaMontFinal],
+                'BOBINAGEM'         => ['diaria' => $diaBobinagem, 'mensal' => $metaBobinagem],
+                'LABORATORIO'       => ['diaria' => $diaLaboratorio, 'mensal' => $metaLaboratorio],
+            ];
+
+            $stmt = $pdo->prepare("
+                INSERT INTO boletim_config_metas
+                    (`month`, meta_tpd_distribuicao, dias_uteis, dias_customizados, metas_setores)
+                VALUES (?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                    meta_tpd_distribuicao = VALUES(meta_tpd_distribuicao),
+                    dias_uteis = VALUES(dias_uteis),
+                    dias_customizados = VALUES(dias_customizados),
+                    metas_setores = VALUES(metas_setores)
+            ");
+            $stmt->execute([
+                $month,
+                $metaTotalDistrib,
+                $diasUteis,
+                $diasCustomizados,
+                json_encode($metasSetores, JSON_UNESCAPED_UNICODE)
+            ]);
+
+            echo json_encode([
+                'sucesso' => true,
+                'mensagem' => 'Métricas e calendário por setor salvos com sucesso (' . $diasUteis . ' dias de produção). Meta Consolidado: ' . number_format($metaTotalDistrib, 0, ',', '.') . ' un.',
+                'meta_total' => $metaTotalDistrib,
+                'metas_setores' => $metasSetores,
+                'dias_uteis' => $diasUteis,
+            ]);
+            break;
+        }
+
         // ─── Forçar atualização imediata do SQL Server ──────────────────────
         case 'atualizar_banco': {
             require_once __DIR__ . '/../includes/boletim-planilha.php';

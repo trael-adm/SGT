@@ -113,17 +113,134 @@ try {
         $atualizacoes[] = "Metas do mês ($mes) gravadas no banco";
     }
 
-    // 3. Atualiza snapshot do Atraso de Distribuição
-    if (!empty($snapshotCsv) && is_string($snapshotCsv)) {
-        $snapDir = __DIR__ . '/../storage/snapshots';
-        if (!is_dir($snapDir)) {
-            @mkdir($snapDir, 0775, true);
-        }
+    // 3. Atualiza dados de Atraso de Distribuição diretamente no Banco de Dados MySQL
+    $atrasoRegistros = $payload['atraso_registros'] ?? null;
+    $snapDate = $snapshotData ?: date('Y-m-d');
+    $pdo = getDB();
 
-        $snapDate = $snapshotData ?: date('Y-m-d');
-        $snapFile = $snapDir . '/snapshot_' . $snapDate . '.csv';
-        file_put_contents($snapFile, $snapshotCsv);
-        $atualizacoes[] = "Snapshot de atraso ($snapDate) gravado";
+    if (is_array($atrasoRegistros) && !empty($atrasoRegistros)) {
+        boletimGarantirTabelasAtraso($pdo);
+        $pdo->prepare("DELETE FROM atraso_distribuicao_registros WHERE data_extracao = ?")->execute([$snapDate]);
+
+        $stmtInsAtraso = $pdo->prepare("
+            INSERT INTO atraso_distribuicao_registros (
+                data_extracao, data_programada, cd_referencia, ds_produto, qtd_item,
+                quantidade, qtd_produzida, qtd_a_produzir, cliente_nome, cliente_apelido,
+                cd_pedido, dt_pedido, dt_limite_entrega, potencia_kva, fases,
+                classe_tensao, tipo_nucleo, tipo_construtivo, linha, seq_plano, uf
+            ) VALUES (
+                :data_extracao, :data_programada, :cd_referencia, :ds_produto, :qtd_item,
+                :quantidade, :qtd_produzida, :qtd_a_produzir, :cliente_nome, :cliente_apelido,
+                :cd_pedido, :dt_pedido, :dt_limite_entrega, :potencia_kva, :fases,
+                :classe_tensao, :tipo_nucleo, :tipo_construtivo, :linha, :seq_plano, :uf
+            )
+        ");
+
+        $pdo->beginTransaction();
+        $insCount = 0;
+        foreach ($atrasoRegistros as $ar) {
+            $nuc  = (string)($ar['tipo_nucleo'] ?? $ar['ds_TpEnrolamentoNucleo'] ?? '');
+            $fase = (string)($ar['fases'] ?? $ar['nrofasesTrafo'] ?? '');
+            $prod = (string)($ar['ds_produto'] ?? $ar['ds_Prod'] ?? '');
+            $linha = $ar['linha'] ?? boletimClassificarLinhaAtraso($nuc, $fase, $prod);
+
+            $stmtInsAtraso->execute([
+                'data_extracao'     => $snapDate,
+                'data_programada'   => substr((string)($ar['data_programada'] ?? $ar['DataHoraProducaoAux'] ?? $snapDate), 0, 10),
+                'cd_referencia'     => trim((string)($ar['cd_referencia'] ?? $ar['cd_Referencia'] ?? '')),
+                'ds_produto'        => $prod,
+                'qtd_item'          => (int)($ar['qtd_item'] ?? $ar['qtdItem'] ?? 1),
+                'quantidade'        => (int)($ar['quantidade'] ?? $ar['Quantidade'] ?? 1),
+                'qtd_produzida'     => (int)($ar['qtd_produzida'] ?? $ar['QtdProduzida'] ?? 0),
+                'qtd_a_produzir'    => (int)($ar['qtd_a_produzir'] ?? $ar['QtdAproduzir'] ?? 0),
+                'cliente_nome'      => trim((string)($ar['cliente_nome'] ?? $ar['Nome'] ?? '')),
+                'cliente_apelido'   => trim((string)($ar['cliente_apelido'] ?? $ar['Apelido'] ?? '')),
+                'cd_pedido'         => (int)($ar['cd_pedido'] ?? $ar['cdPedido'] ?? 0) ?: null,
+                'dt_pedido'         => ($ar['dt_pedido'] ?? $ar['dt_Pedido'] ?? null) ?: null,
+                'dt_limite_entrega' => ($ar['dt_limite_entrega'] ?? $ar['dt_LimiteEntrega'] ?? null) ?: null,
+                'potencia_kva'      => (float)($ar['potencia_kva'] ?? $ar['PotenciaKVA'] ?? 0),
+                'fases'             => $fase,
+                'classe_tensao'     => trim((string)($ar['classe_tensao'] ?? $ar['ds_classeTensaoTrafo'] ?? '')),
+                'tipo_nucleo'       => $nuc,
+                'tipo_construtivo'  => trim((string)($ar['tipo_construtivo'] ?? $ar['Ds_tpConstrTrafo'] ?? '')),
+                'linha'             => $linha,
+                'seq_plano'         => (int)($ar['seq_plano'] ?? $ar['SeqPlano'] ?? 0),
+                'uf'                => trim((string)($ar['uf'] ?? $ar['cd_SglEstado'] ?? ''))
+            ]);
+            $insCount++;
+        }
+        $pdo->commit();
+        $atualizacoes[] = "Tabela MySQL atraso_distribuicao_registros ($snapDate) atualizada com $insCount registros";
+    } elseif (!empty($snapshotCsv) && is_string($snapshotCsv)) {
+        boletimGarantirTabelasAtraso($pdo);
+        $pdo->prepare("DELETE FROM atraso_distribuicao_registros WHERE data_extracao = ?")->execute([$snapDate]);
+
+        $lines = explode("\n", str_replace("\r", "", $snapshotCsv));
+        if (!empty($lines)) {
+            $delim = strpos($lines[0], ';') !== false ? ';' : ',';
+            $header = str_getcsv(array_shift($lines), $delim, '"', '\\');
+            $header[0] = preg_replace('/^\xEF\xBB\xBF/', '', $header[0]);
+            $header = array_map('trim', $header);
+
+            $stmtIns = $pdo->prepare("
+                INSERT INTO atraso_distribuicao_registros (
+                    data_extracao, data_programada, cd_referencia, ds_produto, qtd_item,
+                    quantidade, qtd_produzida, qtd_a_produzir, cliente_nome, cliente_apelido,
+                    cd_pedido, dt_pedido, dt_limite_entrega, potencia_kva, fases,
+                    classe_tensao, tipo_nucleo, tipo_construtivo, linha, seq_plano, uf
+                ) VALUES (
+                    :data_extracao, :data_programada, :cd_referencia, :ds_produto, :qtd_item,
+                    :quantidade, :qtd_produzida, :qtd_a_produzir, :cliente_nome, :cliente_apelido,
+                    :cd_pedido, :dt_pedido, :dt_limite_entrega, :potencia_kva, :fases,
+                    :classe_tensao, :tipo_nucleo, :tipo_construtivo, :linha, :seq_plano, :uf
+                )
+            ");
+
+            $pdo->beginTransaction();
+            $countCsv = 0;
+            foreach ($lines as $line) {
+                if (trim($line) === '') continue;
+                $row = str_getcsv($line, $delim, '"', '\\');
+                if (count($row) !== count($header)) continue;
+                $r = array_combine($header, $row);
+
+                $dtProgRaw = trim((string)($r['DataHoraProducaoAux'] ?? ''));
+                $dtProg = substr($dtProgRaw, 0, 10);
+                if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dtProg)) $dtProg = $snapDate;
+
+                $nuc  = trim((string)($r['ds_TpEnrolamentoNucleo'] ?? ''));
+                $fase = trim((string)($r['nrofasesTrafo'] ?? ''));
+                $prod = trim((string)($r['ds_Prod'] ?? ''));
+                $linha = boletimClassificarLinhaAtraso($nuc, $fase, $prod);
+
+                $stmtIns->execute([
+                    'data_extracao'     => $snapDate,
+                    'data_programada'   => $dtProg,
+                    'cd_referencia'     => trim((string)($r['cd_Referencia'] ?? '')),
+                    'ds_produto'        => $prod,
+                    'qtd_item'          => (int)($r['qtdItem'] ?? 1),
+                    'quantidade'        => (int)($r['Quantidade'] ?? 1),
+                    'qtd_produzida'     => (int)($r['QtdProduzida'] ?? 0),
+                    'qtd_a_produzir'    => (int)($r['QtdAproduzir'] ?? 0),
+                    'cliente_nome'      => trim((string)($r['Nome'] ?? '')),
+                    'cliente_apelido'   => trim((string)($r['Apelido'] ?? '')),
+                    'cd_pedido'         => (int)($r['cdPedido'] ?? 0) ?: null,
+                    'dt_pedido'         => ($r['dt_Pedido'] ?? null) ?: null,
+                    'dt_limite_entrega' => ($r['dt_LimiteEntrega'] ?? null) ?: null,
+                    'potencia_kva'      => (float)str_replace(',', '.', (string)($r['PotenciaKVA'] ?? 0)),
+                    'fases'             => $fase,
+                    'classe_tensao'     => trim((string)($r['ds_classeTensaoTrafo'] ?? '')),
+                    'tipo_nucleo'       => $nuc,
+                    'tipo_construtivo'  => trim((string)($r['Ds_tpConstrTrafo'] ?? '')),
+                    'linha'             => $linha,
+                    'seq_plano'         => (int)($r['SeqPlano'] ?? 0),
+                    'uf'                => trim((string)($r['cd_SglEstado'] ?? ''))
+                ]);
+                $countCsv++;
+            }
+            $pdo->commit();
+            $atualizacoes[] = "Snapshot importado para MySQL ($snapDate) com $countCsv registros";
+        }
     }
 
     // 4. Atualiza cache do Fluxo de Pedidos

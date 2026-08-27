@@ -12,7 +12,7 @@ $pdo  = getDB();
 $base = defined('APP_URL') ? APP_URL : '';
 
 // ─── Permissões ─────────────────────────────────────────────────────────────
-$podeGravar = isAdmin() || podeEditar('ret.cus') || podeEditar('tab:retrabalho');
+$podeGravar = isAdmin() || podeEditar('ret.cus');
 
 // ─── Carregar Parâmetros Globais ─────────────────────────────────────────────
 $configRows = [];
@@ -432,7 +432,14 @@ layoutHeader($pageTitle);
                 <p>Configuração da taxa horária e do tempo padrão em minutos para cada tipo de reprova</p>
             </div>
         </div>
+        <div id="autoSaveIndicator" class="auto-save-status" style="display: inline-flex;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            <span id="autoSaveText">Salvo automaticamente</span>
+        </div>
     </div>
+
 
     <form id="formCustos">
         <input type="hidden" id="csrfToken" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
@@ -645,8 +652,7 @@ function onTempoInput(input) {
 
 function setAutoSaveStatus(status, text = '') {
     const el = document.getElementById('autoSaveIndicator');
-    const txt = document.getElementById('autoSaveText');
-    if (!el || !txt) return;
+    if (!el) return;
 
     if (status === 'saving') {
         el.className = 'auto-save-status saving';
@@ -661,7 +667,7 @@ function setAutoSaveStatus(status, text = '') {
                 <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/>
                 <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/>
             </svg>
-            <span>Salvando...</span>
+            <span id="autoSaveText">${text || 'Salvando...'}</span>
         `;
     } else if (status === 'saved') {
         el.className = 'auto-save-status';
@@ -669,7 +675,7 @@ function setAutoSaveStatus(status, text = '') {
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                 <polyline points="20 6 9 17 4 12"/>
             </svg>
-            <span>${text || 'Salvo automaticamente'}</span>
+            <span id="autoSaveText">${text || 'Salvo automaticamente'}</span>
         `;
     } else if (status === 'error') {
         el.className = 'auto-save-status error';
@@ -679,7 +685,7 @@ function setAutoSaveStatus(status, text = '') {
                 <line x1="15" y1="9" x2="9" y2="15"/>
                 <line x1="9" y1="9" x2="15" y2="15"/>
             </svg>
-            <span>${text || 'Erro ao salvar'}</span>
+            <span id="autoSaveText">${text || 'Erro ao salvar'}</span>
         `;
     }
 }
@@ -696,8 +702,10 @@ async function autoSalvarReprova(input) {
     formData.append('reprova_id', reprovaId);
     formData.append('tempo_minutos', minutos);
 
+    const appBase = (typeof window.__APP_BASE === 'string') ? window.__APP_BASE : '<?= htmlspecialchars($base) ?>';
+
     try {
-        const res = await fetch('<?= htmlspecialchars($base) ?>/api/retrabalho-custos-salvar.php', {
+        const res = await fetch(appBase + '/api/retrabalho-custos-salvar.php', {
             method: 'POST',
             body: formData,
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -719,8 +727,10 @@ async function autoSalvarParametros() {
     const form = document.getElementById('formCustos');
     const formData = new FormData(form);
 
+    const appBase = (typeof window.__APP_BASE === 'string') ? window.__APP_BASE : '<?= htmlspecialchars($base) ?>';
+
     try {
-        const res = await fetch('<?= htmlspecialchars($base) ?>/api/retrabalho-custos-salvar.php', {
+        const res = await fetch(appBase + '/api/retrabalho-custos-salvar.php', {
             method: 'POST',
             body: formData,
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -735,6 +745,7 @@ async function autoSalvarParametros() {
         setAutoSaveStatus('error', 'Erro de conexão');
     }
 }
+
 </script>
 
 <?php layoutFooter(); ?>
