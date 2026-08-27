@@ -802,11 +802,11 @@ layoutHeader($pageTitle);
                 <?php endif; ?>
             </div>
             <p class="ps-card-subtitle">
-                Identificação em tempo real de desvios de prazo, taxa de não conformidade e tempo médio de espera (Lead Time) por célula.
+                Identificação em tempo real de desvios de prazo e tempo médio de espera (Lead Time) por célula.
             </p>
         </div>
         <div style="font-size:12px;color:var(--color-text-muted);">
-            Tolerância: $\le 25\%$ Não Conformidade &bull; $\le 5$ dias Lead Time
+            Tolerância: &le; 5 dias Lead Time
         </div>
     </div>
 
@@ -839,26 +839,8 @@ layoutHeader($pageTitle);
                 </div>
 
                 <div class="gargalo-metric-row">
-                    <span class="gargalo-metric-lbl">% Não Conformidade:</span>
-                    <span class="gargalo-metric-val" style="color:<?= $st['nao_conformidade_pct'] >= $st['tolerancia_pct'] ? '#dc2626' : ($st['nao_conformidade_pct'] >= 15 ? '#d97706' : '#16a34a') ?>;">
-                        <?= number_format($st['nao_conformidade_pct'], 1, ',', '.') ?>%
-                    </span>
-                </div>
-
-                <div class="gargalo-metric-row">
                     <span class="gargalo-metric-lbl">Tempo Médio (Lead Time):</span>
                     <span class="gargalo-metric-val"><?= number_format($st['lead_time_medio'], 1, ',', '.') ?> dias</span>
-                </div>
-            </div>
-
-            <!-- Barra de Progresso de Não Conformidade vs Tolerância -->
-            <div style="margin-top:10px;">
-                <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--color-text-muted);margin-bottom:2px;">
-                    <span>Tolerância: <?= (int) $st['tolerancia_pct'] ?>%</span>
-                    <span><?= number_format($st['nao_conformidade_pct'], 0) ?>%</span>
-                </div>
-                <div class="gargalo-prog-bar">
-                    <div class="gargalo-prog-fill" style="width:<?= min(100, $st['nao_conformidade_pct']) ?>%;background:<?= $st['status'] === 'CRITICO' ? '#ef4444' : ($st['status'] === 'ATENCAO' ? '#f59e0b' : '#10b981') ?>;"></div>
                 </div>
             </div>
         </div>
