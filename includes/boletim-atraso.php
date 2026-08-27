@@ -237,6 +237,53 @@ function boletimAutoImportarSnapshotsLegados(PDO $pdo): void
 }
 
 /**
+ * Retorna os itens de snapshot de ordens em atraso/aberto a partir do banco de dados MySQL
+ * (ou importação legada caso o banco esteja em inicialização).
+ */
+function boletimCarregarSnapshot(?string $dataSnapshot = null): array
+{
+    $pdo = getDB();
+    boletimGarantirTabelasAtraso($pdo);
+
+    $datasDisponiveis = boletimListarDatasExtracaoAtraso();
+    if (empty($datasDisponiveis)) {
+        return ['sucesso' => false, 'erro' => 'Nenhum registro de atraso/snapshot encontrado.', 'itens' => []];
+    }
+
+    if ($dataSnapshot === null || !isset($datasDisponiveis[$dataSnapshot])) {
+        $dataSnapshot = (string) array_key_first($datasDisponiveis);
+    }
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT 
+                id, data_extracao, data_programada, cd_referencia, cd_referencia AS referencia,
+                ds_produto, ds_produto AS descricao, qtd_item, quantidade, qtd_produzida,
+                qtd_a_produzir, cliente_nome, cliente_apelido, cd_pedido, cd_pedido AS pedido,
+                dt_pedido, dt_limite_entrega, potencia_kva, potencia_kva AS kva, fases,
+                classe_tensao, tipo_nucleo, tipo_construtivo, linha, seq_plano, uf
+            FROM atraso_distribuicao_registros
+            WHERE data_extracao = :data_extracao
+            ORDER BY data_programada ASC, id ASC
+        ");
+        $stmt->execute(['data_extracao' => $dataSnapshot]);
+        $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        return [
+            'sucesso' => true,
+            'itens' => $itens,
+            'snapshot_info' => [
+                'data' => $dataSnapshot,
+                'total' => count($itens),
+                'arquivo' => 'MySQL: atraso_distribuicao_registros (' . $dataSnapshot . ')'
+            ]
+        ];
+    } catch (\Throwable $e) {
+        return ['sucesso' => false, 'erro' => $e->getMessage(), 'itens' => []];
+    }
+}
+
+/**
  * Calcula todas as métricas consolidadas de atraso a partir do Banco de Dados MySQL.
  *
  * @param string $dataCorte Data de corte do cálculo (ex: '2026-08-24' ou '2026-08-26')
