@@ -1013,41 +1013,24 @@ require_once __DIR__ . '/../../includes/modal-filtro-data.php';
                             </div>
                         </div>
 
-                        <!-- 2. PINTURA -->
-                        <div style="background:var(--color-surface-2, #f8fafc);border:1px solid var(--color-border, #e2e8f0);border-radius:var(--radius-md, 6px);padding:8px 12px;border-left:4px solid #ef4444;">
+                        <!-- 2. LABORATORIO -->
+                        <div style="background:var(--color-surface-2, #f8fafc);border:1px solid var(--color-border, #e2e8f0);border-radius:var(--radius-md, 6px);padding:8px 12px;border-left:4px solid #10b981;">
                             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
-                                <label for="modal-meta-pintura" style="font-size:11.5px;font-weight:700;color:#ef4444;display:flex;align-items:center;gap:5px;">
-                                    <span>🎨 Pintura / Tanque</span>
-                                    <span class="badge" style="font-size:9px;padding:1px 4px;background:#fee2e2;color:#991b1b;">MTQ</span>
+                                <label for="modal-meta-laboratorio" style="font-size:11.5px;font-weight:700;color:#059669;display:flex;align-items:center;gap:5px;">
+                                    <span>🔬 Laboratório / Ensaios</span>
+                                    <span class="badge" style="font-size:9px;padding:1px 4px;background:#d1fae5;color:#065f46;">LAB</span>
                                 </label>
-                                <span id="modal-calc-mes-pintura" style="font-size:11px;font-weight:700;color:#ef4444;" class="font-mono">
-                                    = <?= number_format($dadosPainel['metas_por_setor']['PINTURA']['mensal'] ?? 0, 0, ',', '.') ?> un/mês
+                                <span id="modal-calc-mes-laboratorio" style="font-size:11px;font-weight:700;color:#059669;" class="font-mono">
+                                    = <?= number_format($dadosPainel['metas_por_setor']['LABORATORIO']['mensal'] ?? 0, 0, ',', '.') ?> un/mês
                                 </span>
                             </div>
                             <div style="display:flex;align-items:center;gap:8px;">
-                                <input type="number" step="any" id="modal-meta-pintura" name="meta_dia_pintura" value="<?= (float) ($dadosPainel['metas_por_setor']['PINTURA']['diaria'] ?? 0) ?>" min="0" required class="form-control" style="font-weight:700;font-size:14px;padding:4px 8px;height:32px;" oninput="recalcularMetasModal()">
+                                <input type="number" step="any" id="modal-meta-laboratorio" name="meta_dia_laboratorio" value="<?= (float) ($dadosPainel['metas_por_setor']['LABORATORIO']['diaria'] ?? 0) ?>" min="0" required class="form-control" style="font-weight:700;font-size:14px;padding:4px 8px;height:32px;" oninput="recalcularMetasModal()">
                                 <span style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;">un/dia</span>
                             </div>
                         </div>
 
-                        <!-- 3. MONTAGEM ELETRICA -->
-                        <div style="background:var(--color-surface-2, #f8fafc);border:1px solid var(--color-border, #e2e8f0);border-radius:var(--radius-md, 6px);padding:8px 12px;border-left:4px solid #f59e0b;">
-                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
-                                <label for="modal-meta-montagem-eletrica" style="font-size:11.5px;font-weight:700;color:#d97706;display:flex;align-items:center;gap:5px;">
-                                    <span>⚡ Montagem Elétrica / Parte Ativa</span>
-                                    <span class="badge" style="font-size:9px;padding:1px 4px;background:#fef3c7;color:#92400e;">ME</span>
-                                </label>
-                                <span id="modal-calc-mes-montagem-eletrica" style="font-size:11px;font-weight:700;color:#d97706;" class="font-mono">
-                                    = <?= number_format($dadosPainel['metas_por_setor']['MONTAGEM_ELETRICA']['mensal'] ?? 0, 0, ',', '.') ?> un/mês
-                                </span>
-                            </div>
-                            <div style="display:flex;align-items:center;gap:8px;">
-                                <input type="number" step="any" id="modal-meta-montagem-eletrica" name="meta_dia_montagem_eletrica" value="<?= (float) ($dadosPainel['metas_por_setor']['MONTAGEM_ELETRICA']['diaria'] ?? 0) ?>" min="0" required class="form-control" style="font-weight:700;font-size:14px;padding:4px 8px;height:32px;" oninput="recalcularMetasModal()">
-                                <span style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;">un/dia</span>
-                            </div>
-                        </div>
-
-                        <!-- 4. MONTAGEM FINAL -->
+                        <!-- 3. MONTAGEM FINAL -->
                         <div style="background:var(--color-surface-2, #f8fafc);border:1px solid var(--color-border, #e2e8f0);border-radius:var(--radius-md, 6px);padding:8px 12px;border-left:4px solid #8b5cf6;">
                             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
                                 <label for="modal-meta-montagem-final" style="font-size:11.5px;font-weight:700;color:#7c3aed;display:flex;align-items:center;gap:5px;">
@@ -1064,7 +1047,41 @@ require_once __DIR__ . '/../../includes/modal-filtro-data.php';
                             </div>
                         </div>
 
-                        <!-- 5. BOBINAGEM -->
+                        <!-- 4. MONTAGEM ELETRICA -->
+                        <div style="background:var(--color-surface-2, #f8fafc);border:1px solid var(--color-border, #e2e8f0);border-radius:var(--radius-md, 6px);padding:8px 12px;border-left:4px solid #f59e0b;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+                                <label for="modal-meta-montagem-eletrica" style="font-size:11.5px;font-weight:700;color:#d97706;display:flex;align-items:center;gap:5px;">
+                                    <span>⚡ Montagem Elétrica / Parte Ativa</span>
+                                    <span class="badge" style="font-size:9px;padding:1px 4px;background:#fef3c7;color:#92400e;">ME</span>
+                                </label>
+                                <span id="modal-calc-mes-montagem-eletrica" style="font-size:11px;font-weight:700;color:#d97706;" class="font-mono">
+                                    = <?= number_format($dadosPainel['metas_por_setor']['MONTAGEM_ELETRICA']['mensal'] ?? 0, 0, ',', '.') ?> un/mês
+                                </span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <input type="number" step="any" id="modal-meta-montagem-eletrica" name="meta_dia_montagem_eletrica" value="<?= (float) ($dadosPainel['metas_por_setor']['MONTAGEM_ELETRICA']['diaria'] ?? 0) ?>" min="0" required class="form-control" style="font-weight:700;font-size:14px;padding:4px 8px;height:32px;" oninput="recalcularMetasModal()">
+                                <span style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;">un/dia</span>
+                            </div>
+                        </div>
+
+                        <!-- 5. PINTURA -->
+                        <div style="background:var(--color-surface-2, #f8fafc);border:1px solid var(--color-border, #e2e8f0);border-radius:var(--radius-md, 6px);padding:8px 12px;border-left:4px solid #ef4444;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+                                <label for="modal-meta-pintura" style="font-size:11.5px;font-weight:700;color:#ef4444;display:flex;align-items:center;gap:5px;">
+                                    <span>🎨 Pintura / Tanque</span>
+                                    <span class="badge" style="font-size:9px;padding:1px 4px;background:#fee2e2;color:#991b1b;">MTQ</span>
+                                </label>
+                                <span id="modal-calc-mes-pintura" style="font-size:11px;font-weight:700;color:#ef4444;" class="font-mono">
+                                    = <?= number_format($dadosPainel['metas_por_setor']['PINTURA']['mensal'] ?? 0, 0, ',', '.') ?> un/mês
+                                </span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <input type="number" step="any" id="modal-meta-pintura" name="meta_dia_pintura" value="<?= (float) ($dadosPainel['metas_por_setor']['PINTURA']['diaria'] ?? 0) ?>" min="0" required class="form-control" style="font-weight:700;font-size:14px;padding:4px 8px;height:32px;" oninput="recalcularMetasModal()">
+                                <span style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;">un/dia</span>
+                            </div>
+                        </div>
+
+                        <!-- 6. BOBINAGEM -->
                         <div style="background:var(--color-surface-2, #f8fafc);border:1px solid var(--color-border, #e2e8f0);border-radius:var(--radius-md, 6px);padding:8px 12px;border-left:4px solid #3b82f6;">
                             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
                                 <label for="modal-meta-bobinagem" style="font-size:11.5px;font-weight:700;color:#2563eb;display:flex;align-items:center;gap:5px;">
@@ -1077,23 +1094,6 @@ require_once __DIR__ . '/../../includes/modal-filtro-data.php';
                             </div>
                             <div style="display:flex;align-items:center;gap:8px;">
                                 <input type="number" step="any" id="modal-meta-bobinagem" name="meta_dia_bobinagem" value="<?= (float) ($dadosPainel['metas_por_setor']['BOBINAGEM']['diaria'] ?? 0) ?>" min="0" required class="form-control" style="font-weight:700;font-size:14px;padding:4px 8px;height:32px;" oninput="recalcularMetasModal()">
-                                <span style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;">un/dia</span>
-                            </div>
-                        </div>
-
-                        <!-- 6. LABORATORIO -->
-                        <div style="background:var(--color-surface-2, #f8fafc);border:1px solid var(--color-border, #e2e8f0);border-radius:var(--radius-md, 6px);padding:8px 12px;border-left:4px solid #10b981;">
-                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
-                                <label for="modal-meta-laboratorio" style="font-size:11.5px;font-weight:700;color:#059669;display:flex;align-items:center;gap:5px;">
-                                    <span>🔬 Laboratório / Ensaios</span>
-                                    <span class="badge" style="font-size:9px;padding:1px 4px;background:#d1fae5;color:#065f46;">LAB</span>
-                                </label>
-                                <span id="modal-calc-mes-laboratorio" style="font-size:11px;font-weight:700;color:#059669;" class="font-mono">
-                                    = <?= number_format($dadosPainel['metas_por_setor']['LABORATORIO']['mensal'] ?? 0, 0, ',', '.') ?> un/mês
-                                </span>
-                            </div>
-                            <div style="display:flex;align-items:center;gap:8px;">
-                                <input type="number" step="any" id="modal-meta-laboratorio" name="meta_dia_laboratorio" value="<?= (float) ($dadosPainel['metas_por_setor']['LABORATORIO']['diaria'] ?? 0) ?>" min="0" required class="form-control" style="font-weight:700;font-size:14px;padding:4px 8px;height:32px;" oninput="recalcularMetasModal()">
                                 <span style="font-size:11px;color:var(--color-text-muted);white-space:nowrap;">un/dia</span>
                             </div>
                         </div>
@@ -1735,11 +1735,11 @@ function recalcularMetasModal() {
 
     const setoresIds = [
         { id: 'modal-meta-consolidado', calcId: 'modal-calc-mes-consolidado', key: 'CONSOLIDADO' },
-        { id: 'modal-meta-pintura', calcId: 'modal-calc-mes-pintura', key: 'PINTURA' },
-        { id: 'modal-meta-montagem-eletrica', calcId: 'modal-calc-mes-montagem-eletrica', key: 'MONTAGEM_ELETRICA' },
-        { id: 'modal-meta-montagem-final', calcId: 'modal-calc-mes-montagem-final', key: 'MONTAGEM_FINAL' },
-        { id: 'modal-meta-bobinagem', calcId: 'modal-calc-mes-bobinagem', key: 'BOBINAGEM' },
         { id: 'modal-meta-laboratorio', calcId: 'modal-calc-mes-laboratorio', key: 'LABORATORIO' },
+        { id: 'modal-meta-montagem-final', calcId: 'modal-calc-mes-montagem-final', key: 'MONTAGEM_FINAL' },
+        { id: 'modal-meta-montagem-eletrica', calcId: 'modal-calc-mes-montagem-eletrica', key: 'MONTAGEM_ELETRICA' },
+        { id: 'modal-meta-pintura', calcId: 'modal-calc-mes-pintura', key: 'PINTURA' },
+        { id: 'modal-meta-bobinagem', calcId: 'modal-calc-mes-bobinagem', key: 'BOBINAGEM' },
     ];
 
     let metaSetorAtualDiaria = 0;
@@ -1780,11 +1780,11 @@ function recalcularMetasModal() {
 function replicarMetaConsolidado() {
     const valConsolidado = parseFloat(document.getElementById('modal-meta-consolidado')?.value) || 0;
     const setoresInputs = [
-        'modal-meta-pintura',
-        'modal-meta-montagem-eletrica',
+        'modal-meta-laboratorio',
         'modal-meta-montagem-final',
-        'modal-meta-bobinagem',
-        'modal-meta-laboratorio'
+        'modal-meta-montagem-eletrica',
+        'modal-meta-pintura',
+        'modal-meta-bobinagem'
     ];
     setoresInputs.forEach(id => {
         const el = document.getElementById(id);
