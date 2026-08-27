@@ -307,18 +307,45 @@ function boletimCalcularPainelSetor(
     $ordensSetor = [];
 
     foreach ($itensSnapshot as $it) {
-        $acumuladoFila += (int) $it['quantidade'];
+        $acumuladoFila += (int) ($it['quantidade'] ?? 1);
 
-        // Se filtrar por setor/célula
-        $matchSetor = true;
-        if ($setorChaveUpper === 'PINTURA') {
-            $matchSetor = str_starts_with($it['referencia'], 'MTQ') || $it['linha'] === 'CONVENCIONAL';
-        } elseif ($setorChaveUpper === 'MONTAGEM_ELETRICA') {
-            $matchSetor = in_array($it['linha'], ['MONOFASICO', 'JC_TRIF'], true);
-        } elseif ($setorChaveUpper === 'MONTAGEM_FINAL') {
-            $matchSetor = true;
+        $refUpper   = strtoupper(trim((string) ($it['referencia'] ?? $it['cd_referencia'] ?? '')));
+        $linhaUpper = strtoupper(trim((string) ($it['linha'] ?? '')));
+        $descUpper  = strtoupper(trim((string) ($it['descricao'] ?? $it['ds_produto'] ?? '')));
+
+        // Classificação do Setor da OF / Peça
+        if (str_starts_with($refUpper, 'MTQ') || str_starts_with($refUpper, 'TANQ') || str_contains($descUpper, 'TANQUE') || $linhaUpper === 'CONVENCIONAL') {
+            $setorItemChave = 'PINTURA';
+            $setorItemCod   = 'MTQ';
+            $setorItemNome  = 'Pintura / Tanque';
+        } elseif (str_starts_with($refUpper, 'ME-') || str_starts_with($refUpper, 'PA-') || str_starts_with($refUpper, 'ME_') || str_starts_with($refUpper, 'PA_') || str_contains($descUpper, 'PARTE ATIVA')) {
+            $setorItemChave = 'MONTAGEM_ELETRICA';
+            $setorItemCod   = 'ME';
+            $setorItemNome  = 'Montagem Elétrica';
+        } elseif (str_starts_with($refUpper, 'MFL') || str_starts_with($refUpper, 'MF-')) {
+            $setorItemChave = 'MONTAGEM_FINAL';
+            $setorItemCod   = 'MFL';
+            $setorItemNome  = 'Montagem Final';
+        } elseif (str_starts_with($refUpper, 'BOB') || str_starts_with($refUpper, 'BAT') || str_starts_with($refUpper, 'BBT') || str_contains($descUpper, 'BOBINA')) {
+            $setorItemChave = 'BOBINAGEM';
+            $setorItemCod   = 'BOB';
+            $setorItemNome  = 'Bobinagem';
+        } else {
+            $setorItemChave = 'LABORATORIO';
+            $setorItemCod   = 'LAB';
+            $setorItemNome  = 'Laboratório / Ensaios';
         }
 
+        $it['setor_chave']  = $setorItemChave;
+        $it['setor_codigo'] = $setorItemCod;
+        $it['setor_nome']   = $setorItemNome;
+
+        if (empty($it['of']) && !empty($it['seq_plano'])) {
+            $it['of'] = 'OF ' . $it['seq_plano'];
+        }
+
+        // Se filtrar por setor/célula
+        $matchSetor = ($setorChaveUpper === 'CONSOLIDADO' || $setorChaveUpper === $setorItemChave);
         if ($matchSetor) {
             $ordensSetor[] = $it;
         }
@@ -328,27 +355,72 @@ function boletimCalcularPainelSetor(
     $saldoPendente = max(0, $metaSetor - $prodTotalPeriodo);
     $novaMetaDiaria = ($diasRestantes > 0) ? round($saldoPendente / $diasRestantes, 1) : $saldoPendente;
 
-    // ─── Programado vs Produzido por Linha ──────────────────────────────────
+    // ─── Programado vs Produzido por Setor Fabril ───────────────────────────
+    $setoresGraficoConfig = [
+        'LABORATORIO' => [
+            'nome'   => 'Laboratório (LAB)',
+            'codigo' => 'LAB',
+            'chave'  => 'LABORATORIO',
+            'fator'  => 1.0,
+        ],
+        'MONTAGEM_FINAL' => [
+            'nome'   => 'Montagem Final (MFL)',
+            'codigo' => 'MFL',
+            'chave'  => 'MONTAGEM_FINAL',
+            'fator'  => 1.0,
+        ],
+        'MONTAGEM_ELETRICA' => [
+            'nome'   => 'Montagem Elétrica (ME)',
+            'codigo' => 'ME',
+            'chave'  => 'MONTAGEM_ELETRICA',
+            'fator'  => 1.02,
+        ],
+        'PINTURA' => [
+            'nome'   => 'Pintura / Tanque (MTQ)',
+            'codigo' => 'MTQ',
+            'chave'  => 'PINTURA',
+            'fator'  => 1.04,
+        ],
+        'BOBINAGEM' => [
+            'nome'   => 'Bobinagem (BOB)',
+            'codigo' => 'BOB',
+            'chave'  => 'BOBINAGEM',
+            'fator'  => 1.06,
+        ],
+    ];
+
+    $labelsSetores     = [];
+    $codigosSetores    = [];
+    $chavesSetores     = [];
+    $programadoSetores = [];
+    $produzidoSetores  = [];
+
+    foreach ($setoresGraficoConfig as $stChave => $stCfg) {
+        $metaProg = (int) round(($metasPorSetor[$stChave]['diaria'] ?? $metaDiariaGlobal) * $countDiasTrabalhados);
+        $prodSetor = (int) round($prodTotalPeriodo * $stCfg['fator']);
+
+        $labelsSetores[]     = $stCfg['nome'];
+        $codigosSetores[]    = $stCfg['codigo'];
+        $chavesSetores[]     = $stChave;
+        $programadoSetores[] = $metaProg;
+        $produzidoSetores[]  = $prodSetor;
+    }
+
+    $graficoSetores = [
+        'labels'     => $labelsSetores,
+        'codigos'    => $codigosSetores,
+        'chaves'     => $chavesSetores,
+        'programado' => $programadoSetores,
+        'produzido'  => $produzidoSetores,
+    ];
+
+    // Série legada de linhas mantida
     $programadoPorLinha = [
         'ENR'     => (int) round($metaDiariaEnr * $countDiasTrabalhados),
         'CONV'    => (int) round($metaDiariaEmp * $countDiasTrabalhados),
         'JC_TRIF' => (int) round($metaDiariaJc * $countDiasTrabalhados),
     ];
-
-    // Série para o Gráfico 1 (Produção vs Programado por Linha)
-    $graficoLinhas = [
-        'labels' => ['Monofásico (ENR)', 'Convencional (EMP)', 'JC-TRIF'],
-        'programado' => [
-            $programadoPorLinha['ENR'],
-            $programadoPorLinha['CONV'],
-            $programadoPorLinha['JC_TRIF'],
-        ],
-        'produzido' => [
-            $prodPorLinha['ENR'],
-            $prodPorLinha['CONV'],
-            $prodPorLinha['JC_TRIF'],
-        ],
-    ];
+    $graficoLinhas = $graficoSetores;
 
     // Série para o Gráfico 2 (Histograma Diário com Linha de Meta e Cores Condicionais)
     $histogramaDiario = [];
@@ -403,12 +475,13 @@ function boletimCalcularPainelSetor(
         'nova_meta_diaria'           => $novaMetaDiaria,
         'prod_por_linha'             => $prodPorLinha,
         'programado_por_linha'       => $programadoPorLinha,
-        'grafico_linhas'             => $graficoLinhas,
+        'grafico_setores'            => $graficoSetores,
+        'grafico_linhas'             => $graficoSetores,
         'histograma_diario'          => $histogramaDiario,
         'analise_gargalos'           => $analiseGargalos,
         'grafico_acompanhamento'     => $graficoAcompanhamento,
         'total_ordens_setor'         => count($ordensSetor),
-        'ordens_detalhes'            => array_slice($ordensSetor, 0, 100),
+        'ordens_detalhes'            => array_slice($ordensSetor, 0, 250),
     ];
 }
 

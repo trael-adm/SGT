@@ -701,12 +701,12 @@ layoutHeader($pageTitle);
 
 <!-- ─── 3. Gráficos Principais ───────────────────────────────────────────── -->
 
-<!-- Gráfico 1: Produção vs. Programado por Linha / Setor (Superior) -->
+<!-- Gráfico 1: Produção vs. Programado por Setor Fabril (Superior) -->
 <div class="ps-chart-card">
     <div class="ps-card-header">
         <div>
-            <span class="ps-card-title">Produção vs. Programado por Linha de Fabricação</span>
-            <p class="ps-card-subtitle">Volume programado versus executado consolidado por célula no período</p>
+            <span class="ps-card-title">Produção vs. Programado por Setor Fabril</span>
+            <p class="ps-card-subtitle">Volume programado versus executado por célula no período &bull; <span style="color:#2563eb;font-weight:600;">Clique no setor para filtrar as OFs apontadas</span></p>
         </div>
         <div style="display:flex;align-items:center;gap:14px;font-size:12px;font-weight:600;">
             <span style="display:inline-flex;align-items:center;gap:5px;color:var(--color-text-secondary);">
@@ -718,7 +718,7 @@ layoutHeader($pageTitle);
         </div>
     </div>
     <div style="position:relative;height:260px;width:100%;">
-        <canvas id="chartProgVsProd"></canvas>
+        <canvas id="chartProgVsProd" style="cursor:pointer;"></canvas>
     </div>
 </div>
 
@@ -870,15 +870,29 @@ layoutHeader($pageTitle);
 </div>
 
 <!-- ─── 6. Tabela Analítica de Ordens e Acompanhamento do Setor ─────────── -->
-<div class="ps-table-wrap">
+<div class="ps-table-wrap" id="secaoTabelaOrdens">
     <div style="padding:14px 18px;border-bottom:1px solid var(--color-border);display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;">
         <div>
-            <span style="font-size:0.95rem;font-weight:700;color:var(--color-text-primary);">Ordens em Andamento / Fila do Setor</span>
-            <p style="font-size:0.75rem;color:var(--color-text-muted);margin-top:2px;">Detalhamento das ordens de fabricação associadas à área</p>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <span class="ps-card-title" id="tabelaTituloSetor">Ordens de Fabricação (OFs) Apontadas / Fila do Setor</span>
+                <span id="badgeFiltroAtivoSetor" style="display:none;padding:2px 10px;border-radius:9999px;font-size:11px;font-weight:700;background:#dbeafe;color:#1e40af;cursor:pointer;border:1px solid #bfdbfe;" onclick="limparFiltroSetor()" title="Clique para remover o filtro">
+                    Filtrado: <span id="nomeFiltroAtivoSetor"></span> &times; (Ver Todas)
+                </span>
+            </div>
+            <p class="ps-card-subtitle">Detalhamento das ordens de fabricação (OFs) associadas às células da fábrica</p>
         </div>
-        <div style="display:flex;align-items:center;gap:10px;">
-            <input type="text" id="tabelaBuscaSetor" placeholder="Buscar pedido, cliente, projeto..." 
-                   style="border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:5px 10px;font-size:12px;width:240px;outline:none;" 
+        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;">
+            <!-- Select rápido de setor -->
+            <select id="selectFiltroSetorTabela" onchange="filtrarTabelaPorSelectSetor(this.value)" style="border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:5px 8px;font-size:12px;outline:none;background:#fff;color:var(--color-text-primary);font-weight:600;">
+                <option value="">Todos os Setores (Geral)</option>
+                <option value="LAB">Laboratório (LAB)</option>
+                <option value="MFL">Montagem Final (MFL)</option>
+                <option value="ME">Montagem Elétrica (ME)</option>
+                <option value="MTQ">Pintura / Tanque (MTQ)</option>
+                <option value="BOB">Bobinagem (BOB)</option>
+            </select>
+            <input type="text" id="tabelaBuscaSetor" placeholder="Buscar OF, pedido, cliente, projeto..." 
+                   style="border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:5px 10px;font-size:12px;width:230px;outline:none;" 
                    oninput="filtrarTabelaSetor()">
             <button type="button" class="btn btn-secondary btn-sm" onclick="exportarTabelaSetorCSV()" style="display:inline-flex;align-items:center;gap:5px;">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -890,35 +904,50 @@ layoutHeader($pageTitle);
     <table class="ps-data-table" id="tabelaOrdensSetor">
         <thead>
             <tr>
+                <th style="width: 100px;">OF / Seq</th>
                 <th style="width: 80px;">Pedido</th>
                 <th>Cliente</th>
                 <th style="width: 110px;">Projeto</th>
                 <th>Descrição do Transformador</th>
                 <th style="width: 80px; text-align: right;">Potência</th>
-                <th style="width: 100px; text-align: center;">Linha</th>
+                <th style="width: 110px; text-align: center;">Setor / Célula</th>
                 <th style="width: 95px; text-align: center;">Data Prev.</th>
                 <th style="width: 65px; text-align: right;">Qtd</th>
             </tr>
         </thead>
         <tbody id="tabelaCorpoSetor">
-            <?php foreach ($dadosPainel['ordens_detalhes'] as $it): ?>
-            <tr data-texto="<?= htmlspecialchars(strtolower($it['pedido'] . ' ' . $it['cliente'] . ' ' . $it['referencia'] . ' ' . $it['descricao'])) ?>">
-                <td class="font-mono" style="font-weight:600;"><?= htmlspecialchars($it['pedido']) ?></td>
-                <td style="font-weight:500;"><?= htmlspecialchars($it['cliente_apelido'] ?: $it['cliente']) ?></td>
-                <td class="font-mono"><?= htmlspecialchars($it['referencia']) ?></td>
-                <td style="color:var(--color-text-secondary);" title="<?= htmlspecialchars($it['descricao']) ?>">
-                    <?= htmlspecialchars(strlen($it['descricao']) > 48 ? substr($it['descricao'], 0, 45) . '...' : $it['descricao']) ?>
+            <?php foreach ($dadosPainel['ordens_detalhes'] as $it): 
+                $setorItemCod = $it['setor_codigo'] ?? 'LAB';
+                $setorItemNome = $it['setor_nome'] ?? 'Laboratório';
+                $badgeCor = match($setorItemCod) {
+                    'LAB' => 'background:#d1fae5;color:#065f46;border:1px solid #a7f3d0;',
+                    'MFL' => 'background:#ede9fe;color:#5b21b6;border:1px solid #ddd6fe;',
+                    'ME'  => 'background:#fef3c7;color:#92400e;border:1px solid #fde68a;',
+                    'MTQ' => 'background:#fee2e2;color:#991b1b;border:1px solid #fecdd3;',
+                    'BOB' => 'background:#dbeafe;color:#1e40af;border:1px solid #bfdbfe;',
+                    default => 'background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;'
+                };
+                $ofStr = !empty($it['of']) ? $it['of'] : (!empty($it['seq_plano']) ? 'OF ' . $it['seq_plano'] : '-');
+            ?>
+            <tr data-setor="<?= htmlspecialchars($setorItemCod) ?>" data-texto="<?= htmlspecialchars(strtolower($ofStr . ' ' . ($it['pedido'] ?? '') . ' ' . (($it['cliente_apelido'] ?? '') ?: ($it['cliente_nome'] ?? $it['cliente'] ?? '')) . ' ' . ($it['referencia'] ?? '') . ' ' . ($it['descricao'] ?? '') . ' ' . $setorItemCod . ' ' . $setorItemNome)) ?>">
+                <td class="font-mono" style="font-weight:700;color:var(--color-primary, #1e40af);"><?= htmlspecialchars($ofStr) ?></td>
+                <td class="font-mono" style="font-weight:600;"><?= htmlspecialchars((string)($it['pedido'] ?? '-')) ?></td>
+                <td style="font-weight:500;"><?= htmlspecialchars((string)(($it['cliente_apelido'] ?? '') ?: ($it['cliente_nome'] ?? $it['cliente'] ?? '-'))) ?></td>
+                <td class="font-mono"><?= htmlspecialchars((string)($it['referencia'] ?? '-')) ?></td>
+                <td style="color:var(--color-text-secondary);" title="<?= htmlspecialchars((string)($it['descricao'] ?? '')) ?>">
+                    <?= htmlspecialchars(strlen((string)($it['descricao'] ?? '')) > 45 ? substr((string)$it['descricao'], 0, 42) . '...' : (string)($it['descricao'] ?? '')) ?>
                 </td>
-                <td class="font-mono" style="text-align:right;"><?= htmlspecialchars($it['potencia_str'] ?: ($it['potencia_kva'] . ' kVA')) ?></td>
+                <td class="font-mono" style="text-align:right;"><?= htmlspecialchars((string)($it['potencia_str'] ?? (!empty($it['potencia_kva']) ? $it['potencia_kva'] . ' kVA' : '-'))) ?></td>
                 <td style="text-align:center;">
-                    <span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:700;background:#e0f2fe;color:#0284c7;">
-                        <?= htmlspecialchars($it['linha']) ?>
+                    <span class="badge" style="font-size:10.5px;padding:2px 7px;border-radius:4px;font-weight:700;<?= $badgeCor ?>" title="<?= htmlspecialchars($setorItemNome) ?>">
+                        <?= htmlspecialchars($setorItemCod) ?>
                     </span>
+                </td>
                 <td class="font-mono" style="text-align:center;font-size:11px;color:var(--color-text-secondary);">
-                    <?= date('d/m/Y', strtotime($it['data_programada'])) ?>
+                    <?= !empty($it['data_programada']) ? date('d/m/Y', strtotime((string)$it['data_programada'])) : '-' ?>
                 </td>
                 <td class="font-mono" style="text-align:right;font-weight:700;">
-                    <?= number_format($it['quantidade'], 0, ',', '.') ?>
+                    <?= number_format((float)($it['quantidade'] ?? 0), 0, ',', '.') ?>
                 </td>
             </tr>
             <?php endforeach; ?>
@@ -1217,12 +1246,14 @@ if (ctxGauge) {
     });
 }
 
-// ─── 2. Gráfico de Colunas: Produção vs. Programado por Linha ────────────────
+// ─── 2. Gráfico de Colunas: Produção vs. Programado por Setor Fabril ──────────
 const ctxLinhas = document.getElementById('chartProgVsProd')?.getContext('2d');
-if (ctxLinhas) {
-    const dadosLinhas = <?= json_encode($dadosPainel['grafico_linhas'], JSON_UNESCAPED_UNICODE) ?>;
+let chartSetoresInstance = null;
 
-    new Chart(ctxLinhas, {
+if (ctxLinhas) {
+    const dadosLinhas = <?= json_encode($dadosPainel['grafico_setores'] ?? $dadosPainel['grafico_linhas'], JSON_UNESCAPED_UNICODE) ?>;
+
+    chartSetoresInstance = new Chart(ctxLinhas, {
         type: 'bar',
         data: {
             labels: dadosLinhas.labels,
@@ -1251,6 +1282,21 @@ if (ctxLinhas) {
             responsive: true,
             maintainAspectRatio: false,
             layout: { padding: { top: 25 } },
+            onClick: function (evt, elements) {
+                if (elements && elements.length > 0) {
+                    const elIndex = elements[0].index;
+                    const setorCod = dadosLinhas.codigos ? dadosLinhas.codigos[elIndex] : null;
+                    const setorNome = dadosLinhas.labels ? dadosLinhas.labels[elIndex] : '';
+                    if (setorCod) {
+                        filtrarTabelaPorSetor(setorCod, setorNome);
+                    }
+                }
+            },
+            onHover: function (evt, elements) {
+                if (evt && evt.native && evt.native.target) {
+                    evt.native.target.style.cursor = (elements && elements.length > 0) ? 'pointer' : 'default';
+                }
+            },
             plugins: {
                 legend: { display: false },
                 tooltip: {
@@ -1261,6 +1307,9 @@ if (ctxLinhas) {
                     callbacks: {
                         label: function(ctx) {
                             return ' ' + ctx.dataset.label + ': ' + ctx.raw.toLocaleString('pt-BR') + ' un';
+                        },
+                        afterBody: function() {
+                            return '\n👉 Clique na barra para filtrar as OFs deste setor';
                         }
                     }
                 },
@@ -1586,14 +1635,63 @@ if (ctxRanking) {
 }
 
 // ─── Filtro na Tabela de Ordens do Setor ─────────────────────────────────────
+let setorFiltroAtivo = '';
+
+function filtrarTabelaPorSetor(setorCod, setorNome) {
+    setorFiltroAtivo = (setorCod || '').toUpperCase().trim();
+    
+    // Atualiza o select de filtro
+    const select = document.getElementById('selectFiltroSetorTabela');
+    if (select) select.value = setorFiltroAtivo;
+
+    // Atualiza badge de filtro
+    const badge = document.getElementById('badgeFiltroAtivoSetor');
+    const nomeEl = document.getElementById('nomeFiltroAtivoSetor');
+    if (badge && nomeEl) {
+        if (setorFiltroAtivo) {
+            nomeEl.textContent = setorNome || setorFiltroAtivo;
+            badge.style.display = 'inline-flex';
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+
+    aplicarFiltrosTabela();
+
+    // Rola suavemente até a tabela de OFs
+    const tabelaWrap = document.getElementById('secaoTabelaOrdens');
+    if (tabelaWrap) {
+        tabelaWrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+function limparFiltroSetor() {
+    filtrarTabelaPorSetor('', '');
+}
+
+function filtrarTabelaPorSelectSetor(valor) {
+    const select = document.getElementById('selectFiltroSetorTabela');
+    const nome = select?.options[select.selectedIndex]?.text || valor;
+    filtrarTabelaPorSetor(valor, valor ? nome : '');
+}
+
 function filtrarTabelaSetor() {
+    aplicarFiltrosTabela();
+}
+
+function aplicarFiltrosTabela() {
     const busca = (document.getElementById('tabelaBuscaSetor')?.value || '').toLowerCase().trim();
     const linhas = document.querySelectorAll('#tabelaCorpoSetor tr');
     let visiveis = 0;
 
     linhas.forEach(tr => {
         const texto = tr.getAttribute('data-texto') || '';
-        if (!busca || texto.includes(busca)) {
+        const setor = (tr.getAttribute('data-setor') || '').toUpperCase();
+        
+        const matchBusca = !busca || texto.includes(busca);
+        const matchSetor = !setorFiltroAtivo || setor === setorFiltroAtivo;
+
+        if (matchBusca && matchSetor) {
             tr.style.display = '';
             visiveis++;
         } else {
@@ -1603,7 +1701,7 @@ function filtrarTabelaSetor() {
 
     const contador = document.getElementById('tabelaContadorSetor');
     if (contador) {
-        contador.textContent = 'Exibindo ' + visiveis + ' ordens';
+        contador.textContent = 'Exibindo ' + visiveis + ' ordens' + (setorFiltroAtivo ? ' (Filtro: ' + setorFiltroAtivo + ')' : '');
     }
 }
 
