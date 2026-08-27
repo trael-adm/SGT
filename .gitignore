@@ -24,6 +24,7 @@ node_modules/
 
 __pycache__/
 *.pyc
+*.exe_extracted/
 _inicial/dump_*.sql
 _inicial/dados_producao.sql
 _inicial/backup_*.sql
