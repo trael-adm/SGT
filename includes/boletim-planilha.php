@@ -109,13 +109,35 @@ function boletimClassificarNucleoTrafo(?string $dsTpEnrolamentoNucleo, ?string $
 }
 
 /**
- * Classifica a linha para a Média Força / Seco:
- * - TPS: todo projeto que tiver 'TPS' no início da referência.
- * - TPD: transformadores com potência até 300 kVA (<= 300).
- * - TPM: transformadores com potência acima de 300 kVA (> 300).
+ * Classifica a linha para a Média Força / Seco a partir do Tipo Construtivo
+ * do transformador (coluna Ds_tpConstrTrafo de dw.vw_ficha_espc_trafo):
+ * - TPS: Tipo Construtivo contém "SECO" (ex: "A Seco", "A Seco Solar") — qualquer potência.
+ * - TPD: Tipo Construtivo contém "SELADO" e potência até 300 kVA (<= 300).
+ * - TPM: potência acima de 300 kVA (mesmo se Selado), OU qualquer potência
+ *        com Tipo Construtivo diferente de Selado/Seco/Seco Solar.
+ *
+ * O texto vem livre do ERP (ex: "Selado", "A Seco", "A Seco Solar", "Pedestal"),
+ * por isso a checagem é por substring (str_contains), não igualdade exata.
+ *
+ * Quando o Tipo Construtivo não vem preenchido pelo SQL Server (ex: registro
+ * antigo ou falha pontual da view), cai no fallback antigo por referência/kVA.
  */
-function boletimClassificarLinhaForca(string $ref, ?float $kva): string
+function boletimClassificarLinhaForca(string $ref, ?float $kva, ?string $tipoConstrutivo = null): string
 {
+    $tipoUpper = strtoupper(trim((string) $tipoConstrutivo));
+
+    if ($tipoUpper !== '') {
+        if (str_contains($tipoUpper, 'SECO')) {
+            return 'TPS';
+        }
+        if (str_contains($tipoUpper, 'SELADO')) {
+            return ($kva !== null && $kva > 0 && $kva <= 300.0) ? 'TPD' : 'TPM';
+        }
+        // Tipo Construtivo informado, mas diferente de Selado/Seco/Seco Solar
+        return 'TPM';
+    }
+
+    // Fallback: Tipo Construtivo não informado — usa a regra antiga (referência/kVA)
     $refUpper = strtoupper(trim($ref));
     if (str_starts_with($refUpper, 'TPS')) {
         return 'TPS';
@@ -265,12 +287,13 @@ function boletimConsultarSqlServerMes(string $mes): ?array
                 CONVERT(VARCHAR(10), DATEADD(minute, -450, COALESCE(aud.DataHoraAudit, k.dt_Movimento)), 120) AS data_turno,
                 f.ds_TpEnrolamentoNucleo,
                 f.ds_potencia,
-                f.nrofasesTrafo
+                f.nrofasesTrafo,
+                f.Ds_tpConstrTrafo
             FROM dw.vw_kardex_lotes k
             INNER JOIN ControleLotes C WITH(NOLOCK) ON C.cd_LoteMercEntradaSaida = k.cd_LoteMercEntradaSaida
             LEFT JOIN AuditLotes aud ON aud.Id_pk = C.id_LoteMercEntradaSaida
             OUTER APPLY (
-                SELECT TOP 1 ds_TpEnrolamentoNucleo, ds_potencia, nrofasesTrafo
+                SELECT TOP 1 ds_TpEnrolamentoNucleo, ds_potencia, nrofasesTrafo, Ds_tpConstrTrafo
                 FROM dw.vw_ficha_espc_trafo f
                 WHERE f.cd_Referencia = k.cd_Referencia
             ) f
@@ -308,7 +331,7 @@ function boletimConsultarSqlServerMes(string $mes): ?array
                   AND A.Data >= ? AND A.Data < ?
                 GROUP BY A.Id_pk
             )
-            SELECT 
+            SELECT
                 CONVERT(VARCHAR(10), k.dt_Movimento, 120) AS data_mov,
                 CONVERT(VARCHAR(19), aud.DataHoraAudit, 120) AS data_hora_audit,
                 CONVERT(VARCHAR(10), DATEADD(minute, -450, COALESCE(aud.DataHoraAudit, k.dt_Movimento)), 120) AS data_turno,
@@ -317,10 +340,16 @@ function boletimConsultarSqlServerMes(string $mes): ?array
                 k.cd_Referencia,
                 k.ds_Prod,
                 k.cd_AlmoxEmpresa,
-                k.cdEnt
+                k.cdEnt,
+                f.Ds_tpConstrTrafo
             FROM dw.vw_kardex_lotes k
             INNER JOIN ControleLotes C WITH(NOLOCK) ON C.cd_LoteMercEntradaSaida = k.cd_LoteMercEntradaSaida
             LEFT JOIN AuditLotesRep aud ON aud.Id_pk = C.id_LoteMercEntradaSaida
+            OUTER APPLY (
+                SELECT TOP 1 Ds_tpConstrTrafo
+                FROM dw.vw_ficha_espc_trafo f
+                WHERE f.cd_Referencia = k.cd_Referencia
+            ) f
             WHERE k.Entra_Sai = 'ENT'
               AND k.cd_AlmoxEmpresa IN (22, 422)
               AND (
@@ -374,6 +403,7 @@ function boletimConsultarSqlServerMes(string $mes): ?array
             $nucleoNome = '';
             $nucleoCod  = '';
             $linha      = '';
+            $tipoConstrutivo = '';
 
             if ($cdEnt === '1') {
                 // Área: Distribuição
@@ -412,7 +442,8 @@ function boletimConsultarSqlServerMes(string $mes): ?array
             } else {
                 // Área: Média Força / Seco (cdEnt === '4' / Almox 403)
                 $area = 'forca';
-                $linhaForca = boletimClassificarLinhaForca($ref, $kva);
+                $tipoConstrutivo = trim((string) ($r['Ds_tpConstrTrafo'] ?? ''));
+                $linhaForca = boletimClassificarLinhaForca($ref, $kva, $tipoConstrutivo);
                 $linha = $linhaForca;
                 $nucleoCod = $linhaForca;
                 $nucleoNome = match ($linhaForca) {
@@ -477,6 +508,7 @@ function boletimConsultarSqlServerMes(string $mes): ?array
                 'cdEnt'                => $cdEnt,
                 'almoxarifado'         => $r['cd_AlmoxEmpresa'] ?? '',
                 'motivo_reprova'       => '',
+                'tipo_construtivo'     => $tipoConstrutivo,
             ];
 
             if ($ultimaData === null || $d > $ultimaData) {
@@ -513,6 +545,7 @@ function boletimConsultarSqlServerMes(string $mes): ?array
                 'cdEnt'                => $r['cdEnt'] ?? '',
                 'almoxarifado'         => $almox,
                 'motivo_reprova'       => 'Reprova / Retrabalho em Ensaios de Laboratório (Almoxarifado ' . $almox . ')',
+                'tipo_construtivo'     => trim((string) ($r['Ds_tpConstrTrafo'] ?? '')),
             ];
 
             if ($ultimaData === null || $d > $ultimaData) {
@@ -790,6 +823,7 @@ function boletimBuscarLinhasAnaliticasMes(string $mes, string $filtroArea = 'tod
             f.ds_TpEnrolamentoNucleo,
             f.ds_potencia,
             f.nrofasesTrafo,
+            f.Ds_tpConstrTrafo,
             ped_cli.cdPedido,
             ped_cli.PedidoCliente,
             ped_cli.ClienteNome,
@@ -798,7 +832,7 @@ function boletimBuscarLinhasAnaliticasMes(string $mes, string $filtroArea = 'tod
         INNER JOIN ControleLotes C WITH(NOLOCK) ON C.cd_LoteMercEntradaSaida = k.cd_LoteMercEntradaSaida
         LEFT JOIN AuditLotes aud ON aud.Id_pk = C.id_LoteMercEntradaSaida
         OUTER APPLY (
-            SELECT TOP 1 ds_TpEnrolamentoNucleo, ds_potencia, nrofasesTrafo
+            SELECT TOP 1 ds_TpEnrolamentoNucleo, ds_potencia, nrofasesTrafo, Ds_tpConstrTrafo
             FROM dw.vw_ficha_espc_trafo f
             WHERE f.cd_Referencia = k.cd_Referencia
         ) f
@@ -847,6 +881,7 @@ function boletimBuscarLinhasAnaliticasMes(string $mes, string $filtroArea = 'tod
             $kvaNum = (float) $kva;
         }
 
+        $tipoConstrutivo = '';
         if ($cdEnt === '1') {
             $area = 'distrib';
             $linha = 'TPD';
@@ -860,7 +895,8 @@ function boletimBuscarLinhasAnaliticasMes(string $mes, string $filtroArea = 'tod
             $nucleoCod = $nuc;
         } else {
             $area = 'forca';
-            $linhaForca = boletimClassificarLinhaForca($ref, $kvaNum);
+            $tipoConstrutivo = trim((string) ($r['Ds_tpConstrTrafo'] ?? ''));
+            $linhaForca = boletimClassificarLinhaForca($ref, $kvaNum, $tipoConstrutivo);
             $linha = $linhaForca;
             $nucleo = match ($linhaForca) {
                 'TPS' => 'TPS (Seco)',
@@ -903,6 +939,7 @@ function boletimBuscarLinhasAnaliticasMes(string $mes, string $filtroArea = 'tod
             'cdEnt'                => $cdEnt,
             'almoxarifado'         => $r['cd_AlmoxEmpresa'] ?? '',
             'motivo_reprova'       => '',
+            'tipo_construtivo'     => $tipoConstrutivo,
         ];
     }
 
@@ -930,6 +967,7 @@ function boletimBuscarLinhasAnaliticasMes(string $mes, string $filtroArea = 'tod
             k.ds_Prod,
             k.cd_AlmoxEmpresa,
             k.cdEnt,
+            f.Ds_tpConstrTrafo,
             ped_cli.cdPedido,
             ped_cli.PedidoCliente,
             ped_cli.ClienteNome,
@@ -937,6 +975,11 @@ function boletimBuscarLinhasAnaliticasMes(string $mes, string $filtroArea = 'tod
         FROM dw.vw_kardex_lotes k
         INNER JOIN ControleLotes C WITH(NOLOCK) ON C.cd_LoteMercEntradaSaida = k.cd_LoteMercEntradaSaida
         LEFT JOIN AuditLotesRep aud ON aud.Id_pk = C.id_LoteMercEntradaSaida
+        OUTER APPLY (
+            SELECT TOP 1 Ds_tpConstrTrafo
+            FROM dw.vw_ficha_espc_trafo f
+            WHERE f.cd_Referencia = k.cd_Referencia
+        ) f
         OUTER APPLY (
             SELECT TOP 1
                 p.cdPedido,
@@ -1004,6 +1047,7 @@ function boletimBuscarLinhasAnaliticasMes(string $mes, string $filtroArea = 'tod
             'cdEnt'                => $r['cdEnt'] ?? '',
             'almoxarifado'         => $almox,
             'motivo_reprova'       => 'Reprova / Retrabalho em Ensaios de Laboratório (Almoxarifado ' . $almox . ')',
+            'tipo_construtivo'     => trim((string) ($r['Ds_tpConstrTrafo'] ?? '')),
         ];
     }
 

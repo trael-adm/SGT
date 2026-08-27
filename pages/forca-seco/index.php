@@ -11,7 +11,7 @@ requireLogin();
 $pdo        = getDB();
 $usuario    = currentUser();
 $base       = defined('APP_URL') ? APP_URL : '';
-$podeEditar = isAdmin() || !in_array((int) ($usuario['id_perfil'] ?? 0), [4, 211], true);
+$podeEditar = isAdmin() || (podeEditar('prod.for') && !in_array((int) ($usuario['id_perfil'] ?? 0), [4, 211], true));
 
 // ─── Linhas de Produção da Média Força ───────────────────────────────────────
 // TPD: Transformadores até 300 kVA (corresponde ao ENR na Distribuição)
@@ -139,10 +139,7 @@ $stmt = $pdo->prepare("
 $stmt->execute([$primeiroDia, $ultimoDia]);
 $registros = $stmt->fetchAll();
 
-$diasDoMes = [];
-for ($i = 1; $i <= $diasNoMes; $i++) {
-    $diasDoMes[] = sprintf('%04d-%02d-%02d', $anoRef, $mesRef, $i);
-}
+$diasDoMes = $diasAtivosCalendario;
 
 // ─── Agregações por Linha e Dia ──────────────────────────────────────────────
 $porDiaCore = []; // 'Y-m-d' => ['TPD'=>['prog'=>0,'real'=>0], 'TPS'=>..., 'TPM'=>..., 'LAB'=>...]
@@ -249,6 +246,16 @@ foreach ($diasDoMes as $d) {
 // até hoje, para não diluir a média com dias ainda sem produção lançada.
 $diasComProducaoReal = count(array_filter($serieExecutadoTotal, fn($v) => $v !== null && $v > 0));
 
+// Tendência: pega o ritmo médio real até hoje (total produzido ÷ dias que de
+// fato tiveram produção) e projeta esse ritmo pra todos os dias de produção
+// do mês, como se a fábrica mantivesse esse mesmo passo até o fim (mesmo
+// critério do Indicador Distribuição).
+$ritmoMedioReal = $diasComProducaoReal > 0 ? ($totalRealAteHoje / $diasComProducaoReal) : 0;
+$acumuladoTendencia = [];
+foreach ($diasDoMes as $i => $d) {
+    $acumuladoTendencia[] = round($ritmoMedioReal * ($i + 1), 1);
+}
+
 
 // ─── Mix de Produção por Dia ────────────────────────────────────────────────
 $mixPorDia = [];
@@ -294,34 +301,46 @@ for ($i = count($diasDoMes) - 1; $i >= 0; $i--) {
     }
 }
 
-// ─── Dados de Produção por Linha ─────────────────────────────────────────────
-$linhasConfig = [
+// ─── Dados detalhados para "Produção por Linha" (TPD, TPS, TPM) ─────────────
+$linhasProducaoDetalhadas = [
     'TPD' => [
-        'nome'       => 'TPD (ATÉ 300 kVA)',
+        'nome'       => 'TPD (ATÉ 300 kVA) - PRODUÇÃO',
+        'short'      => 'TPD',
         'cor'        => '#82c341',
-        'meta'       => $metaDiariaTpd,
-        'label_exec' => 'Produção Realizada TPD',
+        'meta'       => (float) $metaDiariaTpd,
+        'label_exec' => 'Executado TPD',
+        'label_meta' => 'Meta TPD',
+        'label_diff' => 'Diferença TPD',
+        'label_pct'  => '% Executado TPD',
     ],
     'TPS' => [
-        'nome'       => 'TPS (SECO)',
+        'nome'       => 'TPS (SECO) - PRODUÇÃO',
+        'short'      => 'TPS',
         'cor'        => '#4a90e2',
-        'meta'       => $metaDiariaTps,
-        'label_exec' => 'Produção Realizada TPS',
+        'meta'       => (float) $metaDiariaTps,
+        'label_exec' => 'Executado TPS',
+        'label_meta' => 'Meta TPS',
+        'label_diff' => 'Diferença TPS',
+        'label_pct'  => '% Executado TPS',
     ],
     'TPM' => [
-        'nome'       => 'TPM (MÉDIA FORÇA > 300 kVA)',
+        'nome'       => 'TPM (> 300 kVA) - PRODUÇÃO',
+        'short'      => 'TPM',
         'cor'        => '#00a86b',
-        'meta'       => $metaDiariaTpm,
-        'label_exec' => 'Produção Realizada TPM',
+        'meta'       => (float) $metaDiariaTpm,
+        'label_exec' => 'Executado TPM',
+        'label_meta' => 'Meta TPM',
+        'label_diff' => 'Diferença TPM',
+        'label_pct'  => '% Executado TPM',
     ],
 ];
 
 $dadosProducaoPorLinha = [];
-foreach ($linhasConfig as $c => $info) {
+foreach ($linhasProducaoDetalhadas as $c => $info) {
     $metaDia = (float) $info['meta'];
-    $execs   = [];
-    $diffs   = [];
-    $pcts    = [];
+    $execs = [];
+    $diffs = [];
+    $pcts  = [];
     $diasComProd = 0;
 
     foreach ($diasDoMes as $d) {
@@ -329,10 +348,11 @@ foreach ($linhasConfig as $c => $info) {
         $execs[] = $exec;
         if ($exec > 0) $diasComProd++;
 
-        $diff = round($exec - $metaDia, 1);
-        $diffs[] = $diff;
+        $temLancamento = ($ultimaDataProducao !== null && $d <= $ultimaDataProducao);
+        $diff = $temLancamento ? ($exec - (int) round($metaDia)) : 0;
+        $pct = ($metaDia > 0 && $exec > 0) ? round(($exec / $metaDia) * 100) : 0;
 
-        $pct = $metaDia > 0 ? round(($exec / $metaDia) * 100) : 0;
+        $diffs[] = $diff;
         $pcts[]  = $pct;
     }
 
@@ -496,7 +516,6 @@ layoutHeader($pageTitle);
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20v-6M6 20V10M18 20V4"/></svg>
             Métricas
         </button>
-        <div class="bo-ref-chip">
         <div class="bo-ref-chip" style="gap:6px;">
             <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#16a34a;box-shadow:0 0 0 2px rgba(22,163,74,0.2);"></span>
             <span class="bo-ref-label">Sincronizado</span>
@@ -823,7 +842,7 @@ $pctMetaMensal = $metaTotalForca > 0 ? round(($totalRealAteHoje / $metaTotalForc
                             <tr>
                                 <th style="text-align:left;font-weight:700;background:var(--color-surface-2);white-space:nowrap;padding-left:10px;min-width:140px;">Indicador</th>
                                 <?php foreach ($diasDoMes as $d): ?>
-                                    <th style="text-align:center;"><?= date('d/m', strtotime($d)) ?></th>
+                                    <th data-dia="<?= $d ?>" style="text-align:center;cursor:pointer;"><?= date('d/m', strtotime($d)) ?></th>
                                 <?php endforeach; ?>
                                 <th style="text-align:center;background:var(--color-surface-2);font-weight:800;color:var(--color-text-primary);">MÉDIA</th>
                                 <th style="text-align:center;background:var(--color-surface-2);font-weight:800;color:var(--color-text-primary);">SOMA</th>
@@ -833,42 +852,50 @@ $pctMetaMensal = $metaTotalForca > 0 ? round(($totalRealAteHoje / $metaTotalForc
                             <!-- Linha 1: Executado -->
                             <tr>
                                 <td style="text-align:left;font-weight:700;"><?= htmlspecialchars($linha['info']['label_exec']) ?></td>
-                                <?php foreach ($linha['execs'] as $v): ?>
-                                    <td class="<?= $v === 0 ? 'bo-zero' : '' ?>"><?= $v ?: '—' ?></td>
+                                <?php foreach ($linha['execs'] as $i => $v): ?>
+                                    <td data-dia="<?= $diasDoMes[$i] ?>" style="text-align:center;font-weight:700;cursor:pointer;" class="<?= $v === 0 ? 'bo-zero' : '' ?>"><?= $v ?: '0' ?></td>
                                 <?php endforeach; ?>
-                                <td style="font-weight:700;"><?= fmtDecimal($linha['mediaExec']) ?></td>
-                                <td style="font-weight:700;"><?= number_format($linha['somaExec'], 0, ',', '.') ?></td>
+                                <td style="text-align:center;font-weight:800;background:var(--color-surface-2);"><?= fmtDecimal($linha['mediaExec']) ?></td>
+                                <td style="text-align:center;font-weight:800;background:var(--color-surface-2);"><?= number_format($linha['somaExec'], 0, ',', '.') ?></td>
                             </tr>
-                            <!-- Linha 2: Meta Diária -->
+                            <!-- Linha 2: Meta -->
                             <tr>
-                                <td style="text-align:left;color:var(--color-text-secondary);">Meta Diária</td>
+                                <td style="text-align:left;font-weight:600;color:var(--color-text-secondary);"><?= htmlspecialchars($linha['info']['label_meta']) ?></td>
                                 <?php foreach ($diasDoMes as $d): ?>
-                                    <td style="color:var(--color-text-secondary);"><?= (int) $linha['info']['meta'] ?></td>
+                                    <td data-dia="<?= $d ?>" style="text-align:center;color:var(--color-text-secondary);cursor:pointer;"><?= (int) $linha['info']['meta'] ?></td>
                                 <?php endforeach; ?>
-                                <td style="color:var(--color-text-secondary);"><?= (int) $linha['info']['meta'] ?></td>
-                                <td style="color:var(--color-text-secondary);"><?= number_format($linha['somaMeta'], 0, ',', '.') ?></td>
+                                <td style="text-align:center;font-weight:700;background:var(--color-surface-2);"><?= (int) $linha['info']['meta'] ?></td>
+                                <td style="text-align:center;font-weight:700;background:var(--color-surface-2);"><?= number_format($linha['somaMeta'], 0, ',', '.') ?></td>
                             </tr>
-                            <!-- Linha 3: Diferença Média Diária -->
+                            <!-- Linha 3: Diferença -->
                             <tr>
-                                <td style="text-align:left;">Diferença Média Diária</td>
-                                <?php foreach ($linha['diffs'] as $v):
-                                    $corDiff = $v > 0 ? '#16a34a' : ($v < 0 ? '#dc2626' : 'inherit');
-                                ?>
-                                    <td style="color:<?= $corDiff ?>;font-weight:600;"><?= ($v > 0 ? '+' : '') . fmtDecimal($v) ?></td>
+                                <td style="text-align:left;font-weight:600;"><?= htmlspecialchars($linha['info']['label_diff']) ?></td>
+                                <?php foreach ($linha['diffs'] as $i => $diff): ?>
+                                    <td data-dia="<?= $diasDoMes[$i] ?>" style="text-align:center;font-weight:600;cursor:pointer;color:<?= $diff < 0 ? '#dc2626' : ($diff > 0 ? '#16a34a' : 'inherit') ?>;">
+                                        <?= $diff > 0 ? '+' . $diff : ($diff < 0 ? $diff : '0') ?>
+                                    </td>
                                 <?php endforeach; ?>
-                                <td style="font-weight:700;color:<?= $linha['diffMedia'] >= 0 ? '#16a34a' : '#dc2626' ?>;"><?= ($linha['diffMedia'] > 0 ? '+' : '') . fmtDecimal($linha['diffMedia']) ?></td>
-                                <td style="font-weight:700;color:<?= $linha['diffTotal'] >= 0 ? '#16a34a' : '#dc2626' ?>;"><?= ($linha['diffTotal'] > 0 ? '+' : '') . number_format($linha['diffTotal'], 0, ',', '.') ?></td>
+                                <td style="text-align:center;font-weight:700;background:var(--color-surface-2);color:<?= $linha['diffMedia'] < 0 ? '#dc2626' : ($linha['diffMedia'] > 0 ? '#16a34a' : 'inherit') ?>;">
+                                    <?= $linha['diffMedia'] > 0 ? '+' . fmtDecimal($linha['diffMedia']) : fmtDecimal($linha['diffMedia']) ?>
+                                </td>
+                                <td style="text-align:center;font-weight:700;background:var(--color-surface-2);color:<?= $linha['diffTotal'] < 0 ? '#dc2626' : ($linha['diffTotal'] > 0 ? '#16a34a' : 'inherit') ?>;">
+                                    <?= $linha['diffTotal'] > 0 ? '+' . number_format($linha['diffTotal'], 0, ',', '.') : number_format($linha['diffTotal'], 0, ',', '.') ?>
+                                </td>
                             </tr>
-                            <!-- Linha 4: % Atingimento da Meta Diária -->
+                            <!-- Linha 4: % Executado -->
                             <tr>
-                                <td style="text-align:left;">% Realizado / Meta Diária</td>
-                                <?php foreach ($linha['pcts'] as $v):
-                                    $corPct = $v >= 100 ? '#16a34a' : ($v > 0 ? '#ea580c' : 'inherit');
-                                ?>
-                                    <td style="color:<?= $corPct ?>;font-weight:600;"><?= $v > 0 ? $v . '%' : '—' ?></td>
+                                <td style="text-align:left;font-weight:600;"><?= htmlspecialchars($linha['info']['label_pct']) ?></td>
+                                <?php foreach ($linha['pcts'] as $i => $pct): ?>
+                                    <td data-dia="<?= $diasDoMes[$i] ?>" style="text-align:center;font-weight:600;cursor:pointer;color:<?= $pct >= 100 ? '#16a34a' : ($pct > 0 ? 'var(--color-text-primary)' : 'var(--color-text-muted)') ?>;">
+                                        <?= $pct ?>%
+                                    </td>
                                 <?php endforeach; ?>
-                                <td style="font-weight:700;color:<?= $linha['pctMedia'] >= 100 ? '#16a34a' : '#ea580c' ?>;"><?= $linha['pctMedia'] ?>%</td>
-                                <td style="font-weight:700;color:<?= $linha['pctTotal'] >= 100 ? '#16a34a' : '#ea580c' ?>;"><?= $linha['pctTotal'] ?>%</td>
+                                <td style="text-align:center;font-weight:800;background:var(--color-surface-2);color:<?= $linha['pctMedia'] >= 100 ? '#16a34a' : 'inherit' ?>;">
+                                    <?= $linha['pctMedia'] ?>%
+                                </td>
+                                <td style="text-align:center;font-weight:800;background:var(--color-surface-2);color:<?= $linha['pctTotal'] >= 100 ? '#16a34a' : 'inherit' ?>;">
+                                    <?= $linha['pctTotal'] ?>%
+                                </td>
                             </tr>
                         </tbody>
                     </table>
@@ -1024,9 +1051,10 @@ $pctMetaMensal = $metaTotalForca > 0 ? round(($totalRealAteHoje / $metaTotalForc
         percentual: <?= json_encode($seriePercentual) ?>,
         acumuladoReal: <?= json_encode($acumuladoReal) ?>,
         acumuladoMeta: <?= json_encode($acumuladoMeta) ?>,
+        acumuladoTendencia: <?= json_encode($acumuladoTendencia) ?>,
         mixPorDia: <?= json_encode($mixPorDia) ?>,
         diaPadraoMix: <?= json_encode($diaPadraoMix) ?>,
-        dadosLinhas: <?= json_encode($dadosProducaoPorLinha) ?>,
+        producaoPorLinha: <?= json_encode($dadosProducaoPorLinha, JSON_UNESCAPED_UNICODE) ?>,
         mesTxt: <?= json_encode($mesTxt) ?>,
     };
     window.CALENDARIO_DIAS = <?= json_encode($todosDiasCalendario) ?>;

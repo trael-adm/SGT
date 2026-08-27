@@ -11,7 +11,7 @@ requireLogin();
 $pdo        = getDB();
 $usuario    = currentUser();
 $base       = defined('APP_URL') ? APP_URL : '';
-$podeEditar = isAdmin() || !in_array((int) ($usuario['id_perfil'] ?? 0), [4, 211], true);
+$podeEditar = isAdmin() || (podeEditar('prod.dis') && !in_array((int) ($usuario['id_perfil'] ?? 0), [4, 211], true));
 
 // ─── Mês e Intervalo de Datas do relatório ──────────────────────────────────
 $modoData   = trim((string) ($_GET['modo_data'] ?? ''));
@@ -895,7 +895,7 @@ $pctMetaMensal = $metaTpdDistribuicao > 0 ? round(($totalRealAteHoje / $metaTpdD
                             <tr>
                                 <th style="text-align:left;font-weight:700;background:var(--color-surface-2);white-space:nowrap;padding-left:10px;min-width:140px;">Indicador</th>
                                 <?php foreach ($diasDoMes as $d): ?>
-                                    <th style="text-align:center;"><?= date('d/m', strtotime($d)) ?></th>
+                                    <th data-dia="<?= $d ?>" style="text-align:center;cursor:pointer;"><?= date('d/m', strtotime($d)) ?></th>
                                 <?php endforeach; ?>
                                 <th style="text-align:center;background:var(--color-surface-2);font-weight:800;color:var(--color-text-primary);">MÉDIA</th>
                                 <th style="text-align:center;background:var(--color-surface-2);font-weight:800;color:var(--color-text-primary);">SOMA</th>
@@ -905,8 +905,8 @@ $pctMetaMensal = $metaTpdDistribuicao > 0 ? round(($totalRealAteHoje / $metaTpdD
                             <!-- Linha 1: Executado -->
                             <tr>
                                 <td style="text-align:left;font-weight:700;"><?= htmlspecialchars($linha['info']['label_exec']) ?></td>
-                                <?php foreach ($linha['execs'] as $v): ?>
-                                    <td style="text-align:center;font-weight:700;" class="<?= $v === 0 ? 'bo-zero' : '' ?>"><?= $v ?: '0' ?></td>
+                                <?php foreach ($linha['execs'] as $i => $v): ?>
+                                    <td data-dia="<?= $diasDoMes[$i] ?>" style="text-align:center;font-weight:700;cursor:pointer;" class="<?= $v === 0 ? 'bo-zero' : '' ?>"><?= $v ?: '0' ?></td>
                                 <?php endforeach; ?>
                                 <td style="text-align:center;font-weight:800;background:var(--color-surface-2);"><?= fmtDecimal($linha['mediaExec']) ?></td>
                                 <td style="text-align:center;font-weight:800;background:var(--color-surface-2);"><?= number_format($linha['somaExec'], 0, ',', '.') ?></td>
@@ -915,7 +915,7 @@ $pctMetaMensal = $metaTpdDistribuicao > 0 ? round(($totalRealAteHoje / $metaTpdD
                             <tr>
                                 <td style="text-align:left;font-weight:600;color:var(--color-text-secondary);"><?= htmlspecialchars($linha['info']['label_meta']) ?></td>
                                 <?php foreach ($diasDoMes as $d): ?>
-                                    <td style="text-align:center;color:var(--color-text-secondary);"><?= (int) $linha['info']['meta'] ?></td>
+                                    <td data-dia="<?= $d ?>" style="text-align:center;color:var(--color-text-secondary);cursor:pointer;"><?= (int) $linha['info']['meta'] ?></td>
                                 <?php endforeach; ?>
                                 <td style="text-align:center;font-weight:700;background:var(--color-surface-2);"><?= (int) $linha['info']['meta'] ?></td>
                                 <td style="text-align:center;font-weight:700;background:var(--color-surface-2);"><?= number_format($linha['somaMeta'], 0, ',', '.') ?></td>
@@ -923,8 +923,8 @@ $pctMetaMensal = $metaTpdDistribuicao > 0 ? round(($totalRealAteHoje / $metaTpdD
                             <!-- Linha 3: Diferença -->
                             <tr>
                                 <td style="text-align:left;font-weight:600;"><?= htmlspecialchars($linha['info']['label_diff']) ?></td>
-                                <?php foreach ($linha['diffs'] as $diff): ?>
-                                    <td style="text-align:center;font-weight:600;color:<?= $diff < 0 ? '#dc2626' : ($diff > 0 ? '#16a34a' : 'inherit') ?>;">
+                                <?php foreach ($linha['diffs'] as $i => $diff): ?>
+                                    <td data-dia="<?= $diasDoMes[$i] ?>" style="text-align:center;font-weight:600;cursor:pointer;color:<?= $diff < 0 ? '#dc2626' : ($diff > 0 ? '#16a34a' : 'inherit') ?>;">
                                         <?= $diff > 0 ? '+' . $diff : ($diff < 0 ? $diff : '0') ?>
                                     </td>
                                 <?php endforeach; ?>
@@ -938,8 +938,8 @@ $pctMetaMensal = $metaTpdDistribuicao > 0 ? round(($totalRealAteHoje / $metaTpdD
                             <!-- Linha 4: % Executado -->
                             <tr>
                                 <td style="text-align:left;font-weight:600;"><?= htmlspecialchars($linha['info']['label_pct']) ?></td>
-                                <?php foreach ($linha['pcts'] as $pct): ?>
-                                    <td style="text-align:center;font-weight:600;color:<?= $pct >= 100 ? '#16a34a' : ($pct > 0 ? 'var(--color-text-primary)' : 'var(--color-text-muted)') ?>;">
+                                <?php foreach ($linha['pcts'] as $i => $pct): ?>
+                                    <td data-dia="<?= $diasDoMes[$i] ?>" style="text-align:center;font-weight:600;cursor:pointer;color:<?= $pct >= 100 ? '#16a34a' : ($pct > 0 ? 'var(--color-text-primary)' : 'var(--color-text-muted)') ?>;">
                                         <?= $pct ?>%
                                     </td>
                                 <?php endforeach; ?>

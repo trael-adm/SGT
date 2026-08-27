@@ -8,8 +8,34 @@
 
     var DATA = window.BOLETIM_CHART_DATA || {};
     var CORES = { TPD: '#82c341', TPS: '#4a90e2', TPM: '#00a86b', LAB: '#dc2626' };
+
+    // Coluna "Tipo Construtivo" no modal de análise só existe na Média Força
+    var elThTipoConstrutivo = document.getElementById('modal-th-tipo-construtivo');
+    if (elThTipoConstrutivo) elThTipoConstrutivo.style.display = '';
     var VERDE  = '#16a34a'; // Realizado
     var AMBAR  = '#e8a020'; // Planejado / Meta
+    var TENDENCIA = '#7c3aed'; // Tendência de Fábrica (ritmo atual projetado)
+
+    // ─── Glow sincronizado na coluna do dia na tabela de núcleos (retângulo único) ──
+    // Escopado a #card-producao-quantidade para não vazar para as tabelas de
+    // "Produção por Linha" (que também usam .bo-nucleo-table + [data-dia] e têm
+    // seu próprio glow, isolado por bloco — ver mais abaixo).
+    function boClearColGlow() {
+        document.querySelectorAll('#card-producao-quantidade .bo-col-glow').forEach(function (el) {
+            el.classList.remove('bo-col-glow', 'bo-col-glow-top', 'bo-col-glow-bottom');
+        });
+    }
+    function boApplyColGlow(dataYmd) {
+        boClearColGlow();
+        var cells = document.querySelectorAll('#card-producao-quantidade [data-dia="' + dataYmd + '"]');
+        cells.forEach(function (el) {
+            el.classList.add('bo-col-glow');
+        });
+        if (cells.length > 0) {
+            cells[0].classList.add('bo-col-glow-top');
+            cells[cells.length - 1].classList.add('bo-col-glow-bottom');
+        }
+    }
 
     // ─── Plugin para desenhar o Glow no quadrante do dia inteiro no gráfico ──
     var dayColumnGlowPlugin = {
@@ -170,16 +196,13 @@
                         chart.draw();
                     }
 
-                    document.querySelectorAll('.bo-nucleo-table .bo-col-glow').forEach(function (el) {
-                        el.classList.remove('bo-col-glow');
-                    });
                     if (dayIndex !== null && DATA.dias && DATA.dias[dayIndex] !== undefined) {
                         var diaNum = DATA.dias[dayIndex];
                         var mes = window.MES_REFERENCIA || (new Date().toISOString().substring(0, 7));
                         var dataYmd = mes + '-' + String(diaNum).padStart(2, '0');
-                        document.querySelectorAll('.bo-nucleo-table [data-dia="' + dataYmd + '"]').forEach(function (el) {
-                            el.classList.add('bo-col-glow');
-                        });
+                        boApplyColGlow(dataYmd);
+                    } else {
+                        boClearColGlow();
                     }
                 },
                 onClick: function (evt, elements, chart) {
@@ -221,20 +244,16 @@
                 chartProducaoInstance._hoveredDayIndex = null;
                 chartProducaoInstance.draw();
             }
-            document.querySelectorAll('.bo-nucleo-table .bo-col-glow').forEach(function (el) {
-                el.classList.remove('bo-col-glow');
-            });
+            boClearColGlow();
         });
 
         // Sincronização de Glow ao passar o mouse na tabela de linhas
-        document.querySelectorAll('.bo-nucleo-table [data-dia]').forEach(function (cell) {
+        document.querySelectorAll('#card-producao-quantidade [data-dia]').forEach(function (cell) {
             cell.style.cursor = 'pointer';
             cell.addEventListener('mouseenter', function () {
                 var d = this.getAttribute('data-dia');
                 if (!d) return;
-                document.querySelectorAll('.bo-nucleo-table [data-dia="' + d + '"]').forEach(function (el) {
-                    el.classList.add('bo-col-glow');
-                });
+                boApplyColGlow(d);
                 if (chartProducaoInstance && DATA.dias) {
                     var partes = d.split('-');
                     var diaNum = parseInt(partes[2] || d, 10);
@@ -246,9 +265,7 @@
                 }
             });
             cell.addEventListener('mouseleave', function () {
-                document.querySelectorAll('.bo-nucleo-table .bo-col-glow').forEach(function (el) {
-                    el.classList.remove('bo-col-glow');
-                });
+                boClearColGlow();
                 if (chartProducaoInstance) {
                     chartProducaoInstance._hoveredDayIndex = null;
                     chartProducaoInstance.draw();
@@ -326,6 +343,16 @@
                         data: DATA.acumuladoMeta,
                         borderColor: AMBAR,
                         borderDash: [6, 4],
+                        fill: false,
+                        pointRadius: 0,
+                        datalabels: { display: false },
+                    },
+                    {
+                        label: 'Tendência de Fábrica',
+                        data: DATA.acumuladoTendencia,
+                        borderColor: TENDENCIA,
+                        borderDash: [2, 2],
+                        borderWidth: 2,
                         fill: false,
                         pointRadius: 0,
                         datalabels: { display: false },
@@ -458,74 +485,155 @@
 
     // ─── 5. Gráficos "Produção por Linha" (TPD, TPS, TPM) ──────────────────────
     var chartsLinhas = {};
-    if (DATA.dadosLinhas && DATA.diasFormatados) {
+    if (DATA.producaoPorLinha && DATA.diasFormatados) {
         var labelsComMedia = DATA.diasFormatados.concat(['MÉDIA']);
 
         ['TPD', 'TPS', 'TPM'].forEach(function (c) {
             var elCanvas = document.getElementById('chart-linha-' + c.toLowerCase());
-            var linhaData = DATA.dadosLinhas[c];
+            var linhaData = DATA.producaoPorLinha[c];
             if (!elCanvas || !linhaData) return;
 
             var valoresComMedia = linhaData.execs.concat([linhaData.mediaExec || 0]);
             var corPrincipal = linhaData.info.cor || CORES[c];
 
+            // Cores: mesma cor para os dias e destaque na barra de MÉDIA
             var bgColors = linhaData.execs.map(function () { return corPrincipal; });
             bgColors.push(corPrincipal);
 
+            var maxVal = Math.max.apply(null, valoresComMedia);
+
             chartsLinhas[c] = new Chart(elCanvas, {
                 type: 'bar',
+                plugins: [dayColumnGlowPlugin],
                 data: {
                     labels: labelsComMedia,
-                    datasets: [
-                        {
-                            label: 'Produção Realizada',
-                            data: valoresComMedia,
-                            backgroundColor: bgColors,
-                            borderRadius: 3,
-                            datalabels: {
-                                display: true,
-                                anchor: 'end',
-                                align: 'top',
-                                offset: 2,
-                                color: function (ctx) {
-                                    return ctx.dataIndex === valoresComMedia.length - 1 ? '#0f172a' : corPrincipal;
-                                },
-                                font: { weight: 'bold', size: 10 },
-                                formatter: function (v) { return v || ''; },
-                            },
-                        },
-                    ],
+                    datasets: [{
+                        data: valoresComMedia,
+                        backgroundColor: bgColors,
+                        borderRadius: 3,
+                        datalabels: {
+                            display: true,
+                            anchor: 'end',
+                            align: 'top',
+                            offset: 2,
+                            color: '#1e293b',
+                            font: { weight: 'bold', size: 10 },
+                            formatter: function (v) {
+                                if (!v || v <= 0) return '';
+                                return Number.isInteger(v) ? v : v.toFixed(1);
+                            }
+                        }
+                    }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    layout: { padding: { top: 24 } },
+                    onHover: function (evt, elements, chart) {
+                        var pts = chart.getElementsAtEventForMode(evt, 'index', { intersect: false }, true);
+                        var idx = (pts && pts.length > 0 && pts[0].index < linhaData.execs.length) ? pts[0].index : null;
+                        if (chart._hoveredDayIndex !== idx) {
+                            chart._hoveredDayIndex = idx;
+                            chart.draw();
+                        }
+                        var bloco = elCanvas.closest('.bloco-linha-prod');
+                        if (bloco) linhaAplicarGlow(bloco, idx);
+                    },
                     scales: {
                         x: {
                             grid: { display: false },
-                            ticks: { font: { size: 10, weight: '600' } },
+                            ticks: {
+                                font: function (ctx) {
+                                    return ctx.tick && ctx.tick.label === 'MÉDIA'
+                                        ? { weight: 'bold', size: 11 }
+                                        : { size: 10 };
+                                }
+                            }
                         },
                         y: {
                             beginAtZero: true,
-                            grid: { color: 'rgba(0,0,0,0.06)' },
-                        },
+                            suggestedMax: maxVal > 0 ? maxVal * 1.22 : 10,
+                            ticks: { font: { size: 10 } }
+                        }
                     },
                     plugins: {
                         legend: { display: false },
                         tooltip: {
                             callbacks: {
-                                title: function (items) {
-                                    return items[0].label === 'MÉDIA' ? 'Média Diária Realizada' : 'Dia ' + items[0].label;
-                                },
                                 label: function (ctx) {
-                                    return ' ' + ctx.dataset.label + ': ' + ctx.parsed.y + ' un';
-                                },
-                            },
-                        },
-                    },
-                },
+                                    var isMedia = ctx.label === 'MÉDIA';
+                                    return (isMedia ? 'Média Diária: ' : 'Produção: ') + ctx.raw + ' un';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            elCanvas.addEventListener('mouseleave', function () {
+                var chart = chartsLinhas[c];
+                if (chart) { chart._hoveredDayIndex = null; chart.draw(); }
+                var bloco = elCanvas.closest('.bloco-linha-prod');
+                if (bloco) linhaLimparGlow(bloco);
             });
         });
     }
+
+    // Glow sincronizado nas colunas das tabelas de "Produção por Linha" (um retângulo
+    // por bloco/linha, igual ao da tabela "Produção - Laboratório" — ver bo-col-glow),
+    // e no quadrante do gráfico daquele mesmo bloco (dayColumnGlowPlugin).
+    function linhaLimparGlow(bloco) {
+        bloco.querySelectorAll('.bo-col-glow').forEach(function (el) {
+            el.classList.remove('bo-col-glow', 'bo-col-glow-top', 'bo-col-glow-bottom');
+        });
+    }
+    function linhaAplicarGlow(bloco, idx) {
+        linhaLimparGlow(bloco);
+        if (idx === null || idx === undefined || idx < 0) return;
+        var linhas = bloco.querySelectorAll('tbody tr');
+        var cells = [];
+        linhas.forEach(function (tr) {
+            var tds = tr.querySelectorAll('[data-dia]');
+            if (tds[idx]) cells.push(tds[idx]);
+        });
+        var ths = bloco.querySelectorAll('thead [data-dia]');
+        if (ths[idx]) cells.unshift(ths[idx]);
+        cells.forEach(function (el) { el.classList.add('bo-col-glow'); });
+        if (cells.length > 0) {
+            cells[0].classList.add('bo-col-glow-top');
+            cells[cells.length - 1].classList.add('bo-col-glow-bottom');
+        }
+    }
+    document.querySelectorAll('.bloco-linha-prod [data-dia]').forEach(function (cell) {
+        cell.addEventListener('mouseenter', function () {
+            var bloco = this.closest('.bloco-linha-prod');
+            var tr = this.closest('tr');
+            if (!bloco || !tr) return;
+            var idx = Array.prototype.indexOf.call(tr.children, this) - 1;
+            linhaAplicarGlow(bloco, idx);
+
+            var canvas = bloco.querySelector('canvas');
+            var chartKey = canvas ? canvas.id.replace('chart-linha-', '').toUpperCase() : null;
+            var chartInst = chartKey ? chartsLinhas[chartKey] : null;
+            if (chartInst && idx >= 0) {
+                chartInst._hoveredDayIndex = idx;
+                chartInst.draw();
+            }
+        });
+        cell.addEventListener('mouseleave', function () {
+            var bloco = this.closest('.bloco-linha-prod');
+            if (!bloco) return;
+            linhaLimparGlow(bloco);
+
+            var canvas = bloco.querySelector('canvas');
+            var chartKey = canvas ? canvas.id.replace('chart-linha-', '').toUpperCase() : null;
+            var chartInst = chartKey ? chartsLinhas[chartKey] : null;
+            if (chartInst) {
+                chartInst._hoveredDayIndex = null;
+                chartInst.draw();
+            }
+        });
+    });
 
     // ─── Funções de Impressão (A4 Paisagem) ──────────────────────────────────
     window.imprimirProducaoQuantidade = function () {
@@ -667,48 +775,56 @@
         printWin.document.close();
     };
 
+    // Função para imprimir os 3 blocos de "Produção por Linha" exatamente em 1 página A4 Paisagem
     window.imprimirProducaoPorLinha = function () {
-        var cardEl = document.getElementById('card-producao-por-linha');
-        if (!cardEl) {
-            alert('Elemento de Produção por Linha não encontrado.');
+        var tpdCanvas = document.getElementById('chart-linha-tpd');
+        var tpsCanvas = document.getElementById('chart-linha-tps');
+        var tpmCanvas = document.getElementById('chart-linha-tpm');
+
+        var tpdImg = tpdCanvas ? tpdCanvas.toDataURL('image/png') : '';
+        var tpsImg = tpsCanvas ? tpsCanvas.toDataURL('image/png') : '';
+        var tpmImg = tpmCanvas ? tpmCanvas.toDataURL('image/png') : '';
+
+        var areaEl = document.getElementById('area-print-producao-linhas');
+        if (!areaEl) {
+            alert('Área de impressão não encontrada.');
             return;
         }
 
-        var blocos = cardEl.querySelectorAll('.bloco-linha-prod');
-        var blocosHtml = '';
+        var titulos = [
+            'TPD (ATÉ 300 kVA) - PRODUÇÃO',
+            'TPS (SECO) - PRODUÇÃO',
+            'TPM (> 300 kVA) - PRODUÇÃO'
+        ];
+
+        var blocos = areaEl.querySelectorAll('.bloco-linha-prod');
+        var htmlBlocos = '';
 
         blocos.forEach(function (bloco, idx) {
-            var canvas = bloco.querySelector('canvas');
-            var imgData = canvas ? canvas.toDataURL('image/png') : '';
-            var titulo = bloco.querySelector('h3') ? bloco.querySelector('h3').textContent.trim() : ('Linha ' + (idx + 1));
-            var corSpan = bloco.querySelector('span[style*="background"]');
-            var corBg = corSpan ? corSpan.style.backgroundColor : '#82c341';
-            var headerMetricas = bloco.querySelector('div[style*="font-size:12px"]') ? bloco.querySelector('div[style*="font-size:12px"]').innerHTML : '';
-            var tabelaEl = bloco.querySelector('.bo-table-wrap');
-            var tabelaHtml = tabelaEl ? tabelaEl.innerHTML : '';
+            var titulo = titulos[idx] || (bloco.querySelector('h3') ? bloco.querySelector('h3').textContent.trim() : '');
+            var tabela = bloco.querySelector('table') ? bloco.querySelector('table').outerHTML : '';
+            var imgTag = '';
+            if (idx === 0 && tpdImg) imgTag = `<img src="${tpdImg}" alt="${titulo}">`;
+            if (idx === 1 && tpsImg) imgTag = `<img src="${tpsImg}" alt="${titulo}">`;
+            if (idx === 2 && tpmImg) imgTag = `<img src="${tpmImg}" alt="${titulo}">`;
 
-            blocosHtml += `
-                <div class="bloco-print">
-                    <div class="bloco-header">
-                        <div class="bloco-titulo">
-                            <span class="dot" style="background:${corBg};"></span>
-                            <h3>${titulo}</h3>
-                        </div>
-                        <div class="bloco-metricas">
-                            ${headerMetricas}
-                        </div>
+            htmlBlocos += `
+                <div class="bloco-linha">
+                    <div class="bloco-lateral">
+                        <span>${titulo}</span>
                     </div>
-                    <div class="chart-box">
-                        <img src="${imgData}" alt="${titulo}">
-                    </div>
-                    <div class="tabela-box">
-                        ${tabelaHtml}
+                    <div class="bloco-conteudo">
+                        <div class="bloco-grafico">
+                            ${imgTag}
+                        </div>
+                        <div class="bloco-tabela">
+                            ${tabela}
+                        </div>
                     </div>
                 </div>
             `;
         });
 
-        var mesTxt = DATA.mesTxt || 'Média Força / Seco';
         var printWin = window.open('', '_blank', 'width=1150,height=850');
         if (!printWin) {
             alert('Por favor, permita popups para imprimir o relatório.');
@@ -720,31 +836,172 @@
             <html lang="pt-BR">
             <head>
                 <meta charset="utf-8">
-                <title>PRODUÇÃO POR LINHA - MÉDIA FORÇA / SECO — ${mesTxt}</title>
+                <title>Produção por Linha - Média Força / Seco</title>
                 <style>
-                    @page { size: A4 landscape; margin: 4mm 6mm; }
-                    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-                    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background: #ffffff; color: #0f172a; padding: 2px 4px; }
-                    .page-title { font-size: 14px; font-weight: 800; color: #0f172a; margin-bottom: 4px; text-transform: uppercase; }
-                    .bloco-print { border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; background: #ffffff; }
-                    .bloco-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-                    .bloco-titulo { display: flex; align-items: center; gap: 6px; }
-                    .bloco-titulo h3 { font-size: 11px; font-weight: 800; color: #0f172a; }
-                    .bloco-titulo .dot { width: 10px; height: 10px; border-radius: 2px; }
-                    .bloco-metricas { font-size: 9.5px; font-weight: 700; color: #475569; display: flex; gap: 12px; }
-                    .bloco-metricas strong { color: #0f172a; }
-                    .chart-box { width: 100%; height: 38mm; display: flex; align-items: center; justify-content: center; margin-bottom: 3px; }
-                    .chart-box img { width: 100%; height: 100%; object-fit: fill; }
-                    .tabela-box table { width: 100% !important; border-collapse: collapse !important; font-size: 7.5px !important; text-align: center; }
-                    .tabela-box th, .tabela-box td { padding: 2px 3px !important; border: 1px solid #e2e8f0 !important; white-space: nowrap !important; line-height: 1.15 !important; }
-                    .tabela-box th { background: #f8fafc !important; font-weight: 700 !important; color: #475569 !important; }
-                    .tabela-box td:first-child, .tabela-box th:first-child { text-align: left !important; min-width: 90px !important; width: 10% !important; padding-left: 4px !important; }
+                    @page {
+                        size: A4 landscape;
+                        margin: 2.5mm 3.5mm;
+                    }
+                    * {
+                        box-sizing: border-box;
+                        margin: 0;
+                        padding: 0;
+                        -webkit-print-color-adjust: exact !important;
+                        print-color-adjust: exact !important;
+                    }
+                    html, body {
+                        width: 100%;
+                        height: 100%;
+                        background: #ffffff;
+                        color: #0f172a;
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+                        overflow: hidden;
+                    }
+                    .print-container {
+                        width: 100%;
+                        height: 100%;
+                        display: flex;
+                        flex-direction: column;
+                        justify-content: space-between;
+                    }
+                    .print-header {
+                        text-align: center;
+                        padding: 0;
+                        margin-bottom: 2px;
+                    }
+                    .print-header h1 {
+                        font-size: 13px;
+                        font-weight: 900;
+                        color: #0f172a;
+                        letter-spacing: 0.5px;
+                        text-transform: uppercase;
+                        line-height: 1.1;
+                    }
+                    .blocos-wrapper {
+                        flex: 1;
+                        display: flex;
+                        flex-direction: column;
+                        justify-content: space-between;
+                        gap: 3px;
+                        height: calc(100% - 18px);
+                    }
+                    .bloco-linha {
+                        display: flex;
+                        flex-direction: row;
+                        border: 1px solid #64748b;
+                        border-radius: 2px;
+                        height: calc((100% - 6px) / 3);
+                        max-height: calc((100% - 6px) / 3);
+                        box-sizing: border-box;
+                        overflow: hidden;
+                        page-break-inside: avoid;
+                    }
+                    .bloco-lateral {
+                        width: 24px;
+                        min-width: 24px;
+                        max-width: 24px;
+                        background: #f8fafc;
+                        border-right: 1px solid #64748b;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        box-sizing: border-box;
+                    }
+                    .bloco-lateral span {
+                        writing-mode: vertical-rl;
+                        transform: rotate(180deg);
+                        white-space: nowrap;
+                        font-size: 8px;
+                        font-weight: 800;
+                        color: #0f172a;
+                        letter-spacing: 0.5px;
+                        text-transform: uppercase;
+                    }
+                    .bloco-conteudo {
+                        flex: 1;
+                        display: flex;
+                        flex-direction: column;
+                        width: calc(100% - 24px);
+                        height: 100%;
+                        box-sizing: border-box;
+                    }
+                    .bloco-grafico {
+                        height: 53%;
+                        width: 100%;
+                        border-bottom: 1px solid #cbd5e1;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        overflow: hidden;
+                        background: #ffffff;
+                    }
+                    .bloco-grafico img {
+                        width: 100%;
+                        height: 100%;
+                        object-fit: fill;
+                        display: block;
+                    }
+                    .bloco-tabela {
+                        height: 47%;
+                        width: 100%;
+                        display: flex;
+                        box-sizing: border-box;
+                        overflow: hidden;
+                    }
+                    .bloco-tabela table {
+                        width: 100% !important;
+                        height: 100% !important;
+                        border-collapse: collapse !important;
+                        table-layout: fixed !important;
+                        font-size: 7.8px !important;
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif !important;
+                    }
+                    .bloco-tabela th, .bloco-tabela td {
+                        border: 0.5px solid #cbd5e1 !important;
+                        padding: 1px 1px !important;
+                        text-align: center !important;
+                        line-height: 1.1 !important;
+                        overflow: hidden !important;
+                        text-overflow: ellipsis !important;
+                        white-space: nowrap !important;
+                        font-size: 7.8px !important;
+                    }
+                    .bloco-tabela th {
+                        background: #f1f5f9 !important;
+                        font-weight: 700 !important;
+                        color: #1e293b !important;
+                    }
+                    .bloco-tabela th:first-child, .bloco-tabela td:first-child {
+                        width: 13.5% !important;
+                        min-width: 0 !important;
+                        text-align: left !important;
+                        padding-left: 3px !important;
+                        font-weight: 700 !important;
+                    }
+                    .bloco-tabela th:nth-last-child(2), .bloco-tabela td:nth-last-child(2),
+                    .bloco-tabela th:last-child, .bloco-tabela td:last-child {
+                        width: 4.2% !important;
+                        font-weight: 800 !important;
+                        background: #f8fafc !important;
+                    }
                 </style>
             </head>
             <body>
-                <div class="page-title">PRODUÇÃO POR LINHA - MÉDIA FORÇA / SECO — ${mesTxt}</div>
-                ${blocosHtml}
-                <script>window.onload = function() { setTimeout(function() { window.print(); }, 300); };<\/script>
+                <div class="print-container">
+                    <div class="print-header">
+                        <h1>PRODUÇÃO POR LINHA - MÉDIA FORÇA / SECO</h1>
+                    </div>
+                    <div class="blocos-wrapper">
+                        ${htmlBlocos}
+                    </div>
+                </div>
+                <script>
+                    window.onload = function() {
+                        setTimeout(function() {
+                            window.print();
+                        }, 300);
+                    };
+                <\/script>
             </body>
             </html>
         `);
@@ -1074,7 +1331,63 @@
         if (!modal) return;
         modal.classList.remove('open');
         document.body.style.overflow = '';
+        closeSeriePopover();
     };
+
+    // ─── Popover da lista completa de Nº de Série (botão de expandir na tabela) ──
+    function closeSeriePopover() {
+        var pop = document.querySelector('.serie-popover');
+        if (!pop) return;
+        if (pop._ownerBtn) pop._ownerBtn.classList.remove('is-open');
+        pop.remove();
+    }
+
+    window.toggleSeriePopover = function (evt, btn) {
+        evt.stopPropagation();
+        var jaAberto = btn.classList.contains('is-open');
+        closeSeriePopover();
+        if (jaAberto) return;
+
+        var seriesList = (btn.getAttribute('data-series') || '').split(',').filter(Boolean);
+        if (seriesList.length === 0) return;
+
+        var pop = document.createElement('div');
+        pop.className = 'serie-popover';
+        pop._ownerBtn = btn;
+        var tituloPopover = seriesList.length === 1 ? '1 Número de Série' : (seriesList.length + ' Números de Série');
+        pop.innerHTML = '<div class="serie-popover-title">' + tituloPopover + '</div>' +
+            '<div class="serie-popover-list">' +
+            seriesList.map(function (s) { return '<span class="serie-popover-item">' + escapeHtml(s) + '</span>'; }).join('') +
+            '</div>';
+        document.body.appendChild(pop);
+
+        var rect = btn.getBoundingClientRect();
+        var popRect = pop.getBoundingClientRect();
+        var top = rect.bottom + 4;
+        if (top + popRect.height > window.innerHeight - 8) {
+            top = rect.top - popRect.height - 4;
+        }
+        var left = rect.left;
+        if (left + popRect.width > window.innerWidth - 8) {
+            left = window.innerWidth - popRect.width - 8;
+        }
+        pop.style.top = Math.max(8, top) + 'px';
+        pop.style.left = Math.max(8, left) + 'px';
+
+        btn.classList.add('is-open');
+    };
+
+    document.addEventListener('click', function (e) {
+        if (e.target.closest && e.target.closest('.serie-cell-btn, .serie-popover')) return;
+        closeSeriePopover();
+    });
+    document.addEventListener('scroll', function (e) {
+        if (e.target && e.target.closest && e.target.closest('.serie-popover')) return;
+        closeSeriePopover();
+    }, true);
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeSeriePopover();
+    });
 
     function normalizarNomeCliente(nome, tpMercado) {
         if (!nome) return 'Trael';
@@ -1457,6 +1770,42 @@
         window.filtrarTabelaPecasModal();
     };
 
+    function formatarFaixaSeries(seriesArray) {
+        if (!seriesArray || seriesArray.length === 0) return { texto: '—', title: '', lista: [] };
+        var unicos = Array.from(new Set(seriesArray.filter(Boolean)));
+        if (unicos.length === 0) return { texto: '—', title: '', lista: [] };
+        if (unicos.length === 1) return { texto: unicos[0], title: 'Nº de Série: ' + unicos[0], lista: unicos };
+
+        var todosNumericos = unicos.every(function(s) { return !isNaN(Number(s)); });
+        if (todosNumericos) {
+            unicos.sort(function(a, b) { return Number(a) - Number(b); });
+        } else {
+            unicos.sort();
+        }
+
+        var titleFull = 'Séries (' + unicos.length + ' un): ' + unicos.join(', ');
+
+        if (todosNumericos) {
+            var min = unicos[0];
+            var max = unicos[unicos.length - 1];
+            var numMin = Number(min);
+            var numMax = Number(max);
+            if (unicos.length === 2) {
+                return { texto: (numMax - numMin === 1) ? (min + ' – ' + max) : (min + ', ' + max), title: titleFull, lista: unicos };
+            }
+            if (numMax - numMin + 1 === unicos.length) {
+                return { texto: min + ' – ' + max, title: titleFull, lista: unicos };
+            } else {
+                return { texto: min + ' … ' + max, title: titleFull, lista: unicos };
+            }
+        }
+
+        if (unicos.length === 2) {
+            return { texto: unicos[0] + ', ' + unicos[1], title: titleFull, lista: unicos };
+        }
+        return { texto: unicos[0] + ' … ' + unicos[unicos.length - 1], title: titleFull, lista: unicos };
+    }
+
     function renderizarTabelaPecas(lista) {
         var elTable = document.getElementById('modal-pecas-table');
         var elEmpty = document.getElementById('modal-pecas-empty-msg');
@@ -1487,8 +1836,10 @@
             var cliDisplay = (rawCli && rawCli !== '—' && rawCli !== '-' && rawCli.toUpperCase() !== 'CLIENTE NÃO INFORMADO') ? rawCli : cli;
             var nuc  = (p.nucleo_cod || p.linha || 'TPD').trim();
             var isRep = (p.tipo === 'REPROVA LAB' || p.linha === 'LAB' || p.nucleo_cod === 'LAB');
+            var numSerie = (p.serie !== undefined && p.serie !== null) ? String(p.serie).trim() : '';
+            var tipoConstrutivo = (p.tipo_construtivo || '').trim();
 
-            var chave = proj + '||' + desc + '||' + cliDisplay + '||' + nuc + '||' + (isRep ? 'REP' : 'OK');
+            var chave = proj + '||' + desc + '||' + cliDisplay + '||' + nuc + '||' + (isRep ? 'REP' : 'OK') + '||' + tipoConstrutivo;
             if (!agrupadosMap[chave]) {
                 agrupadosMap[chave] = {
                     projeto: proj,
@@ -1497,10 +1848,15 @@
                     clienteGrupo: cli,
                     nucleo: nuc,
                     isRep: isRep,
-                    quantidade: 0
+                    tipoConstrutivo: tipoConstrutivo,
+                    quantidade: 0,
+                    series: []
                 };
             }
             agrupadosMap[chave].quantidade++;
+            if (numSerie && numSerie !== '—' && numSerie !== '-' && numSerie !== '0') {
+                agrupadosMap[chave].series.push(numSerie);
+            }
             totalPecasFiltradas++;
         });
 
@@ -1511,11 +1867,24 @@
             var trClass = item.isRep ? 'is-reprova' : '';
             var badgeNucleoClass = 'badge-nucleo-' + (item.isRep ? 'LAB' : item.nucleo);
             var labelNucleo = item.isRep ? 'REPROVA' : item.nucleo;
+            var infoSerie = formatarFaixaSeries(item.series);
+            var serieCellHtml;
+            if (infoSerie.lista && infoSerie.lista.length > 0) {
+                var tituloBtnSerie = infoSerie.lista.length === 1 ? 'Ver o número de série' : ('Ver todas as ' + infoSerie.lista.length + ' séries');
+                serieCellHtml = '<button type="button" class="serie-cell-btn" data-series="' + escapeHtml(infoSerie.lista.join(',')) + '" onclick="window.toggleSeriePopover(event, this)" title="' + tituloBtnSerie + '">' +
+                    escapeHtml(infoSerie.texto) +
+                    '<svg class="serie-cell-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="6 9 12 15 18 9"/></svg>' +
+                    '</button>';
+            } else {
+                serieCellHtml = '<span style="font-family:monospace;font-size:0.80rem;font-weight:700;color:#0284c7;">' + escapeHtml(infoSerie.texto) + '</span>';
+            }
 
             html += '<tr class="' + trClass + '">' +
                 '<td style="text-align:center;color:#94a3b8;font-size:0.75rem;font-weight:600;">' + (idx + 1) + '</td>' +
                 '<td style="font-weight:800;color:#0f172a;font-family:monospace;font-size:0.82rem;">' + escapeHtml(item.projeto) + '</td>' +
+                '<td style="white-space:nowrap;">' + serieCellHtml + '</td>' +
                 '<td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(item.descricao) + '">' + escapeHtml(item.descricao) + '</td>' +
+                '<td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:#475569;" title="' + escapeHtml(item.tipoConstrutivo) + '">' + escapeHtml(item.tipoConstrutivo || '—') + '</td>' +
                 '<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:#334155;" title="' + escapeHtml(item.cliente) + '">' + escapeHtml(item.cliente) + '</td>' +
                 '<td style="text-align:center;font-weight:800;font-size:0.85rem;color:#0f172a;font-family:monospace;">' + item.quantidade + ' un</td>' +
                 '<td style="text-align:center;"><span class="badge-nucleo-tag ' + badgeNucleoClass + '">' + escapeHtml(labelNucleo) + '</span></td>' +
@@ -1572,8 +1941,10 @@
             var texto = [
                 p.projeto,
                 p.referencia,
+                p.serie,
                 p.descricao,
                 cli,
+                rawCli,
                 p.nucleo_cod,
                 p.linha
             ].join(' ').toLowerCase();

@@ -377,6 +377,72 @@
 .badge-nucleo-TPS { background: #dbeafe; color: #1d4ed8; border: 1px solid #93c5fd; }
 .badge-nucleo-TPM { background: #ccfbf1; color: #0f766e; border: 1px solid #5eead4; }
 
+/* ─── Botão de Expandir Nº de Série (quando o item agrupa mais de uma série) ── */
+.serie-cell-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    padding: 3px 7px;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: #0284c7;
+    cursor: pointer;
+    line-height: 1.3;
+    white-space: nowrap;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+.serie-cell-btn:hover { background: #dbeafe; border-color: #93c5fd; }
+.serie-cell-btn .serie-cell-chevron { flex-shrink: 0; transition: transform 0.15s ease; }
+.serie-cell-btn.is-open .serie-cell-chevron { transform: rotate(180deg); }
+
+.serie-popover {
+    position: fixed;
+    z-index: 10050;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    box-shadow: 0 20px 40px -10px rgba(15, 23, 42, 0.3), 0 0 0 1px rgba(0,0,0,0.03);
+    padding: 10px;
+    min-width: 168px;
+    max-width: 260px;
+    animation: seriePopoverIn 0.12s ease-out;
+}
+@keyframes seriePopoverIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.serie-popover-title {
+    font-size: 0.64rem;
+    font-weight: 800;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 7px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #f1f5f9;
+}
+.serie-popover-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    max-height: 220px;
+    overflow-y: auto;
+}
+.serie-popover-item {
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-size: 0.74rem;
+    font-weight: 700;
+    color: #0f172a;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 5px;
+    padding: 3px 7px;
+}
+
 .modal-pecas-footer {
     padding: 8px 20px;
     border-top: 1px solid var(--color-border, #e2e8f0);
@@ -406,14 +472,26 @@
     to { transform: rotate(360deg); }
 }
 
-/* ─── Efeito de Glow Sincronizado nas Colunas da Tabela de Núcleos ─────────── */
+/* ─── Efeito de Glow Sincronizado nas Colunas da Tabela de Núcleos ───────────
+   Um único retângulo contornando a coluna inteira do dia: bordas laterais
+   contínuas em todas as linhas (mescladas pelo border-collapse) e bordas
+   superior/inferior apenas na primeira/última célula da coluna. ────────── */
 .bo-nucleo-table th.bo-col-glow,
 .bo-nucleo-table td.bo-col-glow {
     background: #ecfdf5 !important;
     color: #065f46 !important;
-    box-shadow: inset 0 0 0 1px #34d399, 0 0 10px rgba(52, 211, 153, 0.25) !important;
+    border-left: 1.5px solid #34d399 !important;
+    border-right: 1.5px solid #34d399 !important;
     font-weight: 800 !important;
-    transition: background 0.15s ease, box-shadow 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+.bo-nucleo-table th.bo-col-glow-top,
+.bo-nucleo-table td.bo-col-glow-top {
+    border-top: 1.5px solid #34d399 !important;
+}
+.bo-nucleo-table th.bo-col-glow-bottom,
+.bo-nucleo-table td.bo-col-glow-bottom {
+    border-bottom: 1.5px solid #34d399 !important;
 }
 </style>
 
@@ -492,7 +570,7 @@
         <div class="modal-pecas-toolbar">
             <div class="modal-pecas-search-wrap">
                 <svg class="modal-pecas-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                <input type="text" id="modal-pecas-input-busca" class="modal-pecas-search-input" placeholder="Buscar por projeto, cliente ou descrição..." oninput="window.atualizarBotaoLimparBuscaModal(); filtrarTabelaPecasModal();">
+                <input type="text" id="modal-pecas-input-busca" class="modal-pecas-search-input" placeholder="Buscar por projeto, série, cliente ou descrição..." oninput="window.atualizarBotaoLimparBuscaModal(); filtrarTabelaPecasModal();">
                 <button type="button" id="modal-pecas-search-clear" class="modal-pecas-search-clear" onclick="window.limparBuscaModalPecas()" title="Limpar busca" style="display:none;">&times;</button>
             </div>
 
@@ -521,11 +599,13 @@
                 <thead>
                     <tr>
                         <th style="width:40px;text-align:center;">#</th>
-                        <th style="width:140px;">PROJETO</th>
+                        <th style="width:130px;">PROJETO</th>
+                        <th style="width:140px;">Nº SÉRIE</th>
                         <th>DESCRIÇÃO</th>
-                        <th style="width:200px;">CLIENTE</th>
-                        <th style="width:100px;text-align:center;">QUANTIDADE</th>
-                        <th style="width:100px;text-align:center;">NÚCLEO</th>
+                        <th id="modal-th-tipo-construtivo" style="width:130px;display:none;">TIPO CONSTRUTIVO</th>
+                        <th style="width:180px;">CLIENTE</th>
+                        <th style="width:95px;text-align:center;">QUANTIDADE</th>
+                        <th style="width:95px;text-align:center;">NÚCLEO</th>
                     </tr>
                 </thead>
                 <tbody id="modal-pecas-tbody">

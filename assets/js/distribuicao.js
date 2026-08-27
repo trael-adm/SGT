@@ -12,6 +12,27 @@
     var AMBAR  = '#e8a020'; // Planejado / Meta
     var TENDENCIA = '#7c3aed'; // Tendência de Fábrica (ritmo atual projetado)
 
+    // ─── Glow sincronizado na coluna do dia na tabela de núcleos (retângulo único) ──
+    // Escopado a #card-producao-quantidade para não vazar para as tabelas de
+    // "Produção por Linha" (que também usam .bo-nucleo-table + [data-dia] e têm
+    // seu próprio glow, isolado por bloco — ver mais abaixo).
+    function boClearColGlow() {
+        document.querySelectorAll('#card-producao-quantidade .bo-col-glow').forEach(function (el) {
+            el.classList.remove('bo-col-glow', 'bo-col-glow-top', 'bo-col-glow-bottom');
+        });
+    }
+    function boApplyColGlow(dataYmd) {
+        boClearColGlow();
+        var cells = document.querySelectorAll('#card-producao-quantidade [data-dia="' + dataYmd + '"]');
+        cells.forEach(function (el) {
+            el.classList.add('bo-col-glow');
+        });
+        if (cells.length > 0) {
+            cells[0].classList.add('bo-col-glow-top');
+            cells[cells.length - 1].classList.add('bo-col-glow-bottom');
+        }
+    }
+
     // ─── Plugin para desenhar o Glow no quadrante do dia inteiro no gráfico ──
     var dayColumnGlowPlugin = {
         id: 'dayColumnGlow',
@@ -171,16 +192,13 @@
                         chart.draw();
                     }
 
-                    document.querySelectorAll('.bo-nucleo-table .bo-col-glow').forEach(function (el) {
-                        el.classList.remove('bo-col-glow');
-                    });
                     if (dayIndex !== null && DATA.dias && DATA.dias[dayIndex] !== undefined) {
                         var diaNum = DATA.dias[dayIndex];
                         var mes = window.MES_REFERENCIA || (new Date().toISOString().substring(0, 7));
                         var dataYmd = mes + '-' + String(diaNum).padStart(2, '0');
-                        document.querySelectorAll('.bo-nucleo-table [data-dia="' + dataYmd + '"]').forEach(function (el) {
-                            el.classList.add('bo-col-glow');
-                        });
+                        boApplyColGlow(dataYmd);
+                    } else {
+                        boClearColGlow();
                     }
                 },
                 onClick: function (evt, elements, chart) {
@@ -215,20 +233,16 @@
                 chartProducaoInstance._hoveredDayIndex = null;
                 chartProducaoInstance.draw();
             }
-            document.querySelectorAll('.bo-nucleo-table .bo-col-glow').forEach(function (el) {
-                el.classList.remove('bo-col-glow');
-            });
+            boClearColGlow();
         });
 
         // Sincronização de Glow ao passar o mouse na tabela de núcleos
-        document.querySelectorAll('.bo-nucleo-table [data-dia]').forEach(function (cell) {
+        document.querySelectorAll('#card-producao-quantidade [data-dia]').forEach(function (cell) {
             cell.style.cursor = 'pointer';
             cell.addEventListener('mouseenter', function () {
                 var d = this.getAttribute('data-dia');
                 if (!d) return;
-                document.querySelectorAll('.bo-nucleo-table [data-dia="' + d + '"]').forEach(function (el) {
-                    el.classList.add('bo-col-glow');
-                });
+                boApplyColGlow(d);
                 if (chartProducaoInstance && DATA.dias) {
                     var partes = d.split('-');
                     var diaNum = parseInt(partes[2] || d, 10);
@@ -240,9 +254,7 @@
                 }
             });
             cell.addEventListener('mouseleave', function () {
-                document.querySelectorAll('.bo-nucleo-table .bo-col-glow').forEach(function (el) {
-                    el.classList.remove('bo-col-glow');
-                });
+                boClearColGlow();
                 if (chartProducaoInstance) {
                     chartProducaoInstance._hoveredDayIndex = null;
                     chartProducaoInstance.draw();
@@ -863,6 +875,7 @@
 
             chartsLinhas[c] = new Chart(elCanvas, {
                 type: 'bar',
+                plugins: [dayColumnGlowPlugin],
                 data: {
                     labels: labelsComMedia,
                     datasets: [{
@@ -887,6 +900,16 @@
                     responsive: true,
                     maintainAspectRatio: false,
                     layout: { padding: { top: 24 } },
+                    onHover: function (evt, elements, chart) {
+                        var pts = chart.getElementsAtEventForMode(evt, 'index', { intersect: false }, true);
+                        var idx = (pts && pts.length > 0 && pts[0].index < linhaData.execs.length) ? pts[0].index : null;
+                        if (chart._hoveredDayIndex !== idx) {
+                            chart._hoveredDayIndex = idx;
+                            chart.draw();
+                        }
+                        var bloco = elCanvas.closest('.bloco-linha-prod');
+                        if (bloco) linhaAplicarGlow(bloco, idx);
+                    },
                     scales: {
                         x: {
                             grid: { display: false },
@@ -917,8 +940,71 @@
                     }
                 }
             });
+
+            elCanvas.addEventListener('mouseleave', function () {
+                var chart = chartsLinhas[c];
+                if (chart) { chart._hoveredDayIndex = null; chart.draw(); }
+                var bloco = elCanvas.closest('.bloco-linha-prod');
+                if (bloco) linhaLimparGlow(bloco);
+            });
         });
     }
+
+    // Glow sincronizado nas colunas das tabelas de "Produção por Linha" (um retângulo
+    // por bloco/linha, igual ao da tabela "Produção - Laboratório" — ver bo-col-glow),
+    // e no quadrante do gráfico daquele mesmo bloco (dayColumnGlowPlugin).
+    function linhaLimparGlow(bloco) {
+        bloco.querySelectorAll('.bo-col-glow').forEach(function (el) {
+            el.classList.remove('bo-col-glow', 'bo-col-glow-top', 'bo-col-glow-bottom');
+        });
+    }
+    function linhaAplicarGlow(bloco, idx) {
+        linhaLimparGlow(bloco);
+        if (idx === null || idx === undefined || idx < 0) return;
+        var linhas = bloco.querySelectorAll('tbody tr');
+        var cells = [];
+        linhas.forEach(function (tr) {
+            var tds = tr.querySelectorAll('[data-dia]');
+            if (tds[idx]) cells.push(tds[idx]);
+        });
+        var ths = bloco.querySelectorAll('thead [data-dia]');
+        if (ths[idx]) cells.unshift(ths[idx]);
+        cells.forEach(function (el) { el.classList.add('bo-col-glow'); });
+        if (cells.length > 0) {
+            cells[0].classList.add('bo-col-glow-top');
+            cells[cells.length - 1].classList.add('bo-col-glow-bottom');
+        }
+    }
+    document.querySelectorAll('.bloco-linha-prod [data-dia]').forEach(function (cell) {
+        cell.addEventListener('mouseenter', function () {
+            var bloco = this.closest('.bloco-linha-prod');
+            var tr = this.closest('tr');
+            if (!bloco || !tr) return;
+            var idx = Array.prototype.indexOf.call(tr.children, this) - 1;
+            linhaAplicarGlow(bloco, idx);
+
+            var canvas = bloco.querySelector('canvas');
+            var chartKey = canvas ? canvas.id.replace('chart-linha-', '').toUpperCase() : null;
+            var chartInst = chartKey ? chartsLinhas[chartKey] : null;
+            if (chartInst && idx >= 0) {
+                chartInst._hoveredDayIndex = idx;
+                chartInst.draw();
+            }
+        });
+        cell.addEventListener('mouseleave', function () {
+            var bloco = this.closest('.bloco-linha-prod');
+            if (!bloco) return;
+            linhaLimparGlow(bloco);
+
+            var canvas = bloco.querySelector('canvas');
+            var chartKey = canvas ? canvas.id.replace('chart-linha-', '').toUpperCase() : null;
+            var chartInst = chartKey ? chartsLinhas[chartKey] : null;
+            if (chartInst) {
+                chartInst._hoveredDayIndex = null;
+                chartInst.draw();
+            }
+        });
+    });
 
     // Função para imprimir os 3 blocos de "Produção por Linha" exatamente em 1 página A4 Paisagem
     window.imprimirProducaoPorLinha = function () {
@@ -1246,7 +1332,63 @@
         if (!modal) return;
         modal.classList.remove('open');
         document.body.style.overflow = '';
+        closeSeriePopover();
     };
+
+    // ─── Popover da lista completa de Nº de Série (botão de expandir na tabela) ──
+    function closeSeriePopover() {
+        var pop = document.querySelector('.serie-popover');
+        if (!pop) return;
+        if (pop._ownerBtn) pop._ownerBtn.classList.remove('is-open');
+        pop.remove();
+    }
+
+    window.toggleSeriePopover = function (evt, btn) {
+        evt.stopPropagation();
+        var jaAberto = btn.classList.contains('is-open');
+        closeSeriePopover();
+        if (jaAberto) return;
+
+        var seriesList = (btn.getAttribute('data-series') || '').split(',').filter(Boolean);
+        if (seriesList.length === 0) return;
+
+        var pop = document.createElement('div');
+        pop.className = 'serie-popover';
+        pop._ownerBtn = btn;
+        var tituloPopover = seriesList.length === 1 ? '1 Número de Série' : (seriesList.length + ' Números de Série');
+        pop.innerHTML = '<div class="serie-popover-title">' + tituloPopover + '</div>' +
+            '<div class="serie-popover-list">' +
+            seriesList.map(function (s) { return '<span class="serie-popover-item">' + escapeHtml(s) + '</span>'; }).join('') +
+            '</div>';
+        document.body.appendChild(pop);
+
+        var rect = btn.getBoundingClientRect();
+        var popRect = pop.getBoundingClientRect();
+        var top = rect.bottom + 4;
+        if (top + popRect.height > window.innerHeight - 8) {
+            top = rect.top - popRect.height - 4;
+        }
+        var left = rect.left;
+        if (left + popRect.width > window.innerWidth - 8) {
+            left = window.innerWidth - popRect.width - 8;
+        }
+        pop.style.top = Math.max(8, top) + 'px';
+        pop.style.left = Math.max(8, left) + 'px';
+
+        btn.classList.add('is-open');
+    };
+
+    document.addEventListener('click', function (e) {
+        if (e.target.closest && e.target.closest('.serie-cell-btn, .serie-popover')) return;
+        closeSeriePopover();
+    });
+    document.addEventListener('scroll', function (e) {
+        if (e.target && e.target.closest && e.target.closest('.serie-popover')) return;
+        closeSeriePopover();
+    }, true);
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeSeriePopover();
+    });
 
     function normalizarNomeCliente(nome, tpMercado) {
         if (!nome) return 'Trael';
@@ -1639,6 +1781,42 @@
         window.filtrarTabelaPecasModal();
     };
 
+    function formatarFaixaSeries(seriesArray) {
+        if (!seriesArray || seriesArray.length === 0) return { texto: '—', title: '', lista: [] };
+        var unicos = Array.from(new Set(seriesArray.filter(Boolean)));
+        if (unicos.length === 0) return { texto: '—', title: '', lista: [] };
+        if (unicos.length === 1) return { texto: unicos[0], title: 'Nº de Série: ' + unicos[0], lista: unicos };
+
+        var todosNumericos = unicos.every(function(s) { return !isNaN(Number(s)); });
+        if (todosNumericos) {
+            unicos.sort(function(a, b) { return Number(a) - Number(b); });
+        } else {
+            unicos.sort();
+        }
+
+        var titleFull = 'Séries (' + unicos.length + ' un): ' + unicos.join(', ');
+
+        if (todosNumericos) {
+            var min = unicos[0];
+            var max = unicos[unicos.length - 1];
+            var numMin = Number(min);
+            var numMax = Number(max);
+            if (unicos.length === 2) {
+                return { texto: (numMax - numMin === 1) ? (min + ' – ' + max) : (min + ', ' + max), title: titleFull, lista: unicos };
+            }
+            if (numMax - numMin + 1 === unicos.length) {
+                return { texto: min + ' – ' + max, title: titleFull, lista: unicos };
+            } else {
+                return { texto: min + ' … ' + max, title: titleFull, lista: unicos };
+            }
+        }
+
+        if (unicos.length === 2) {
+            return { texto: unicos[0] + ', ' + unicos[1], title: titleFull, lista: unicos };
+        }
+        return { texto: unicos[0] + ' … ' + unicos[unicos.length - 1], title: titleFull, lista: unicos };
+    }
+
     function renderizarTabelaPecas(lista) {
         var elTable = document.getElementById('modal-pecas-table');
         var elEmpty = document.getElementById('modal-pecas-empty-msg');
@@ -1669,6 +1847,7 @@
             var cliDisplay = (rawCli && rawCli !== '—' && rawCli !== '-' && rawCli.toUpperCase() !== 'CLIENTE NÃO INFORMADO') ? rawCli : cli;
             var nuc  = (p.nucleo_cod || p.linha || 'ENR').trim();
             var isRep = (p.tipo === 'REPROVA LAB' || p.linha === 'LAB' || p.nucleo_cod === 'LAB');
+            var numSerie = (p.serie !== undefined && p.serie !== null) ? String(p.serie).trim() : '';
 
             var chave = proj + '||' + desc + '||' + cliDisplay + '||' + nuc + '||' + (isRep ? 'REP' : 'OK');
             if (!agrupadosMap[chave]) {
@@ -1679,10 +1858,14 @@
                     clienteGrupo: cli,
                     nucleo: nuc,
                     isRep: isRep,
-                    quantidade: 0
+                    quantidade: 0,
+                    series: []
                 };
             }
             agrupadosMap[chave].quantidade++;
+            if (numSerie && numSerie !== '—' && numSerie !== '-' && numSerie !== '0') {
+                agrupadosMap[chave].series.push(numSerie);
+            }
             totalPecasFiltradas++;
         });
 
@@ -1693,10 +1876,22 @@
             var trClass = item.isRep ? 'is-reprova' : '';
             var badgeNucleoClass = 'badge-nucleo-' + (item.isRep ? 'LAB' : item.nucleo);
             var labelNucleo = item.isRep ? 'REPROVA' : (item.nucleo === 'JC' ? 'JC-TRIF' : item.nucleo);
+            var infoSerie = formatarFaixaSeries(item.series);
+            var serieCellHtml;
+            if (infoSerie.lista && infoSerie.lista.length > 0) {
+                var tituloBtnSerie = infoSerie.lista.length === 1 ? 'Ver o número de série' : ('Ver todas as ' + infoSerie.lista.length + ' séries');
+                serieCellHtml = '<button type="button" class="serie-cell-btn" data-series="' + escapeHtml(infoSerie.lista.join(',')) + '" onclick="window.toggleSeriePopover(event, this)" title="' + tituloBtnSerie + '">' +
+                    escapeHtml(infoSerie.texto) +
+                    '<svg class="serie-cell-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="6 9 12 15 18 9"/></svg>' +
+                    '</button>';
+            } else {
+                serieCellHtml = '<span style="font-family:monospace;font-size:0.80rem;font-weight:700;color:#0284c7;">' + escapeHtml(infoSerie.texto) + '</span>';
+            }
 
             html += '<tr class="' + trClass + '">' +
                 '<td style="text-align:center;color:#94a3b8;font-size:0.75rem;font-weight:600;">' + (idx + 1) + '</td>' +
                 '<td style="font-weight:800;color:#0f172a;font-family:monospace;font-size:0.82rem;">' + escapeHtml(item.projeto) + '</td>' +
+                '<td style="white-space:nowrap;">' + serieCellHtml + '</td>' +
                 '<td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(item.descricao) + '">' + escapeHtml(item.descricao) + '</td>' +
                 '<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:#334155;" title="' + escapeHtml(item.cliente) + '">' + escapeHtml(item.cliente) + '</td>' +
                 '<td style="text-align:center;font-weight:800;font-size:0.85rem;color:#0f172a;font-family:monospace;">' + item.quantidade + ' un</td>' +
@@ -1760,8 +1955,10 @@
             var texto = [
                 p.projeto,
                 p.referencia,
+                p.serie,
                 p.descricao,
                 cli,
+                rawCli,
                 p.nucleo_cod,
                 p.linha
             ].join(' ').toLowerCase();
