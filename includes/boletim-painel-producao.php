@@ -74,14 +74,78 @@ function boletimCalcularAderenciaMensal(int $ano, int $mesNum, int $empresa = 1,
     if (!in_array($empresa, [1, 4], true))
         $empresa = 1;
 
-    // 1. Dias úteis do mês (Segunda a Sexta)
+    // 1. Dias úteis e de Produção do Mês (Considerando Calendário Nacional + MT + Cuiabá e Customizados)
     $diasUteis = [];
-    for ($d = 1; $d <= $diasNoMes; $d++) {
-        $dtStr = sprintf('%04d-%02d-%02d', $ano, $mesNum, $d);
-        if ((int) date('N', strtotime($dtStr)) <= 5) {
-            $diasUteis[] = $dtStr;
+    $diasCustomizados = null;
+    $cfgM = null;
+    $diasMetaUteis = 0;
+
+    if ($pdo) {
+        try {
+            $stmtMeta = $pdo->prepare("SELECT * FROM boletim_config_metas WHERE `month` = ?");
+            $stmtMeta->execute([$mesStr]);
+            $cfgM = $stmtMeta->fetch(PDO::FETCH_ASSOC);
+            if ($cfgM) {
+                if (!empty($cfgM['dias_customizados'])) {
+                    $arr = json_decode((string) $cfgM['dias_customizados'], true);
+                    if (is_array($arr) && !empty($arr)) {
+                        $diasCustomizados = $arr;
+                    }
+                }
+                $diasMetaUteis = (int) ($cfgM['dias_uteis'] ?? 0);
+            }
+        } catch (\Throwable $e) {}
+    }
+
+    // Feriados do mês (Nacionais, Estaduais de MT e Municipais de Cuiabá)
+    $feriadosMes = [];
+    $feriadosAno = boletimObterFeriadosAno($ano, $pdo);
+    foreach ($feriadosAno as $fData => $fNome) {
+        if (substr($fData, 0, 7) === $mesStr) {
+            $feriadosMes[$fData] = $fNome;
         }
     }
+
+    if ($diasCustomizados !== null) {
+        // Se a empresa configurou dias customizados para o mês, respeita a escolha humana
+        $diasUteis = $diasCustomizados;
+    } else {
+        // Padrão automático: Segunda a Sexta que NÃO sejam feriados (Nacionais + MT + Cuiabá)
+        for ($d = 1; $d <= $diasNoMes; $d++) {
+            $dtStr = sprintf('%04d-%02d-%02d', $ano, $mesNum, $d);
+            $isFimDeSemana = ((int) date('N', strtotime($dtStr)) > 5);
+            $isFeriado = isset($feriadosMes[$dtStr]);
+            if (!$isFimDeSemana && !$isFeriado) {
+                $diasUteis[] = $dtStr;
+            }
+        }
+    }
+
+    // Salvaguarda: se houver apontamento REAL no Kardex em um feriado ou sábado trabalhado,
+    // inclui o dia para não sumir com o volume produzido
+    $kardex = boletimObterDadosMes($mesStr);
+    $porDia = $kardex['porDia'] ?? [];
+    $nucleoPorDia = $kardex['nucleoPorDia'] ?? [];
+    $forcaPorDia = $kardex['forcaPorDia'] ?? [];
+
+    for ($d = 1; $d <= $diasNoMes; $d++) {
+        $dtStr = sprintf('%04d-%02d-%02d', $ano, $mesNum, $d);
+        if (!in_array($dtStr, $diasUteis, true)) {
+            $teveProducao = false;
+            if (!empty($porDia[$dtStr]['TPD_distrib']) || !empty($porDia[$dtStr]['TPD_forca']) || !empty($porDia[$dtStr]['TPM']) || !empty($porDia[$dtStr]['TPS'])) {
+                $teveProducao = true;
+            } elseif (!empty($nucleoPorDia[$dtStr]) && array_sum($nucleoPorDia[$dtStr]) > 0) {
+                $teveProducao = true;
+            } elseif (!empty($forcaPorDia[$dtStr]) && array_sum($forcaPorDia[$dtStr]) > 0) {
+                $teveProducao = true;
+            }
+            if ($teveProducao) {
+                $diasUteis[] = $dtStr;
+            }
+        }
+    }
+    sort($diasUteis);
+
     $totalDiasUteis = max(1, count($diasUteis));
 
     if ($isMesPassado) {
@@ -100,43 +164,35 @@ function boletimCalcularAderenciaMensal(int $ano, int $mesNum, int $empresa = 1,
     // Busca metas configuradas no SGT para o mês (para complementação de dias futuros não exportados)
     $metaMensalConfig = 0;
     $metaDiariaConfig = 0.0;
-    if ($pdo) {
-        try {
-            $stmtMeta = $pdo->prepare("SELECT * FROM boletim_config_metas WHERE `month` = ?");
-            $stmtMeta->execute([$mesStr]);
-            $cfgM = $stmtMeta->fetch(PDO::FETCH_ASSOC);
-            if ($cfgM) {
-                if ($empresa === 1) {
-                    if ($linhaSel === 'ENR') {
-                        $metaMensalConfig = (int) ($cfgM['meta_enrolado'] ?? 0);
-                    } elseif ($linhaSel === 'EMP') {
-                        $metaMensalConfig = (int) ($cfgM['meta_convencional'] ?? 0);
-                    } elseif ($linhaSel === 'JC') {
-                        $metaMensalConfig = (int) ($cfgM['meta_jctrif'] ?? 0);
-                    } else {
-                        $metaMensalConfig = (int) ($cfgM['meta_tpd_distribuicao'] ?? 0);
-                        if ($metaMensalConfig <= 0) {
-                            $metaMensalConfig = (int) ($cfgM['meta_enrolado'] ?? 0) + (int) ($cfgM['meta_convencional'] ?? 0) + (int) ($cfgM['meta_jctrif'] ?? 0);
-                        }
-                    }
-                } else {
-                    if ($linhaSel === 'TPM') {
-                        $metaMensalConfig = (int) ($cfgM['meta_tpm'] ?? 0);
-                    } elseif ($linhaSel === 'TPS') {
-                        $metaMensalConfig = (int) ($cfgM['meta_tps'] ?? 0);
-                    } else {
-                        $metaMensalConfig = (int) ($cfgM['meta_tpd_forca'] ?? 0);
-                        if ($metaMensalConfig <= 0) {
-                            $metaMensalConfig = (int) ($cfgM['meta_tpm'] ?? 0) + (int) ($cfgM['meta_tps'] ?? 0);
-                        }
-                    }
-                }
-                $diasMetaUteis = max(1, (int) ($cfgM['dias_uteis'] ?? $totalDiasUteis));
-                if ($metaMensalConfig > 0) {
-                    $metaDiariaConfig = round($metaMensalConfig / $diasMetaUteis, 2);
+    if ($cfgM) {
+        if ($empresa === 1) {
+            if ($linhaSel === 'ENR') {
+                $metaMensalConfig = (int) ($cfgM['meta_enrolado'] ?? 0);
+            } elseif ($linhaSel === 'EMP') {
+                $metaMensalConfig = (int) ($cfgM['meta_convencional'] ?? 0);
+            } elseif ($linhaSel === 'JC') {
+                $metaMensalConfig = (int) ($cfgM['meta_jctrif'] ?? 0);
+            } else {
+                $metaMensalConfig = (int) ($cfgM['meta_tpd_distribuicao'] ?? 0);
+                if ($metaMensalConfig <= 0) {
+                    $metaMensalConfig = (int) ($cfgM['meta_enrolado'] ?? 0) + (int) ($cfgM['meta_convencional'] ?? 0) + (int) ($cfgM['meta_jctrif'] ?? 0);
                 }
             }
-        } catch (\Throwable $e) {
+        } else {
+            if ($linhaSel === 'TPM') {
+                $metaMensalConfig = (int) ($cfgM['meta_tpm'] ?? 0);
+            } elseif ($linhaSel === 'TPS') {
+                $metaMensalConfig = (int) ($cfgM['meta_tps'] ?? 0);
+            } else {
+                $metaMensalConfig = (int) ($cfgM['meta_tpd_forca'] ?? 0);
+                if ($metaMensalConfig <= 0) {
+                    $metaMensalConfig = (int) ($cfgM['meta_tpm'] ?? 0) + (int) ($cfgM['meta_tps'] ?? 0);
+                }
+            }
+        }
+        $diasMetaUteis = max(1, $diasMetaUteis > 0 ? $diasMetaUteis : $totalDiasUteis);
+        if ($metaMensalConfig > 0) {
+            $metaDiariaConfig = round($metaMensalConfig / $diasMetaUteis, 2);
         }
     }
 
@@ -193,11 +249,6 @@ function boletimCalcularAderenciaMensal(int $ano, int $mesNum, int $empresa = 1,
     $realDiario = [];
     foreach ($diasUteis as $du)
         $realDiario[$du] = 0;
-
-    $kardex = boletimObterDadosMes($mesStr);
-    $porDia = $kardex['porDia'] ?? [];
-    $nucleoPorDia = $kardex['nucleoPorDia'] ?? [];
-    $forcaPorDia = $kardex['forcaPorDia'] ?? [];
 
     foreach ($diasUteis as $du) {
         $realQtd = 0;
@@ -304,6 +355,9 @@ function boletimCalcularAderenciaMensal(int $ano, int $mesNum, int $empresa = 1,
         $realDiaPlano = $realDiarioPlano[$d] ?? 0;
         $isPassado = ($isMesPassado || $d <= $hojeAtual);
 
+        $isFeriadoDia = isset($feriadosMes[$d]);
+        $nomeFeriadoDia = $feriadosMes[$d] ?? null;
+
         $evolucaoDiaria[] = [
             'data' => $d,
             'dia' => $diaNum,
@@ -314,6 +368,8 @@ function boletimCalcularAderenciaMensal(int $ano, int $mesNum, int $empresa = 1,
             'is_passado' => $isPassado,
             'acima_meta' => ($realDia >= $progDia),
             'cor_barra' => ($realDia >= $progDia) ? '#16a34a' : '#dc2626',
+            'is_feriado' => $isFeriadoDia,
+            'nome_feriado' => $nomeFeriadoDia,
         ];
     }
 
@@ -324,6 +380,8 @@ function boletimCalcularAderenciaMensal(int $ano, int $mesNum, int $empresa = 1,
         'empresa' => $empresa,
         'setor' => $setorChave,
         'linha' => $linhaSel,
+        'feriados_mes' => $feriadosMes,
+        'total_feriados' => count($feriadosMes),
         'kpis' => [
             'media_programada' => $mediaProg,
             'programado_parcial' => $progParcial,

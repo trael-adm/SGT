@@ -380,6 +380,14 @@ layoutHeader($pageTitle);
         <div class="sgt-kpi-card">
             <span class="sgt-kpi-label">Dias Úteis</span>
             <span class="sgt-kpi-value"><?= $kpis['dias_uteis'] ?> <span style="font-size:12px;color:var(--color-text-muted);font-weight:500;">/ <?= $kpis['total_dias_uteis'] ?></span></span>
+            <?php if (!empty($dados['feriados_mes'])): ?>
+                <div style="font-size:10px;color:#0284c7;margin-top:4px;font-weight:600;display:flex;align-items:center;gap:4px;" title="<?= htmlspecialchars(implode(" \n", array_map(fn($dt, $nm) => date('d/m', strtotime($dt)) . ' — ' . $nm, array_keys($dados['feriados_mes']), $dados['feriados_mes']))) ?>">
+                    <span>🏛️ <?= count($dados['feriados_mes']) ?> feriado<?= count($dados['feriados_mes']) > 1 ? 's' : '' ?></span>
+                    <span style="font-weight:500;color:var(--color-text-muted);">(<?= htmlspecialchars(implode(', ', array_map(fn($dt) => date('d/m', strtotime($dt)), array_keys($dados['feriados_mes'])))) ?>)</span>
+                </div>
+            <?php else: ?>
+                <div style="font-size:10px;color:var(--color-text-muted);margin-top:4px;">Sem feriados no mês</div>
+            <?php endif; ?>
         </div>
 
         <!-- 5. Aderência Anual -->
@@ -420,7 +428,7 @@ layoutHeader($pageTitle);
         <div class="sgt-card-header">
             <div>
                 <h3 style="font-size:14px;font-weight:700;color:var(--color-text-primary);margin:0;">Evolução Diária</h3>
-                <p style="font-size:11px;color:var(--color-text-muted);margin:2px 0 0 0;">Meta programada vs produção realizada por dia</p>
+                <p style="font-size:11px;color:var(--color-text-muted);margin:2px 0 0 0;">Meta programada vs produção realizada por dia (calendário nacional e regional MT/Cuiabá aplicado)</p>
             </div>
             <!-- Legenda -->
             <div style="display:flex;align-items:center;gap:14px;font-size:11px;font-weight:700;color:var(--color-text-secondary);">
@@ -746,6 +754,15 @@ layoutHeader($pageTitle);
                     borderWidth: 1,
                     padding: 10,
                     callbacks: {
+                        afterTitle: function(tooltipItems) {
+                            if (!tooltipItems || tooltipItems.length === 0) return '';
+                            const i = tooltipItems[0].dataIndex;
+                            const item = rawData[i];
+                            if (item && item.is_feriado && item.nome_feriado) {
+                                return '🏛️ ' + item.nome_feriado;
+                            }
+                            return '';
+                        },
                         label: function(context) {
                             const i = context.dataIndex;
                             if (context.datasetIndex === 0) {

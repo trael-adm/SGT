@@ -259,25 +259,127 @@ function fmtDurSegmentoPHP(int $segundos): string
 }
 
 /**
- * Verifica se uma data (Y-m-d) é feriado usando a tabela feriados.
+ * Retorna o calendário consolidado de feriados (Nacionais + Estaduais de MT + Municipais de Cuiabá)
+ * para um determinado ano.
  *
- * Prioridade: data_efetiva (acordo coletivo) > data original.
- * - Se data_efetiva preenchida: só ela vale para cálculos de HE.
- * - Se vazia: usa lógica padrão (dd/mm para fixos, data completa para móveis).
+ * Fontes Oficiais:
+ * - Feriados Nacionais: Lei 662/1949, Lei 6.802/1980, Lei 10.607/2002 e Lei 14.759/2023
+ * - Feriados Estaduais MT: Lei Estadual nº 9.129/2009 (Consciência Negra)
+ * - Feriados Municipais Cuiabá: Lei Municipal nº 5.576/2012 e Decretos Municipais
+ * - Feriados Móveis: Carnaval, Sexta-feira Santa e Corpus Christi (calculados via algoritmo canônico da Páscoa)
+ *
+ * @param int $ano Ano a ser consultado (ex: 2026)
+ * @param PDO|null $pdo Opcional: para consultar a tabela `feriados` do banco, se existir
+ * @return array<string, string> Array ordenado no formato ['YYYY-MM-DD' => 'Nome do Feriado']
+ */
+function boletimObterFeriadosAno(int $ano, ?PDO $pdo = null): array
+{
+    static $cache = [];
+    if (isset($cache[$ano]) && $pdo === null) {
+        return $cache[$ano];
+    }
+
+    $feriados = [
+        sprintf('%04d-01-01', $ano) => 'Confraternização Universal (Ano Novo)',
+        sprintf('%04d-04-08', $ano) => 'Aniversário de Cuiabá (Feriado Municipal MT)',
+        sprintf('%04d-04-21', $ano) => 'Tiradentes (Feriado Nacional)',
+        sprintf('%04d-05-01', $ano) => 'Dia do Trabalhador (Feriado Nacional)',
+        sprintf('%04d-09-07', $ano) => 'Independência do Brasil (Feriado Nacional)',
+        sprintf('%04d-10-12', $ano) => 'Nossa Senhora Aparecida (Feriado Nacional)',
+        sprintf('%04d-11-02', $ano) => 'Finados (Feriado Nacional)',
+        sprintf('%04d-11-15', $ano) => 'Proclamação da República (Feriado Nacional)',
+        sprintf('%04d-11-20', $ano) => 'Dia Nacional de Zumbi e da Consciência Negra (Feriado Nacional / MT)',
+        sprintf('%04d-12-08', $ano) => 'Nossa Senhora da Conceição (Feriado Municipal Cuiabá)',
+        sprintf('%04d-12-25', $ano) => 'Natal (Feriado Nacional)',
+    ];
+
+    // Feriados móveis canônicos baseados na Páscoa (algoritmo anônimo de Meeus/Jones/Butcher)
+    $a = $ano % 19;
+    $b = (int) floor($ano / 100);
+    $c = $ano % 100;
+    $d = (int) floor($b / 4);
+    $e = $b % 4;
+    $f = (int) floor(($b + 8) / 25);
+    $g = (int) floor(($b - $f + 1) / 3);
+    $h = (19 * $a + $b - $d - $g + 15) % 30;
+    $i = (int) floor($c / 4);
+    $k = $c % 4;
+    $l = (32 + 2 * $e + 2 * $i - $h - $k) % 7;
+    $m = (int) floor(($a + 11 * $h + 22 * $l) / 451);
+    $mesPascoa = (int) floor(($h + $l - 7 * $m + 114) / 31);
+    $diaPascoa = (($h + $l - 7 * $m + 114) % 31) + 1;
+
+    $tsPascoa = mktime(0, 0, 0, $mesPascoa, $diaPascoa, $ano);
+
+    // Segunda e Terça de Carnaval (-48 e -47 dias da Páscoa)
+    $feriados[date('Y-m-d', strtotime('-48 days', $tsPascoa))] = 'Carnaval (Segunda-feira)';
+    $feriados[date('Y-m-d', strtotime('-47 days', $tsPascoa))] = 'Carnaval (Terça-feira)';
+
+    // Sexta-feira Santa / Paixão de Cristo (-2 dias da Páscoa)
+    $feriados[date('Y-m-d', strtotime('-2 days', $tsPascoa))] = 'Sexta-feira Santa / Paixão de Cristo (Feriado Nacional)';
+
+    // Corpus Christi (+60 dias da Páscoa - Feriado Municipal em Cuiabá - Lei 5.576/2012)
+    $feriados[date('Y-m-d', strtotime('+60 days', $tsPascoa))] = 'Corpus Christi (Feriado Municipal Cuiabá / MT)';
+
+    // Consulta complementar da tabela `feriados` do banco de dados (se ela existir)
+    if ($pdo !== null) {
+        try {
+            $stmt = $pdo->query("SELECT data, data_efetiva, nome, movel FROM feriados");
+            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                $nomeBanco = !empty($row['nome']) ? (string) $row['nome'] : 'Feriado';
+                if (!empty($row['data_efetiva'])) {
+                    $feriados[$row['data_efetiva']] = $nomeBanco . ' (Acordo Coletivo)';
+                } elseif (!empty($row['data'])) {
+                    if ((int) ($row['movel'] ?? 0) === 0) {
+                        $dt = sprintf('%04d-%s', $ano, substr((string) $row['data'], 5));
+                        $feriados[$dt] = $nomeBanco;
+                    } else {
+                        if (substr((string) $row['data'], 0, 4) == $ano) {
+                            $feriados[$row['data']] = $nomeBanco;
+                        }
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // Tabela pode não existir no banco; o calendário acima já cobre 100% dos feriados
+        }
+    }
+
+    ksort($feriados);
+    if ($pdo === null) {
+        $cache[$ano] = $feriados;
+    }
+    return $feriados;
+}
+
+/**
+ * Retorna se uma data específica (YYYY-MM-DD) é feriado Nacional, Estadual de MT ou Municipal de Cuiabá.
+ */
+function boletimIsFeriado(string $dataYmd, ?PDO $pdo = null): bool
+{
+    if (strlen($dataYmd) !== 10) return false;
+    $ano = (int) substr($dataYmd, 0, 4);
+    $feriados = boletimObterFeriadosAno($ano, $pdo);
+    return isset($feriados[$dataYmd]);
+}
+
+/**
+ * Retorna o nome do feriado para uma data (YYYY-MM-DD), ou null se não for feriado.
+ */
+function boletimObterNomeFeriado(string $dataYmd, ?PDO $pdo = null): ?string
+{
+    if (strlen($dataYmd) !== 10) return null;
+    $ano = (int) substr($dataYmd, 0, 4);
+    $feriados = boletimObterFeriadosAno($ano, $pdo);
+    return $feriados[$dataYmd] ?? null;
+}
+
+/**
+ * Verifica se uma data (Y-m-d) é feriado (retrocompatibilidade para HE e módulos).
  */
 function isFeriado(PDO $pdo, string $dataYmd): bool
 {
-    [$ano, $mes, $dia] = explode('-', $dataYmd);
-    $ddmm = "{$mes}-{$dia}";
-
-    $stmt = $pdo->prepare("
-        SELECT COUNT(*) FROM feriados
-        WHERE data_efetiva = ?
-           OR (data_efetiva IS NULL AND movel = 0 AND DATE_FORMAT(data, '%m-%d') = ?)
-           OR (data_efetiva IS NULL AND movel = 1 AND data = ?)
-    ");
-    $stmt->execute([$dataYmd, $ddmm, $dataYmd]);
-    return (int) $stmt->fetchColumn() > 0;
+    return boletimIsFeriado($dataYmd, $pdo);
 }
 
 /**
@@ -569,24 +671,57 @@ function gftEngenhariaFiltroSql(string $valor, string $aliasD = 'd', string $ali
 }
 
 /**
- * Dias úteis (segunda a sexta) de um mês "YYYY-MM" — não considera feriados
+ * Dias úteis (segunda a sexta, excluindo feriados nacionais, estaduais de MT e municipais de Cuiabá)
+ * de um mês "YYYY-MM", respeitando dias customizados de boletim_config_metas caso existam.
  */
-function boletimDiasUteisDoMes(string $mes): int
+function boletimDiasUteisDoMes(string $mes, ?PDO $pdo = null): int
 {
+    if (!preg_match('/^\d{4}-\d{2}$/', $mes)) {
+        $mes = date('Y-m');
+    }
+
+    // Se houver configuração explícita de dias de produção no banco, respeita
+    if ($pdo !== null) {
+        try {
+            $stmt = $pdo->prepare("SELECT dias_uteis, dias_customizados FROM boletim_config_metas WHERE `month` = ?");
+            $stmt->execute([$mes]);
+            $cfg = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($cfg) {
+                if (!empty($cfg['dias_customizados'])) {
+                    $arr = json_decode((string) $cfg['dias_customizados'], true);
+                    if (is_array($arr) && !empty($arr)) {
+                        return count($arr);
+                    }
+                }
+                if (!empty($cfg['dias_uteis']) && (int) $cfg['dias_uteis'] > 0) {
+                    return (int) $cfg['dias_uteis'];
+                }
+            }
+        } catch (\Throwable $e) {}
+    }
+
     [$ano, $m] = array_map('intval', explode('-', $mes));
     $diasNoMes = (int) date('t', mktime(0, 0, 0, $m, 1, $ano));
+    $feriados = boletimObterFeriadosAno($ano, $pdo);
+
     $uteis = 0;
     for ($d = 1; $d <= $diasNoMes; $d++) {
-        if ((int) date('N', mktime(0, 0, 0, $m, $d, $ano)) <= 5) $uteis++;
+        $dtStr = sprintf('%04d-%02d-%02d', $ano, $m, $d);
+        $isFimDeSemana = ((int) date('N', strtotime($dtStr)) > 5);
+        $isFeriado = isset($feriados[$dtStr]);
+        if (!$isFimDeSemana && !$isFeriado) {
+            $uteis++;
+        }
     }
     return $uteis;
 }
 
 /**
  * Dias úteis já decorridos num mês "YYYY-MM": do dia 1 até hoje (mês atual),
- * até o último dia do mês (mês passado), ou zero (mês futuro).
+ * até o último dia do mês (mês passado), ou zero (mês futuro),
+ * desconsiderando fins de semana e feriados (Nacionais + MT + Cuiabá).
  */
-function boletimDiasUteisTrabalhados(string $mes): int
+function boletimDiasUteisTrabalhados(string $mes, ?PDO $pdo = null): int
 {
     $hoje = new DateTime('today');
     [$ano, $m] = array_map('intval', explode('-', $mes));
@@ -597,10 +732,33 @@ function boletimDiasUteisTrabalhados(string $mes): int
     $ultimoDia = new DateTime(sprintf('%04d-%02d-%02d', $ano, $m, $ultimoDiaMes));
     $fim = $ultimoDia < $hoje ? $ultimoDia : $hoje;
 
+    // Se houver dias customizados no banco, calcula a intersecção decorrida
+    if ($pdo !== null) {
+        try {
+            $stmt = $pdo->prepare("SELECT dias_customizados FROM boletim_config_metas WHERE `month` = ?");
+            $stmt->execute([$mes]);
+            $raw = $stmt->fetchColumn();
+            if ($raw) {
+                $arr = json_decode((string) $raw, true);
+                if (is_array($arr) && !empty($arr)) {
+                    $hojeStr = $hoje->format('Y-m-d');
+                    return count(array_filter($arr, fn($d) => $d <= $hojeStr));
+                }
+            }
+        } catch (\Throwable $e) {}
+    }
+
+    $feriados = boletimObterFeriadosAno($ano, $pdo);
+
     $uteis = 0;
     $cursor = clone $primeiroDia;
     while ($cursor <= $fim) {
-        if ((int) $cursor->format('N') <= 5) $uteis++;
+        $dtStr = $cursor->format('Y-m-d');
+        $isFimDeSemana = ((int) $cursor->format('N') > 5);
+        $isFeriado = isset($feriados[$dtStr]);
+        if (!$isFimDeSemana && !$isFeriado) {
+            $uteis++;
+        }
         $cursor->modify('+1 day');
     }
     return $uteis;
