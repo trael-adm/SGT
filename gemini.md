@@ -24,6 +24,38 @@ Este arquivo define as regras de ouro para IAs (como o Gemini) atuarem no projet
 - **Comunicação direta:** Seja conciso, direto e vá direto ao ponto nas explicações da conversa — sem enrolação corporativa ou formalismo desnecessário.
 - **Entregas completas:** Entregue implementações completas e 100% funcionais com tratamento de erros robusto e nenhum import ausente.
 
+## 🧪 Protocolo de Validação Real (Banco de Dados & HTTP)
+
+Para mudanças que tocam cálculo, banco de dados ou autenticação, `php -l` e leitura de código **não bastam**. Valide contra dados reais, seguindo este protocolo:
+
+1. **Achar as ferramentas mesmo sem PATH.** Nem `php` nem `mysql` costumam estar no `PATH` deste ambiente — não desista no primeiro `command not found`:
+   - **PHP:** procure em `~/Downloads/php-*-Win32-*/php.exe` (build portátil). Vem sem extensões carregadas por padrão — habilite via flags na chamada: `-d extension_dir=".../ext" -d extension=pdo_mysql -d extension=mysqli -d extension=mbstring -d extension=session`.
+   - **MySQL:** o servidor roda via Laragon como processo `mysqld` (confirme com `Get-NetTCPConnection -LocalPort 3306` no PowerShell → pegue `OwningProcess` → `Get-Process -Id`). O cliente `mysql.exe` fica dentro da instalação do Laragon (`~/laragon/bin/mysql/mysql-*/bin/mysql.exe`).
+   - **Credenciais do banco:** sempre no `.env` da raiz do projeto (`DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASS`).
+
+2. **Teste de lógica isolado (sem HTTP).** Escreva um script PHP avulso (fora do repo, em scratchpad) que dá `require` direto no arquivo/função alterada e chama com dados reais do banco de dev. Para mudanças em valores configuráveis (taxas, custos, parâmetros): leia o valor atual, rode o cálculo, altere o valor temporariamente no banco, rode de novo, confira que a proporção do resultado bate com o esperado, e **restaure o valor original antes de terminar**.
+
+3. **Teste HTTP ponta a ponta.** Suba um servidor local (`php -S 127.0.0.1:PORTA` a partir da raiz do projeto, com as extensões do passo 1). Teste:
+   - Endpoint sem sessão → deve recusar corretamente (401/403 em JSON), nunca estourar erro fatal.
+   - Com sessão: **nunca altere a senha de um usuário real pra logar.** Insira uma linha temporária direto na tabela `php_sessions` (sessões ficam no banco, não em arquivo) com um `PHPSESSID` inventado e os dados serializados manualmente, ex: `usuario|a:3:{s:2:"id";i:1;s:9:"id_perfil";i:201;s:4:"nome";s:13:"Administrador";}` — perfis `1`, `201` ou `202` já dão acesso total de administrador sem precisar montar permissões granulares. Autentique as chamadas com `curl -b "PHPSESSID=..."`.
+   - Confira o corpo da resposta por `Fatal error`/`Warning`/`Notice`/`Deprecated` do PHP — não valide só pelo status HTTP.
+
+4. **Limpeza obrigatória ao final.** Apague a sessão de teste da tabela `php_sessions`, restaure qualquer valor de configuração alterado no banco, e encerre o servidor local (ache o processo pela porta que está ouvindo e mate pelo PID — um `kill %1` do bash não segura processos iniciados em chamadas de ferramenta anteriores).
+
+---
+
+## 🤔 Protocolo de Dúvidas e Decisões (Sem Pressa)
+
+Quando surgir incerteza — sobre uma decisão do usuário, o estado real do sistema, ou o que fazer diante de um risco — siga esta ordem, sempre sem pressa:
+
+1. **Verifique antes de perguntar.** Dúvida não é motivo para parar e perguntar de cara — é motivo para investigar primeiro. Leia o arquivo, rode a query, confira o schema, compare o histórico do git. Só pergunte ao usuário o que **não dá pra descobrir sozinho** (intenção, prioridade de negócio, uma decisão que só ele pode tomar).
+2. **Nunca presuma "provavelmente é isso".** Se uma memória, um comentário antigo ou um nome de variável sugere algo, confirme contra o estado atual (arquivo, banco, remoto) antes de agir — o que era verdade ontem pode não ser hoje.
+3. **Risco alto ou irreversível → pare e explique em termos concretos, não abstratos.** Nunca diga só "isso é destrutivo" — diga exatamente o que se perde, quantas linhas, quais arquivos, se é recuperável e por quanto tempo. Ex.: "isso vai reescrever a branch main do GitHub — os 11 commits de lá deixam de aparecer, mas não são apagados na hora; alguém com o hash ainda consegue recuperar por um tempo".
+4. **Dê uma recomendação, não um questionário.** Ao perguntar, já venha com a opção que você recomendaria e por quê (trade-off principal em 1–2 frases). O usuário decide, mas não deve ter que reconstruir sua análise do zero.
+5. **Escrita em produção (banco, deploy, remoto compartilhado) sempre passa por dry-run primeiro.** Simule, mostre os números (quantos registros, quais tabelas, o que seria criado/pulado/ignorado), e só depois da confirmação explícita rode em modo real (`--live`).
+6. **Divergência inesperada (remoto com commits que você não tem, dado que não bate com a memória) é sinal de alerta, não obstáculo a contornar.** Pare, investigue a origem, e traga o achado ao usuário antes de decidir sozinho qual lado "vence".
+7. **Nunca force/descarte (force-push, hard delete, sobrescrever) sem confirmação explícita e específica para aquela ação** — uma aprovação anterior não vale para uma ação parecida depois.
+
 ## ⚠️ Regras de Comportamento Obrigatórias
 1. **Escopo Estrito:** Faça **apenas** o que for pedido na tarefa atual.
 2. **Sem Criação Desnecessária:** Não crie arquivos além dos solicitados.

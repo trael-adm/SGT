@@ -321,11 +321,13 @@ layoutHeader($pageTitle);
                     <?php foreach ($reprovas as $r):
                         $locStr = strtoupper(trim((string)$r['local']));
                         $locArray = [];
-                        if ($locStr === 'GER' || $locStr === '') {
+                        if ($locStr === 'GER') {
                             $locArray = ['LAB', 'RET', 'IQF'];
-                        } else {
+                        } elseif ($locStr !== '') {
                             $locArray = array_values(array_filter(array_map('trim', explode(',', $locStr))));
                         }
+                        // $locStr === '' fica com $locArray vazio de propósito: reprova
+                        // sem nenhuma estação marcada, indisponível para apontamento.
                         $hasLab = in_array('LAB', $locArray, true);
                         $hasRet = in_array('RET', $locArray, true);
                         $hasIqf = in_array('IQF', $locArray, true);
@@ -698,11 +700,16 @@ layoutHeader($pageTitle);
         const badge = document.getElementById('badgeAutoCode');
         if (badge) badge.style.display = 'none';
 
-        const loc = (dados.local || 'GER').toUpperCase();
-        if (loc === 'GER' || loc === '') {
+        const loc = (dados.local ?? '').toUpperCase();
+        if (loc === 'GER') {
             document.getElementById('chkSectorLab').checked = true;
             document.getElementById('chkSectorRet').checked = true;
             document.getElementById('chkSectorIqf').checked = true;
+        } else if (loc === '') {
+            // Local vazio de propósito: reprova sem estação nenhuma marcada.
+            document.getElementById('chkSectorLab').checked = false;
+            document.getElementById('chkSectorRet').checked = false;
+            document.getElementById('chkSectorIqf').checked = false;
         } else {
             const arr = loc.split(',').map(s => s.trim());
             document.getElementById('chkSectorLab').checked = arr.includes('LAB');
@@ -728,15 +735,6 @@ layoutHeader($pageTitle);
     function salvarReprova() {
         if (!form.reportValidity()) return;
 
-        const chkLab = document.getElementById('chkSectorLab').checked;
-        const chkRet = document.getElementById('chkSectorRet').checked;
-        const chkIqf = document.getElementById('chkSectorIqf').checked;
-
-        if (!chkLab && !chkRet && !chkIqf) {
-            alert('Selecione pelo menos um setor onde esta reprova poderá ser apontada.');
-            return;
-        }
-
         const btn = document.getElementById('btnSalvarReprova');
         btn.disabled = true;
         btn.innerHTML = 'Salvando...';
@@ -751,7 +749,7 @@ layoutHeader($pageTitle);
         .then(async res => {
             const data = await res.json().catch(() => ({}));
             if (res.ok && data.sucesso) {
-                location.reload(); 
+                location.reload();
             } else {
                 alert(data.erro || 'Erro ao processar requisição (HTTP ' + res.status + ').');
                 btn.disabled = false;
@@ -823,7 +821,7 @@ layoutHeader($pageTitle);
             if (res.ok && data.sucesso) {
                 const row = btn.closest('tr.linha-reprova');
                 const activeSetores = data.locais || [];
-                
+
                 const btnLab = row.querySelector('td:nth-child(5) .row-pill:nth-child(1)');
                 const btnRet = row.querySelector('td:nth-child(5) .row-pill:nth-child(2)');
                 const btnIqf = row.querySelector('td:nth-child(5) .row-pill:nth-child(3)');

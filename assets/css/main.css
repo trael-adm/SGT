@@ -37,6 +37,7 @@
   --color-warning:           #d97706;
   --color-warning-bg:        #fef3c7;
   --color-warning-text:      #78350f;
+  --color-warning-soft:      #fbbf24;
 
   --color-danger:            #dc2626;
   --color-danger-bg:         #fee2e2;
@@ -171,6 +172,11 @@ a:hover { color: var(--color-accent-hover); text-decoration: underline; }
   padding: 8px 0;
   overflow-y: auto;
   overflow-x: hidden;
+  /* A posição de rolagem é restaurada via JS (sessionStorage, ver includes/sidebar.php).
+     Sem isto, o "scroll anchoring" nativo do navegador reajusta sozinho a rolagem quando
+     algo acima muda de tamanho depois do restore (ex.: troca da webfont Inter ao carregar),
+     desfazendo a posição que acabamos de restaurar. */
+  overflow-anchor: none;
 }
 
 .nav-group-label {
@@ -1123,6 +1129,9 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 .page-fixed-layout .rt-tabs,
 .page-fixed-layout .hist-tabs {
   flex-shrink: 0;
+  position: relative;
+  z-index: 20;
+  background: var(--color-surface, #ffffff);
 }
 
 .page-fixed-layout .table-wrap,
@@ -1136,17 +1145,113 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   overflow-x: auto;
 }
 
-.table thead th,
-.data-table thead th,
-.rt-table thead th,
-.hist-table thead th,
-.iqf-table thead th,
-.lab-table thead th,
-.table-sticky thead th {
+/* Apenas os cabeçalhos diretos da tabela principal recebem fixação (sticky) */
+.table > thead > tr > th,
+.data-table > thead > tr > th,
+.rt-table > thead > tr > th,
+.hist-table > thead > tr > th,
+.iqf-table > thead > tr > th,
+.lab-table > thead > tr > th,
+.table-sticky > thead > tr > th {
   position: sticky !important;
   top: 0 !important;
   z-index: 10 !important;
-  background: var(--color-surface, #ffffff) !important;
+  background: var(--color-surface-2, #f8fafc) !important;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
+
+/* Subtabelas aninhadas NUNCA devem ter position sticky */
+.ret-subtable thead th,
+.ret-subtable th,
+.hist-subtable thead th,
+.hist-subtable th,
+.rt-subtable thead th,
+.rt-subtable th,
+.subtable thead th,
+.subtable th {
+  position: static !important;
+  top: auto !important;
+  z-index: 1 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* ============================================================
+   GFT STYLE GUIDE — COMPONENTES DE DESIGN SYSTEM COMPARTILHADO
+   ============================================================ */
+
+/* Botões com Saída Visual / Ação Direta */
+.btn-success { background: var(--color-success); color: #fff; border-color: var(--color-success); }
+.btn-success:hover { background: #15803d; border-color: #15803d; color: #fff; }
+
+.btn-warning { background: var(--color-warning-soft); color: var(--color-warning-text); border-color: var(--color-warning-soft); }
+.btn-warning:hover { background: #f59e0b; border-color: #f59e0b; color: var(--color-warning-text); }
+
+/* Avatar de Logo / Banner Marca */
+.avatar-logo {
+  border-radius: var(--radius-md, 6px);
+  object-fit: contain;
+  background: #fff;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+}
+
+/* Selo de Auto-Atualização */
+.auto-atualiza {
+  display: inline-flex; align-items: center;
+  padding: 3px 10px;
+  font-size: var(--font-size-xs, 11px);
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.auto-atualiza.buscando { color: var(--color-text-secondary); }
+
+/* Ajuda Inline (Bolinha ? com Tooltip) */
+.ajuda {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--color-border); color: var(--color-text-secondary);
+  font-size: 10px; font-weight: 700; cursor: help; border: none; padding: 0;
+  position: relative; line-height: 1;
+}
+.ajuda:hover, .ajuda:focus-visible { background: var(--color-accent); color: #fff; outline: none; }
+.ajuda::after {
+  content: attr(data-ajuda);
+  position: absolute; top: 100%; left: 0; margin-top: 6px;
+  background: #1f2733; color: #fff; padding: 6px 10px;
+  border-radius: 6px; font-size: 11px; font-weight: 400;
+  white-space: normal; width: max-content; max-width: 240px;
+  z-index: 999; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  display: none; pointer-events: none;
+}
+.ajuda:hover::after, .ajuda:focus-visible::after { display: block; }
+.ajuda-esq::after { left: auto; right: -6px; }
+
+/* Scrollbar da Sidebar */
+.sidebar-nav {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+.sidebar-nav::-webkit-scrollbar { width: 8px; }
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Regra Global de Impressão (@media print) */
+@media print {
+  .no-print, .sidebar, .app-header, .mobile-overlay, .modal-overlay, .btn-print { display: none !important; }
+  .app-wrapper, .app-main, .page-container { display: block !important; height: auto !important; overflow: visible !important; margin: 0 !important; padding: 0 !important; }
+  body { background: #fff !important; color: #000 !important; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  .card, table, tr, .kpi { break-inside: avoid; page-break-inside: avoid; }
+  @page { margin: 12mm; }
+}
+
 

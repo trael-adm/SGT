@@ -22,3 +22,11 @@ PLANILHA QUE ATUALIZA/Historico_Atraso.csv
 .claude
 docs/INFORMATIVO.md
 
+# Ferramentas de teste (só dev, nunca em produção)
+composer.json
+composer.lock
+composer.phar
+vendor/
+phpunit.xml
+tests/
+

@@ -462,6 +462,12 @@ function boletimCalcularPainelSetor(
         'meta_total_mensal'          => $metaTotalDistrib,
         'meta_diaria'                => $metaDiariaSetor,
         'meta_diaria_global'         => $metaDiariaGlobal,
+        'meta_enrolado'              => $metaEnr,
+        'meta_convencional'          => $metaEmp,
+        'meta_jctrif'                => $metaJc,
+        'meta_dia_enrolado'          => $metaDiariaEnr,
+        'meta_dia_convencional'      => $metaDiariaEmp,
+        'meta_dia_jctrif'            => $metaDiariaJc,
         'meta_acumulada_corte'       => $metaAcumuladaCorte,
         'metas_por_setor'            => $metasPorSetor,
         'metas_setores_config'       => $metasSetoresConfig,
@@ -483,6 +489,32 @@ function boletimCalcularPainelSetor(
         'total_ordens_setor'         => count($ordensSetor),
         'ordens_detalhes'            => array_slice($ordensSetor, 0, 250),
     ];
+}
+
+/**
+ * Classifica o módulo/célula fabril de uma OF de Distribuição a partir da referência,
+ * linha (núcleo) e descrição — mesma regra de classificação usada no Painel por Setor,
+ * reaproveitada aqui como fonte única (single source of truth).
+ */
+function boletimClassificarModuloDistribuicao(string $referencia, string $linha, string $descricao): array
+{
+    $refUpper   = strtoupper(trim($referencia));
+    $linhaUpper = strtoupper(trim($linha));
+    $descUpper  = strtoupper(trim($descricao));
+
+    if (str_starts_with($refUpper, 'MTQ') || str_starts_with($refUpper, 'TANQ') || str_contains($descUpper, 'TANQUE') || $linhaUpper === 'CONVENCIONAL') {
+        return ['chave' => 'PINTURA', 'codigo' => 'MTQ', 'nome' => 'Pintura / Tanque'];
+    }
+    if (str_starts_with($refUpper, 'ME-') || str_starts_with($refUpper, 'PA-') || str_starts_with($refUpper, 'ME_') || str_starts_with($refUpper, 'PA_') || str_contains($descUpper, 'PARTE ATIVA')) {
+        return ['chave' => 'MONTAGEM_ELETRICA', 'codigo' => 'ME', 'nome' => 'Montagem Elétrica'];
+    }
+    if (str_starts_with($refUpper, 'MFL') || str_starts_with($refUpper, 'MF-')) {
+        return ['chave' => 'MONTAGEM_FINAL', 'codigo' => 'MFL', 'nome' => 'Montagem Final'];
+    }
+    if (str_starts_with($refUpper, 'BOB') || str_starts_with($refUpper, 'BAT') || str_starts_with($refUpper, 'BBT') || str_contains($descUpper, 'BOBINA')) {
+        return ['chave' => 'BOBINAGEM', 'codigo' => 'BOB', 'nome' => 'Bobinagem'];
+    }
+    return ['chave' => 'LABORATORIO', 'codigo' => 'LAB', 'nome' => 'Laboratório / Ensaios'];
 }
 
 /**

@@ -22,7 +22,7 @@
     }
 
     // Restore saved state on desktop
-    if (window.innerWidth >= 768 && localStorage.getItem(STORAGE_KEY) === '1') {
+    if (window.innerWidth > 1024 && localStorage.getItem(STORAGE_KEY) === '1') {
         setSidebarCollapsed(true);
     }
 
@@ -30,7 +30,7 @@
     var toggleBtn = document.getElementById('sidebar-toggle');
     if (toggleBtn) {
         toggleBtn.addEventListener('click', function () {
-            if (window.innerWidth < 768) {
+            if (window.innerWidth <= 1024) {
                 toggleMobileSidebar();
             } else {
                 setSidebarCollapsed(!sidebar.classList.contains('collapsed'));
@@ -43,6 +43,32 @@
         overlay.addEventListener('click', function () {
             if (sidebar) sidebar.classList.remove('mobile-open');
             overlay.classList.remove('active');
+        });
+    }
+
+    // ─── Sidebar: preserva a rolagem entre navegações ──────────────
+    // Cada clique num item recarrega a página inteira (sem SPA), então a
+    // sidebar nasce zerada; salvamos o scrollTop antes de sair. A restauração
+    // ao carregar já acontece antes disto, num <script> inline logo após a
+    // <nav> em includes/sidebar.php — síncrono, pra não "piscar" no topo antes
+    // de pular pra posição salva.
+    var SCROLL_STORAGE_KEY = 'sgt_sidebar_scroll';
+    var sidebarNav = document.getElementById('sidebarNav');
+
+    if (sidebarNav) {
+        var scrollSaveTimer = null;
+        sidebarNav.addEventListener('scroll', function () {
+            clearTimeout(scrollSaveTimer);
+            scrollSaveTimer = setTimeout(function () {
+                sessionStorage.setItem(SCROLL_STORAGE_KEY, String(sidebarNav.scrollTop));
+            }, 100);
+        });
+
+        // Clique num item navega antes do debounce do scroll disparar — grava na hora.
+        sidebarNav.addEventListener('click', function (e) {
+            if (e.target.closest('.nav-item')) {
+                sessionStorage.setItem(SCROLL_STORAGE_KEY, String(sidebarNav.scrollTop));
+            }
         });
     }
 

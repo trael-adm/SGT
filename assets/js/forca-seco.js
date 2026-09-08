@@ -291,7 +291,23 @@
                         fill: true,
                         tension: 0.25,
                         pointRadius: 2,
-                        datalabels: { display: false },
+                        datalabels: {
+                            display: function (ctx) {
+                                var v = ctx.dataset.data[ctx.dataIndex];
+                                return v > 0;
+                            },
+                            // No primeiro ponto o balão "top" colide com o rótulo do eixo Y
+                            // (fica colado na borda esquerda do gráfico) — nesse caso alinha
+                            // pro lado em vez de para cima.
+                            align: function (ctx) { return ctx.dataIndex === 0 ? 'right' : 'top'; },
+                            offset: 6,
+                            color: '#ffffff',
+                            backgroundColor: VERDE,
+                            borderRadius: 4,
+                            padding: { top: 3, bottom: 3, left: 5, right: 5 },
+                            font: { weight: 'bold', size: 11 },
+                            formatter: function (v) { return v ? v + '%' : ''; }
+                        },
                     },
                     {
                         label: '100% (Meta)',
@@ -307,6 +323,7 @@
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                layout: { padding: { top: 30 } },
                 scales: {
                     x: { title: { display: true, text: 'Dia do mês' }, grid: { display: false } },
                     y: {
@@ -315,7 +332,7 @@
                         ticks: { callback: function (v) { return v + '%'; } },
                     },
                 },
-                plugins: { legend: { position: 'bottom' } },
+                plugins: { legend: { position: 'bottom' }, datalabels: { display: true } },
             },
         });
     }
@@ -336,7 +353,20 @@
                         fill: true,
                         tension: 0.2,
                         pointRadius: 2,
-                        datalabels: { display: false },
+                        datalabels: {
+                            display: function (ctx) {
+                                var v = ctx.dataset.data[ctx.dataIndex];
+                                var prev = ctx.dataIndex > 0 ? ctx.dataset.data[ctx.dataIndex - 1] : 0;
+                                return v > 0 && v !== prev;
+                            },
+                            align: 'top',
+                            offset: 4,
+                            color: VERDE,
+                            font: { weight: 'bold', size: 9 },
+                            formatter: function (v) {
+                                return v ? v.toLocaleString('pt-BR') : '';
+                            }
+                        },
                     },
                     {
                         label: 'Meta Acumulada',
@@ -366,7 +396,7 @@
                     x: { title: { display: true, text: 'Dia do mês' }, grid: { display: false } },
                     y: { beginAtZero: true },
                 },
-                plugins: { legend: { position: 'bottom' } },
+                plugins: { legend: { position: 'bottom' }, datalabels: { display: true } },
             },
         });
     }
@@ -1241,10 +1271,21 @@
     var pecasCache = [];
     var filtroPecaAtivo = 'TODOS';
     var clienteSelecionadoModal = null;
+    var tipoConstrutivoSelecionadoModal = null;
     var topClientesAtuais = [];
+    var topTiposConstrutivosAtuais = [];
     var chartModalPieInstance = null;
     var chartModalBarInstance = null;
     var paletaCoresClientes = ['#10b981', '#0ea5e9', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#64748b'];
+    var paletaCoresTipoConstrutivo = {
+        'Selado': '#10b981',
+        'Conservador': '#0ea5e9',
+        'A Seco': '#f59e0b',
+        'A Seco Solar': '#f97316',
+        'Pedestal': '#8b5cf6',
+        'Não Informado': '#94a3b8'
+    };
+    var paletaCoresFallback = ['#10b981', '#0ea5e9', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#64748b'];
 
     window.abrirModalDetalhesPecas = async function (dataDia, tipo) {
         var modal = document.getElementById('modal-detalhes-pecas');
@@ -1253,7 +1294,9 @@
         modal.classList.add('open');
         document.body.style.overflow = 'hidden';
 
-        var mes = window.MES_REFERENCIA || (new Date().toISOString().substring(0, 7));
+        var mes = (dataDia && dataDia.length >= 7)
+            ? dataDia.substring(0, 7)
+            : (window.MES_REFERENCIA || (new Date().toISOString().substring(0, 7)));
         var area = window.BOLETIM_AREA || 'forca';
 
         var tituloTxt = 'Análise Diária de Produção — Média Força';
@@ -1286,7 +1329,9 @@
         if (inputBusca) inputBusca.value = '';
         window.atualizarBotaoLimparBuscaModal();
         clienteSelecionadoModal = null;
+        tipoConstrutivoSelecionadoModal = null;
         window.atualizarVisualFiltroClienteModal();
+        window.atualizarVisualFiltroTipoConstrutivoModal();
 
         if (elLoading) elLoading.style.display = 'block';
         if (elTable) elTable.style.display = 'none';
@@ -1437,12 +1482,25 @@
         return 'Particular';
     }
 
+    function normalizarTipoConstrutivo(tp, nucleo, linha, desc) {
+        var t = (tp || '').toString().trim();
+        if (!t) return 'Não Informado';
+        var upper = t.toUpperCase();
+        if (upper.indexOf('SELADO') !== -1) return 'Selado';
+        if (upper.indexOf('CONSERVADOR') !== -1) return 'Conservador';
+        if (upper.indexOf('SECO SOLAR') !== -1) return 'A Seco Solar';
+        if (upper.indexOf('SECO') !== -1) return 'A Seco';
+        if (upper.indexOf('PEDESTAL') !== -1) return 'Pedestal';
+        return t;
+    }
+
     function atualizarKpisEGraficosModal(dataDia) {
         var totalProd = 0;
         var totalReprovas = 0;
         var projetosProdSet = new Set();
         var projetosReprovasSet = new Set();
         var clientesMap = {};
+        var tipoConstrutivoMap = {};
 
         pecasCache.forEach(function (p) {
             var proj = (p.projeto || p.referencia || '').trim();
@@ -1458,6 +1516,10 @@
             var cli = normalizarNomeCliente(p.cliente, p.tp_mercado);
             if (!clientesMap[cli]) clientesMap[cli] = 0;
             clientesMap[cli]++;
+
+            var tipoConst = normalizarTipoConstrutivo(p.tipo_construtivo, p.nucleo_cod, p.linha, p.descricao);
+            if (!tipoConstrutivoMap[tipoConst]) tipoConstrutivoMap[tipoConst] = 0;
+            tipoConstrutivoMap[tipoConst]++;
         });
 
         var elTotal = document.getElementById('modal-kpi-total');
@@ -1478,6 +1540,10 @@
             return { nome: k, qtd: clientesMap[k] };
         }).sort(function (a, b) { return b.qtd - a.qtd; });
 
+        var listaTiposConstrutivos = Object.keys(tipoConstrutivoMap).map(function (k) {
+            return { nome: k, qtd: tipoConstrutivoMap[k] };
+        }).sort(function (a, b) { return b.qtd - a.qtd; });
+
         if (elCli) elCli.textContent = listaClientes.length + (listaClientes.length === 1 ? ' cliente' : ' clientes');
         if (elCliSub) elCliSub.textContent = 'grupos consolidados';
 
@@ -1491,48 +1557,51 @@
             }
         }
 
-        renderizarGraficosClienteModal(listaClientes, totalProd + totalReprovas);
+        renderizarGraficosClienteModal(listaTiposConstrutivos, listaClientes, totalProd + totalReprovas);
     }
 
-    function renderizarGraficosClienteModal(listaClientes, totalGeral) {
+    function renderizarGraficosClienteModal(listaTiposConstrutivos, listaClientes, totalGeral) {
         var elPie = document.getElementById('chart-modal-cliente-pie');
         var elBar = document.getElementById('chart-modal-cliente-bar');
+
+        var elPieTitle = document.getElementById('modal-chart-pie-title-text');
+        if (elPieTitle) elPieTitle.textContent = 'Distribuição por Tipo Construtivo';
 
         if (chartModalPieInstance) chartModalPieInstance.destroy();
         if (chartModalBarInstance) chartModalBarInstance.destroy();
 
-        if (!listaClientes || listaClientes.length === 0) return;
+        // ─── 1. Gráfico Rosca: Distribuição por Tipo Construtivo ───
+        if (elPie && listaTiposConstrutivos && listaTiposConstrutivos.length > 0) {
+            var topTiposLabels = [];
+            var topTiposQtds = [];
+            var outrosTiposQtd = 0;
 
-        var topLabels = [];
-        var topQtds = [];
-        var outrosQtd = 0;
+            listaTiposConstrutivos.forEach(function (t, idx) {
+                if (idx < 6) {
+                    topTiposLabels.push(t.nome);
+                    topTiposQtds.push(t.qtd);
+                } else {
+                    outrosTiposQtd += t.qtd;
+                }
+            });
 
-        listaClientes.forEach(function (c, idx) {
-            if (idx < 6) {
-                topLabels.push(c.nome);
-                topQtds.push(c.qtd);
-            } else {
-                outrosQtd += c.qtd;
+            if (outrosTiposQtd > 0) {
+                topTiposLabels.push('OUTROS (' + (listaTiposConstrutivos.length - 6) + ')');
+                topTiposQtds.push(outrosTiposQtd);
             }
-        });
 
-        if (outrosQtd > 0) {
-            topLabels.push('OUTROS (' + (listaClientes.length - 6) + ')');
-            topQtds.push(outrosQtd);
-        }
+            topTiposConstrutivosAtuais = topTiposLabels;
+            var coresTipos = topTiposLabels.map(function(lbl, i) {
+                return paletaCoresTipoConstrutivo[lbl] || paletaCoresFallback[i % paletaCoresFallback.length];
+            });
 
-        topClientesAtuais = topLabels;
-        var coresIniciais = paletaCoresClientes.slice(0, topLabels.length);
-        var maxQtd = Math.max.apply(null, topQtds.concat([10]));
-
-        if (elPie) {
             chartModalPieInstance = new Chart(elPie, {
                 type: 'doughnut',
                 data: {
-                    labels: topLabels,
+                    labels: topTiposLabels,
                     datasets: [{
-                        data: topQtds,
-                        backgroundColor: coresIniciais,
+                        data: topTiposQtds,
+                        backgroundColor: coresTipos,
                         borderWidth: 2,
                         borderColor: '#ffffff',
                         hoverOffset: 4
@@ -1573,8 +1642,8 @@
                     onClick: function (evt, elements) {
                         if (!elements || elements.length === 0) return;
                         var idx = elements[0].index;
-                        var cli = topLabels[idx];
-                        window.alternarFiltroClienteModal(cli);
+                        var tipo = topTiposLabels[idx];
+                        window.alternarFiltroTipoConstrutivoModal(tipo);
                     },
                     plugins: {
                         datalabels: { display: false },
@@ -1594,10 +1663,9 @@
                                         return data.labels.map(function(lbl, i) {
                                             var qtd = data.datasets[0].data[i];
                                             var pct = totalGeral > 0 ? Math.round((qtd / totalGeral) * 100) : 0;
-                                            var shortName = lbl.length > 20 ? lbl.substring(0, 18) + '…' : lbl;
                                             var fill = data.datasets[0].backgroundColor[i];
                                             return {
-                                                text: shortName + ' — ' + qtd + ' un (' + pct + '%)',
+                                                text: lbl + ' — ' + qtd + ' un (' + pct + '%)',
                                                 fillStyle: fill,
                                                 strokeStyle: fill,
                                                 lineWidth: 0,
@@ -1624,7 +1692,30 @@
             });
         }
 
-        if (elBar) {
+        // ─── 2. Gráfico Barras: Ranking por Volume de Clientes ───
+        if (elBar && listaClientes && listaClientes.length > 0) {
+            var topLabels = [];
+            var topQtds = [];
+            var outrosQtd = 0;
+
+            listaClientes.forEach(function (c, idx) {
+                if (idx < 6) {
+                    topLabels.push(c.nome);
+                    topQtds.push(c.qtd);
+                } else {
+                    outrosQtd += c.qtd;
+                }
+            });
+
+            if (outrosQtd > 0) {
+                topLabels.push('OUTROS (' + (listaClientes.length - 6) + ')');
+                topQtds.push(outrosQtd);
+            }
+
+            topClientesAtuais = topLabels;
+            var coresIniciais = paletaCoresClientes.slice(0, topLabels.length);
+            var maxQtd = Math.max.apply(null, topQtds.concat([10]));
+
             chartModalBarInstance = new Chart(elBar, {
                 type: 'bar',
                 data: {
@@ -1696,6 +1787,53 @@
         }
     }
 
+    window.alternarFiltroTipoConstrutivoModal = function (tipoNome) {
+        if (!tipoNome) return;
+        if (tipoConstrutivoSelecionadoModal === tipoNome) {
+            tipoConstrutivoSelecionadoModal = null;
+        } else {
+            tipoConstrutivoSelecionadoModal = tipoNome;
+        }
+        window.atualizarVisualFiltroTipoConstrutivoModal();
+        window.filtrarTabelaPecasModal();
+    };
+
+    window.limparFiltroTipoConstrutivoModal = function () {
+        tipoConstrutivoSelecionadoModal = null;
+        window.atualizarVisualFiltroTipoConstrutivoModal();
+        window.filtrarTabelaPecasModal();
+    };
+
+    window.atualizarVisualFiltroTipoConstrutivoModal = function () {
+        var badge = document.getElementById('modal-pecas-tipo-filtro-badge');
+        var badgeNome = document.getElementById('modal-pecas-tipo-filtro-nome');
+        if (badge && badgeNome) {
+            if (tipoConstrutivoSelecionadoModal) {
+                var labelExib = (tipoConstrutivoSelecionadoModal.indexOf('OUTROS') === 0) ? 'Outros Tipos' : tipoConstrutivoSelecionadoModal;
+                badgeNome.textContent = 'Tipo: ' + labelExib;
+                badge.style.display = 'inline-flex';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+
+        if (chartModalPieInstance && chartModalPieInstance.data && chartModalPieInstance.data.datasets && chartModalPieInstance.data.datasets[0]) {
+            var labels = topTiposConstrutivosAtuais || [];
+            var coresBase = labels.map(function(lbl, i) {
+                return paletaCoresTipoConstrutivo[lbl] || paletaCoresFallback[i % paletaCoresFallback.length];
+            });
+            if (tipoConstrutivoSelecionadoModal) {
+                var novasCores = labels.map(function (lbl, i) {
+                    return (tipoConstrutivoSelecionadoModal === lbl) ? coresBase[i] : 'rgba(148, 163, 184, 0.3)';
+                });
+                chartModalPieInstance.data.datasets[0].backgroundColor = novasCores;
+            } else {
+                chartModalPieInstance.data.datasets[0].backgroundColor = coresBase;
+            }
+            chartModalPieInstance.update();
+        }
+    };
+
     window.alternarFiltroClienteModal = function (cliNome) {
         if (!cliNome) return;
         if (clienteSelecionadoModal === cliNome) {
@@ -1726,9 +1864,7 @@
             }
         }
 
-        // Atualizar visual dos gráficos com destaque na seleção
-        [chartModalPieInstance, chartModalBarInstance].forEach(function (chart) {
-            if (!chart || !chart.data || !chart.data.datasets || !chart.data.datasets[0]) return;
+        if (chartModalBarInstance && chartModalBarInstance.data && chartModalBarInstance.data.datasets && chartModalBarInstance.data.datasets[0]) {
             var labels = topClientesAtuais || [];
             var coresBase = paletaCoresClientes.slice(0, labels.length);
             
@@ -1741,12 +1877,12 @@
                         return 'rgba(148, 163, 184, 0.3)'; // Muted
                     }
                 });
-                chart.data.datasets[0].backgroundColor = novasCores;
+                chartModalBarInstance.data.datasets[0].backgroundColor = novasCores;
             } else {
-                chart.data.datasets[0].backgroundColor = coresBase;
+                chartModalBarInstance.data.datasets[0].backgroundColor = coresBase;
             }
-            chart.update();
-        });
+            chartModalBarInstance.update();
+        }
     };
 
     function renderizarChipsFiltroPecas(area) {
@@ -1893,8 +2029,15 @@
 
         elTbody.innerHTML = html;
         if (elContador) {
-            var labelCliSuffix = clienteSelecionadoModal ? ' de ' + (clienteSelecionadoModal.indexOf('OUTROS') === 0 ? 'Outros Clientes' : clienteSelecionadoModal) : '';
-            elContador.textContent = 'Exibindo ' + itensConsolidados.length + ' projetos (' + totalPecasFiltradas + ' peças' + labelCliSuffix + ')';
+            var labelsSuffix = [];
+            if (tipoConstrutivoSelecionadoModal) {
+                labelsSuffix.push('Tipo: ' + (tipoConstrutivoSelecionadoModal.indexOf('OUTROS') === 0 ? 'Outros Tipos' : tipoConstrutivoSelecionadoModal));
+            }
+            if (clienteSelecionadoModal) {
+                labelsSuffix.push('Cliente: ' + (clienteSelecionadoModal.indexOf('OUTROS') === 0 ? 'Outros Clientes' : clienteSelecionadoModal));
+            }
+            var labelSuffixText = labelsSuffix.length > 0 ? ' • ' + labelsSuffix.join(' • ') : '';
+            elContador.textContent = 'Exibindo ' + itensConsolidados.length + ' projetos (' + totalPecasFiltradas + ' peças' + labelSuffixText + ')';
         }
     }
 
@@ -1906,7 +2049,22 @@
             var cli = normalizarNomeCliente(p.cliente, p.tp_mercado);
             var rawCli = (p.cliente || '').trim();
 
-            // Filtro por Cliente (Cross-Filtering vindo do gráfico)
+            // Filtro por Tipo Construtivo (Cross-Filtering vindo do gráfico de pizza/rosca)
+            if (tipoConstrutivoSelecionadoModal) {
+                var tipoPeca = normalizarTipoConstrutivo(p.tipo_construtivo, p.nucleo_cod, p.linha, p.descricao);
+                if (tipoConstrutivoSelecionadoModal.indexOf('OUTROS') === 0) {
+                    var top6Tipos = (topTiposConstrutivosAtuais || []).filter(function(l) { return l.indexOf('OUTROS') !== 0; });
+                    if (top6Tipos.some(function(t) { return t.toUpperCase() === tipoPeca.toUpperCase(); })) {
+                        return false;
+                    }
+                } else {
+                    if (tipoPeca.toUpperCase() !== tipoConstrutivoSelecionadoModal.toUpperCase()) {
+                        return false;
+                    }
+                }
+            }
+
+            // Filtro por Cliente (Cross-Filtering vindo do gráfico de barras)
             if (clienteSelecionadoModal) {
                 if (clienteSelecionadoModal.indexOf('OUTROS') === 0) {
                     var top6 = (topClientesAtuais || []).filter(function(l) { return l.indexOf('OUTROS') !== 0; });

@@ -253,7 +253,7 @@
                 var projId = r.getAttribute('data-id');
                 toggleGroup('grp-proj-' + projId, false);
                 var subBtn = r.querySelector('.js-tree-toggle');
-                if (subBtn) { subBtn.textContent = '+'; subBtn.setAttribute('aria-expanded', 'false'); }
+                if (subBtn) subBtn.setAttribute('aria-expanded', 'false');
             }
             r.style.display = shouldOpen ? '' : 'none';
         });
@@ -271,7 +271,9 @@
         }
         var quickBtn = document.querySelector('.js-toggle-all-quick');
         if (quickBtn) {
-            quickBtn.textContent = isAllExpanded ? '−' : '⤢';
+            // Ícone gira via CSS a partir de aria-expanded (ver .tree-toggle-btn) —
+            // não mexe no conteúdo do botão (é um SVG, não texto).
+            quickBtn.setAttribute('aria-expanded', isAllExpanded ? 'true' : 'false');
             quickBtn.title = isAllExpanded ? 'Recolher todos' : 'Expandir todos';
         }
     }
@@ -284,7 +286,6 @@
             var target = btn.getAttribute('data-target');
             if (target) {
                 toggleGroup(target, expand);
-                btn.textContent = expand ? '−' : '+';
                 btn.setAttribute('aria-expanded', expand ? 'true' : 'false');
                 if (expand) openGroups.push(target);
             }
@@ -306,7 +307,6 @@
             var target = btn.getAttribute('data-target');
             if (target && openGroups.includes(target)) {
                 toggleGroup(target, true);
-                btn.textContent = '−';
                 btn.setAttribute('aria-expanded', 'true');
             }
         });
@@ -326,7 +326,6 @@
             var target = toggleBtn.getAttribute('data-target');
             if (!target) return;
             var isNowOpen = toggleGroup(target);
-            toggleBtn.textContent = isNowOpen ? '−' : '+';
             toggleBtn.setAttribute('aria-expanded', isNowOpen ? 'true' : 'false');
 
             var openGroups = getOpenGroups();

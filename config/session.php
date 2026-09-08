@@ -272,7 +272,7 @@ function getNivelAcesso(string $recurso): string
         return 'off';
     }
     if ($recurso === 'tab:pintura') {
-        $lvls = [$perms['pin.pai'] ?? 'off', $perms['pin.ret'] ?? 'off'];
+        $lvls = [$perms['pin.pai'] ?? 'off', $perms['pin.ret'] ?? 'off', $perms['pin.reg'] ?? 'off', $perms['pin.lis'] ?? 'off', $perms['pin.retornos'] ?? 'off'];
         if (in_array('total', $lvls, true)) return 'total';
         if (in_array('view', $lvls, true)) return 'view';
         return 'off';
@@ -311,6 +311,34 @@ function getNivelAcesso(string $recurso): string
 function hasAcesso(string $recurso): bool
 {
     return getNivelAcesso($recurso) !== 'off';
+}
+
+/**
+ * Módulo Papel liberado apenas para esta conta específica, independente de perfil/permissão.
+ */
+function hasAcessoPapel(): bool
+{
+    if (!isLoggedIn()) return false;
+    $email = strtolower(trim((string) (currentUser()['email'] ?? '')));
+    return $email === 'admin@trael.com.br';
+}
+
+function requireAcessoPapel(): void
+{
+    if (hasAcessoPapel()) return;
+
+    http_response_code(403);
+    $isJson = isset($_SERVER['HTTP_ACCEPT']) && str_contains($_SERVER['HTTP_ACCEPT'], 'application/json')
+        || (isset($_SERVER['CONTENT_TYPE']) && str_contains($_SERVER['CONTENT_TYPE'], 'application/json'))
+        || str_ends_with($_SERVER['SCRIPT_NAME'] ?? '', '-acao.php');
+    if ($isJson) {
+        header('Content-Type: application/json');
+        echo json_encode(['sucesso' => false, 'erro' => 'Acesso restrito ao módulo Papel.']);
+    } else {
+        $base = defined('APP_URL') ? APP_URL : '';
+        echo '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Acesso Negado — SGT</title></head><body><h1>403 — Acesso Restrito</h1><p>Este módulo é restrito.</p><a href="' . htmlspecialchars($base) . '/index.php">Voltar</a></body></html>';
+    }
+    exit;
 }
 
 function podeEditar(string $recurso): bool

@@ -427,8 +427,7 @@ layoutHeader($pageTitle);
     .rt-check-row label { display:flex; align-items:center; gap:5px; cursor:pointer; white-space:nowrap; }
     .rt-check-row .lbl { font-weight:600; color:var(--color-text-primary,#1a2133); }
     .rt-table { width:100%; border-collapse:collapse; font-size:13px; }
-    #rt-table-wrap { overflow-x:auto; overflow-y:auto; max-height:calc(100vh - 280px); max-height:calc(100dvh - 280px); }
-    .rt-table thead th { position:sticky; top:0; z-index:10; background:#f8fafc; box-shadow:0 1px 2px rgba(0,0,0,0.05); }
+    .rt-table > thead > tr > th { position:sticky; top:0; z-index:10; background:var(--color-surface-2,#f8fafc); box-shadow:0 1px 2px rgba(0,0,0,0.05); }
     .rt-table th { text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.6px; color:var(--color-text-muted,#6b7280); padding:8px 10px; border-bottom:1px solid var(--color-border,#e5e7eb); white-space:nowrap; }
     .rt-th-link { color:inherit; text-decoration:none; }
     .rt-th-link:hover { color:#E89B1C; text-decoration:none; }
@@ -466,7 +465,7 @@ layoutHeader($pageTitle);
     .rt-detail-row.is-open { display:table-row; }
     .rt-detail-wrap { background:var(--color-surface-2,#f9fafb); border-radius:8px; padding:8px 10px; margin:2px 0; }
     .rt-subtable { width:100%; border-collapse:collapse; font-size:12px; }
-    .rt-subtable th { text-align:left; font-size:9px; text-transform:uppercase; letter-spacing:.5px; color:var(--color-text-muted,#6b7280); padding:6px 8px; border-bottom:1px solid var(--color-border,#e5e7eb); white-space:nowrap; }
+    .rt-subtable th { position:static !important; top:auto !important; z-index:1 !important; background:transparent !important; box-shadow:none !important; text-align:left; font-size:9px; text-transform:uppercase; letter-spacing:.5px; color:var(--color-text-muted,#6b7280); padding:6px 8px; border-bottom:1px solid var(--color-border,#e5e7eb); white-space:nowrap; }
     .rt-subtable td { padding:7px 8px; border-bottom:1px solid var(--color-border,#eef1f5); vertical-align:middle; white-space:nowrap; }
     .rt-subtable tr:last-child td { border-bottom:none; }
     .rt-empty { text-align:center; padding:36px 16px; color:var(--color-text-muted,#6b7280); font-size:13px; }
@@ -555,7 +554,7 @@ layoutHeader($pageTitle);
                 </a>
             <?php endif; ?>
             <button type="button" id="btn-toggle-all-rt" class="filter-btn btn-expand-all" aria-expanded="false" title="Expandir ou recolher todas as linhas">
-                <svg class="ico-expand" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                <svg class="ico-expand" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
                 <span class="lbl-expand">Expandir Todos</span>
             </button>
         </div>
@@ -578,7 +577,7 @@ layoutHeader($pageTitle);
             <thead>
                 <tr>
                     <?php
-                    echo '<th style="width:36px;text-align:center;"><button type="button" class="btn-expand-col js-toggle-all-quick" title="Expandir/Recolher todos" style="cursor:pointer;border:1px solid #cbd5e1;border-radius:4px;background:#f8fafc;color:#475569;font-weight:700;font-size:13px;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;">⤢</button></th>';
+                    echo '<th style="width:36px;text-align:center;"><button type="button" class="btn-expand-col js-toggle-all-quick" aria-expanded="false" title="Expandir/Recolher todos"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button></th>';
                     rtSortTh('Prioridade', 'prioridade');
                     echo '<th>#</th>';
                     rtSortTh('N° Série', 'ns');
@@ -603,7 +602,9 @@ layoutHeader($pageTitle);
                 ?>
                     <tr class="rt-group-row">
                         <td>
-                            <button type="button" class="rt-toggle-btn js-toggle-rt" data-target="rt-det-<?= (int)$itemPrincipal['id'] ?>" aria-expanded="false" title="Mostrar reprovas">+</button>
+                            <button type="button" class="rt-toggle-btn js-toggle-rt" data-target="rt-det-<?= (int)$itemPrincipal['id'] ?>" aria-expanded="false" title="Mostrar reprovas">
+                                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                            </button>
                         </td>
                         <td style="text-align:center;">
                             <?php if ($gPrio): ?>
@@ -874,23 +875,28 @@ layoutHeader($pageTitle);
     width: 24px; height: 24px; border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 4px; font-weight: bold; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; transition: all 0.2s;
 }
 .rt-toggle-btn:hover { background: #f3f4f6; }
+.btn-expand-all .ico-expand { transition: transform 0.15s ease; }
+.btn-expand-all[aria-expanded="true"] .ico-expand { transform: rotate(90deg); }
+.btn-expand-col {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border: 1px solid #cbd5e1; border-radius: 6px;
+    background: #f8fafc; color: #475569; cursor: pointer; transition: all 0.15s ease;
+}
+.btn-expand-col:hover { background: #f1f5f9; border-color: #94a3b8; }
+.btn-expand-col svg { transition: transform 0.15s ease; }
+.btn-expand-col[aria-expanded="true"] { background: #fff7ed; border-color: #ea580c; color: #9a3412; }
+.btn-expand-col[aria-expanded="true"] svg { transform: rotate(90deg); }
+.rt-toggle-btn svg { transition: transform 0.15s ease; }
+.rt-toggle-btn[aria-expanded="true"] svg { transform: rotate(90deg); }
+.rt-toggle-btn[aria-expanded="true"] { background: #fff7ed; border-color: #ea580c; color: #9a3412; }
 </style>
 <script>
 (function() {
-    const STORAGE_KEY_ALL = 'sgt_relacao_expand_all';
-    const STORAGE_KEY_ROWS = 'sgt_relacao_open_rows';
-
-    function getOpenRows() {
-        try {
-            return JSON.parse(localStorage.getItem(STORAGE_KEY_ROWS) || '[]');
-        } catch (e) {
-            return [];
-        }
-    }
-
-    function saveOpenRows(rows) {
-        localStorage.setItem(STORAGE_KEY_ROWS, JSON.stringify(rows));
-    }
+    // Limpa chaves legadas de persistência para sempre iniciar com as linhas recolhidas
+    try {
+        localStorage.removeItem('sgt_relacao_expand_all');
+        localStorage.removeItem('sgt_relacao_open_rows');
+    } catch (e) {}
 
     function syncHeaderButtons(expandAll) {
         const btnAll = document.getElementById('btn-toggle-all-rt');
@@ -902,40 +908,29 @@ layoutHeader($pageTitle);
         }
         const quickBtn = document.querySelector('.js-toggle-all-quick');
         if (quickBtn) {
-            quickBtn.textContent = expandAll ? '−' : '⤢';
+            // Ícone gira via CSS a partir de aria-expanded (ver .btn-expand-col) —
+            // não mexe no conteúdo do botão (é um SVG, não texto).
+            quickBtn.setAttribute('aria-expanded', expandAll ? 'true' : 'false');
             quickBtn.title = expandAll ? 'Recolher todos' : 'Expandir todos';
         }
     }
 
-    function aplicarEstado() {
-        const expandAll = localStorage.getItem(STORAGE_KEY_ALL) === 'true';
-        const openRows = getOpenRows();
-        syncHeaderButtons(expandAll);
-
+    function setAllRows(expand) {
+        syncHeaderButtons(expand);
         document.querySelectorAll('.js-toggle-rt').forEach(function(btn) {
             const targetId = btn.getAttribute('data-target');
             const targetRow = document.getElementById(targetId);
             if (!targetRow) return;
 
-            const shouldOpen = expandAll || openRows.includes(targetId);
-            btn.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
-            btn.textContent = shouldOpen ? '−' : '+';
-            targetRow.style.display = shouldOpen ? 'table-row' : 'none';
+            btn.setAttribute('aria-expanded', expand ? 'true' : 'false');
+            targetRow.style.display = expand ? 'table-row' : 'none';
         });
-    }
-
-    function setAllRows(expand) {
-        localStorage.setItem(STORAGE_KEY_ALL, expand ? 'true' : 'false');
-        if (!expand) {
-            saveOpenRows([]);
-        }
-        aplicarEstado();
     }
 
     document.addEventListener('click', function(e) {
         const btnAll = e.target.closest('#btn-toggle-all-rt') || e.target.closest('.js-toggle-all-quick');
         if (btnAll) {
-            const isCurrentlyExpanded = localStorage.getItem(STORAGE_KEY_ALL) === 'true';
+            const isCurrentlyExpanded = btnAll.classList.contains('is-active') || btnAll.getAttribute('aria-expanded') === 'true';
             setAllRows(!isCurrentlyExpanded);
             return;
         }
@@ -950,24 +945,12 @@ layoutHeader($pageTitle);
         const isExpanded = btn.getAttribute('aria-expanded') === 'true';
         const nextState = !isExpanded;
         btn.setAttribute('aria-expanded', nextState ? 'true' : 'false');
-        btn.textContent = nextState ? '−' : '+';
         targetRow.style.display = nextState ? 'table-row' : 'none';
 
-        let openRows = getOpenRows();
-        if (nextState) {
-            if (!openRows.includes(targetId)) openRows.push(targetId);
-        } else {
-            openRows = openRows.filter(id => id !== targetId);
-            localStorage.setItem(STORAGE_KEY_ALL, 'false');
+        // Se alguma linha for fechada manualmente, desmarca o botão de "Expandir Todos"
+        if (!nextState) {
             syncHeaderButtons(false);
         }
-        saveOpenRows(openRows);
-    });
-
-    window.sgtAplicarExpansao = aplicarEstado;
-
-    document.addEventListener('DOMContentLoaded', function() {
-        aplicarEstado();
     });
 })();
 </script>

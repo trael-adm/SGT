@@ -427,6 +427,9 @@ layoutHeader($pageTitle);
         flex-shrink: 0;
     }
     .tree-toggle-btn:hover { background: #f3f4f6; color: #111827; border-color: #9ca3af; }
+    .tree-toggle-btn svg { transition: transform 0.15s ease; }
+    .tree-toggle-btn[aria-expanded="true"] svg { transform: rotate(90deg); }
+    .tree-toggle-btn[aria-expanded="true"] { background: #fff7ed; border-color: #ea580c; color: #9a3412; }
 
     /* ─── Badges de Prioridade Interativos ──────────────────────────────────── */
     .prio-badge-btn {
@@ -638,7 +641,11 @@ layoutHeader($pageTitle);
                 <table class="rt-table">
                     <thead>
                         <tr>
-                            <th style="width:38px;text-align:center;"><button type="button" class="tree-toggle-btn js-toggle-all-quick" title="Expandir/Recolher todos" style="margin:0;">⤢</button></th>
+                            <th style="width:38px;text-align:center;">
+                                <button type="button" class="tree-toggle-btn js-toggle-all-quick" aria-expanded="false" title="Expandir/Recolher todos" style="margin:0;">
+                                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                                </button>
+                            </th>
                             <th>Estrutura (Pedido ➔ Projeto ➔ N° Série)</th>
                             <th style="width:38%;">Reprovas / Contenções</th>
                             <th style="width:110px;text-align:center;">Parado há</th>
@@ -660,7 +667,9 @@ layoutHeader($pageTitle);
                                 data-prioridade="<?= htmlspecialchars($pedPrio) ?>"
                                 data-search="<?= htmlspecialchars($searchPed) ?>">
                                 <td style="text-align:center;">
-                                    <button type="button" class="tree-toggle-btn js-tree-toggle" data-target="grp-ped-<?= $pedId ?>" aria-expanded="false">+</button>
+                                    <button type="button" class="tree-toggle-btn js-tree-toggle" data-target="grp-ped-<?= $pedId ?>" aria-expanded="false">
+                                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                                    </button>
                                 </td>
                                 <td>
                                     <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;">
@@ -709,7 +718,9 @@ layoutHeader($pageTitle);
                                     data-search="<?= htmlspecialchars($searchProj) ?>"
                                     style="display:none;">
                                     <td style="text-align:center;">
-                                        <button type="button" class="tree-toggle-btn js-tree-toggle" data-target="grp-proj-<?= $projId ?>" aria-expanded="false" style="margin-left:8px;">+</button>
+                                        <button type="button" class="tree-toggle-btn js-tree-toggle" data-target="grp-proj-<?= $projId ?>" aria-expanded="false" style="margin-left:8px;">
+                                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                                        </button>
                                     </td>
                                     <td>
                                         <div class="tree-indent-proj">

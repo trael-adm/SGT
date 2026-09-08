@@ -135,7 +135,7 @@ $statusMap = [
 $reprovasCatalogo = $pdo->query("
     SELECT id, codigo, familia, descricao, local
     FROM reprovas
-    WHERE ativo = 1 AND (local LIKE '%LAB%' OR local = 'GER' OR local = '' OR local IS NULL)
+    WHERE ativo = 1 AND (local LIKE '%LAB%' OR local = 'GER')
     ORDER BY ordem ASC, LENGTH(codigo) ASC, codigo ASC
 ")->fetchAll();
 

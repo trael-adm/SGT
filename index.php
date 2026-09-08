@@ -117,7 +117,7 @@ $todosSistemas = [
         'desc' => 'Gestão de demandas, projetos e etapas de produção.',
         'dot' => '#E89B1C', 'iconBg' => '#FBEBD2', 'iconColor' => '#C6800F',
         'icone' => '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>',
-        'url' => 'em-breve.php?s=SGE',
+        'url' => 'https://gft-production-2b19.up.railway.app/pages/planejador/index.php',
         'req' => 'hub:sge',
     ],
     [
@@ -188,6 +188,7 @@ $todosSistemas = [
 
 // Filtra módulos permitidos
 foreach ($todosSistemas as $s) {
+    if (!empty($s['oculto'])) continue;
     if (is_array($s['req'])) {
         $permitido = false;
         foreach ($s['req'] as $r) {
@@ -303,7 +304,8 @@ foreach ($todosSistemas as $s) {
         <!-- Grid de módulos -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             <?php foreach ($sistemas as $s): ?>
-                <a href="<?= htmlspecialchars($base . '/' . $s['url']) ?>"
+                <?php $sysHref = preg_match('#^https?://#i', $s['url']) ? $s['url'] : $base . '/' . $s['url']; ?>
+                <a href="<?= htmlspecialchars($sysHref) ?>"
                    class="sys-card block bg-white rounded-2xl p-5 border border-black/5 shadow-sm">
                     <div class="flex items-start justify-between">
                         <span class="w-12 h-12 rounded-xl flex items-center justify-center"

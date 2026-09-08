@@ -1187,16 +1187,6 @@ body.tv-mode .dash-page-wrapper {
                 <span>Atualizar</span>
             </button>
 
-            <!-- Card Topo: Contabilização de Custos em R$ -->
-            <div class="dash-custo-card-top" title="Custo total de retrabalho dos materiais utilizados">
-                <span class="dash-custo-icon">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-                </span>
-                <div class="dash-custo-texts">
-                    <span class="dash-custo-label">Custo de Retrabalho</span>
-                    <span class="dash-custo-val" id="topCustoTotal"><?= $custoTotalFormatado ?></span>
-                </div>
-            </div>
         </form>
 
         <!-- Filtro Multi-selecionável de Data (Hoje | Mês | Personalizável) -->

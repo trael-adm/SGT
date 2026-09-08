@@ -1243,11 +1243,22 @@
     var pecasCache = [];
     var filtroPecaAtivo = 'TODOS';
     var clienteSelecionadoModal = null;
+    var nucleoSelecionadoModal = null;
     var topClientesAtuais = [];
+    var topNucleosAtuais = [];
     var chartModalPieInstance = null;
     var chartModalBarInstance = null;
     var paletaCoresClientes = ['#10b981', '#0ea5e9', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#64748b'];
-
+    var paletaCoresNucleo = {
+        'ENR': '#10b981',      // Emerald / Verde
+        'EMP': '#0ea5e9',      // Sky Blue / Azul
+        'JC-TRIF': '#f59e0b',  // Amber / Laranja
+        'JC': '#f59e0b',
+        'Reprovas': '#ef4444', // Red / Vermelho
+        'LAB': '#ef4444',
+        'Outros': '#8b5cf6'
+    };
+    var paletaCoresFallback = ['#10b981', '#0ea5e9', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#64748b'];
 
     window.abrirModalDetalhesPecas = async function (dataDia, tipo) {
         var modal = document.getElementById('modal-detalhes-pecas');
@@ -1256,7 +1267,9 @@
         modal.classList.add('open');
         document.body.style.overflow = 'hidden';
 
-        var mes = window.MES_REFERENCIA || (new Date().toISOString().substring(0, 7));
+        var mes = (dataDia && dataDia.length >= 7)
+            ? dataDia.substring(0, 7)
+            : (window.MES_REFERENCIA || (new Date().toISOString().substring(0, 7)));
         var area = window.BOLETIM_AREA || 'distrib';
 
         var tituloTxt = 'Análise Diária de Produção';
@@ -1286,7 +1299,9 @@
         if (inputBusca) inputBusca.value = '';
         window.atualizarBotaoLimparBuscaModal();
         clienteSelecionadoModal = null;
+        nucleoSelecionadoModal = null;
         window.atualizarVisualFiltroClienteModal();
+        window.atualizarVisualFiltroNucleoModal();
 
         if (elLoading) elLoading.style.display = 'block';
         if (elTable) elTable.style.display = 'none';
@@ -1438,12 +1453,24 @@
         return 'Particular';
     }
 
+    function normalizarTipoNucleo(nucleo, linha, tipo) {
+        var isRep = (tipo === 'REPROVA LAB' || linha === 'LAB' || nucleo === 'LAB');
+        if (isRep) return 'Reprovas';
+        var n = (nucleo || linha || '').trim().toUpperCase();
+        if (n === 'ENR') return 'ENR';
+        if (n === 'EMP') return 'EMP';
+        if (n === 'JC' || n === 'JC-TRIF') return 'JC-TRIF';
+        if (n) return n;
+        return 'Outros';
+    }
+
     function atualizarKpisEGraficosModal(dataDia) {
         var totalProd = 0;
         var totalReprovas = 0;
         var projetosProdSet = new Set();
         var projetosReprovasSet = new Set();
         var clientesMap = {};
+        var nucleosMap = {};
 
         pecasCache.forEach(function (p) {
             var proj = (p.projeto || p.referencia || '').trim();
@@ -1459,6 +1486,14 @@
             var cli = normalizarNomeCliente(p.cliente, p.tp_mercado);
             if (!clientesMap[cli]) clientesMap[cli] = 0;
             clientesMap[cli]++;
+
+            // Reprovas ficam de fora deste gráfico — ele mostra só o tipo de
+            // núcleo do que foi produzido; reprova já tem seu próprio KPI.
+            if (!isRep) {
+                var nuc = normalizarTipoNucleo(p.nucleo_cod, p.linha, p.tipo);
+                if (!nucleosMap[nuc]) nucleosMap[nuc] = 0;
+                nucleosMap[nuc]++;
+            }
         });
 
         var elTotal = document.getElementById('modal-kpi-total');
@@ -1479,6 +1514,10 @@
             return { nome: k, qtd: clientesMap[k] };
         }).sort(function (a, b) { return b.qtd - a.qtd; });
 
+        var listaNucleos = Object.keys(nucleosMap).map(function (k) {
+            return { nome: k, qtd: nucleosMap[k] };
+        }).sort(function (a, b) { return b.qtd - a.qtd; });
+
         if (elCli) elCli.textContent = listaClientes.length + (listaClientes.length === 1 ? ' cliente' : ' clientes');
         if (elCliSub) elCliSub.textContent = 'grupos consolidados';
 
@@ -1492,13 +1531,16 @@
             }
         }
 
-        renderizarGraficosClienteModal(listaClientes, totalProd + totalReprovas);
+        renderizarGraficosClienteModal(listaNucleos, listaClientes);
     }
 
-    function renderizarGraficosClienteModal(listaClientes, totalGeral) {
+    function renderizarGraficosClienteModal(listaNucleos, listaClientes) {
         try {
             var elPie = document.getElementById('chart-modal-cliente-pie');
             var elBar = document.getElementById('chart-modal-cliente-bar');
+
+            var elPieTitle = document.getElementById('modal-chart-pie-title-text');
+            if (elPieTitle) elPieTitle.textContent = 'Distribuição por Tipo de Núcleo';
 
             if (chartModalPieInstance) {
                 chartModalPieInstance.destroy();
@@ -1509,38 +1551,41 @@
                 chartModalBarInstance = null;
             }
 
-            if (!listaClientes || listaClientes.length === 0) return;
+            // ─── 1. Gráfico Rosca: Distribuição por Tipo de Núcleo ───
+            if (elPie && listaNucleos && listaNucleos.length > 0) {
+                // Total próprio da rosca (soma dos tipos de núcleo, sem reprovas)
+                // para que o centro e os percentuais fechem em 100%.
+                var totalNucleos = listaNucleos.reduce(function (acc, n) { return acc + n.qtd; }, 0);
+                var topNucleosLabels = [];
+                var topNucleosQtds = [];
+                var outrosNucleosQtd = 0;
 
-            var topLabels = [];
-            var topQtds = [];
-            var outrosQtd = 0;
+                listaNucleos.forEach(function (n, idx) {
+                    if (idx < 6) {
+                        topNucleosLabels.push(n.nome);
+                        topNucleosQtds.push(n.qtd);
+                    } else {
+                        outrosNucleosQtd += n.qtd;
+                    }
+                });
 
-            listaClientes.forEach(function (c, idx) {
-                if (idx < 6) {
-                    topLabels.push(c.nome);
-                    topQtds.push(c.qtd);
-                } else {
-                    outrosQtd += c.qtd;
+                if (outrosNucleosQtd > 0) {
+                    topNucleosLabels.push('OUTROS (' + (listaNucleos.length - 6) + ')');
+                    topNucleosQtds.push(outrosNucleosQtd);
                 }
-            });
 
-            if (outrosQtd > 0) {
-                topLabels.push('OUTROS (' + (listaClientes.length - 6) + ')');
-                topQtds.push(outrosQtd);
-            }
+                topNucleosAtuais = topNucleosLabels;
+                var coresNucleos = topNucleosLabels.map(function(lbl, i) {
+                    return paletaCoresNucleo[lbl] || paletaCoresFallback[i % paletaCoresFallback.length];
+                });
 
-            topClientesAtuais = topLabels;
-            var coresIniciais = paletaCoresClientes.slice(0, topLabels.length);
-            var maxQtd = Math.max.apply(null, topQtds.concat([10]));
-
-            if (elPie) {
                 chartModalPieInstance = new Chart(elPie, {
                     type: 'doughnut',
                     data: {
-                        labels: topLabels,
+                        labels: topNucleosLabels,
                         datasets: [{
-                            data: topQtds,
-                            backgroundColor: coresIniciais,
+                            data: topNucleosQtds,
+                            backgroundColor: coresNucleos,
                             borderWidth: 2,
                             borderColor: '#ffffff',
                             hoverOffset: 4
@@ -1561,7 +1606,7 @@
                             
                             ctx.font = 'bold 16px monospace';
                             ctx.fillStyle = '#0f172a';
-                            ctx.fillText(totalGeral + ' un', centerX, centerY - 6);
+                            ctx.fillText(totalNucleos + ' un', centerX, centerY - 6);
                             
                             ctx.font = '700 9px sans-serif';
                             ctx.fillStyle = '#64748b';
@@ -1581,8 +1626,8 @@
                         onClick: function (evt, elements) {
                             if (!elements || elements.length === 0) return;
                             var idx = elements[0].index;
-                            var cli = topLabels[idx];
-                            window.alternarFiltroClienteModal(cli);
+                            var nuc = topNucleosLabels[idx];
+                            window.alternarFiltroNucleoModal(nuc);
                         },
                         plugins: {
                             datalabels: { display: false },
@@ -1601,11 +1646,10 @@
                                         if (data.labels.length && data.datasets.length) {
                                             return data.labels.map(function(lbl, i) {
                                                 var qtd = data.datasets[0].data[i];
-                                                var pct = totalGeral > 0 ? Math.round((qtd / totalGeral) * 100) : 0;
-                                                var shortName = lbl.length > 20 ? lbl.substring(0, 18) + '…' : lbl;
+                                                var pct = totalNucleos > 0 ? Math.round((qtd / totalNucleos) * 100) : 0;
                                                 var fill = data.datasets[0].backgroundColor[i];
                                                 return {
-                                                    text: shortName + ' — ' + qtd + ' un (' + pct + '%)',
+                                                    text: lbl + ' — ' + qtd + ' un (' + pct + '%)',
                                                     fillStyle: fill,
                                                     strokeStyle: fill,
                                                     lineWidth: 0,
@@ -1622,7 +1666,7 @@
                                 callbacks: {
                                     label: function (ctx) {
                                         var val = ctx.raw || 0;
-                                        var pct = totalGeral > 0 ? Math.round((val / totalGeral) * 100) : 0;
+                                        var pct = totalNucleos > 0 ? Math.round((val / totalNucleos) * 100) : 0;
                                         return ' ' + ctx.label + ': ' + val + ' peças (' + pct + '%)';
                                     }
                                 }
@@ -1632,7 +1676,30 @@
                 });
             }
 
-            if (elBar) {
+            // ─── 2. Gráfico Barras: Ranking por Volume de Clientes ───
+            if (elBar && listaClientes && listaClientes.length > 0) {
+                var topLabels = [];
+                var topQtds = [];
+                var outrosQtd = 0;
+
+                listaClientes.forEach(function (c, idx) {
+                    if (idx < 6) {
+                        topLabels.push(c.nome);
+                        topQtds.push(c.qtd);
+                    } else {
+                        outrosQtd += c.qtd;
+                    }
+                });
+
+                if (outrosQtd > 0) {
+                    topLabels.push('OUTROS (' + (listaClientes.length - 6) + ')');
+                    topQtds.push(outrosQtd);
+                }
+
+                topClientesAtuais = topLabels;
+                var coresIniciais = paletaCoresClientes.slice(0, topLabels.length);
+                var maxQtd = Math.max.apply(null, topQtds.concat([10]));
+
                 chartModalBarInstance = new Chart(elBar, {
                     type: 'bar',
                     data: {
@@ -1707,6 +1774,53 @@
         }
     }
 
+    window.alternarFiltroNucleoModal = function (nucNome) {
+        if (!nucNome) return;
+        if (nucleoSelecionadoModal === nucNome) {
+            nucleoSelecionadoModal = null;
+        } else {
+            nucleoSelecionadoModal = nucNome;
+        }
+        window.atualizarVisualFiltroNucleoModal();
+        window.filtrarTabelaPecasModal();
+    };
+
+    window.limparFiltroNucleoModal = function () {
+        nucleoSelecionadoModal = null;
+        window.atualizarVisualFiltroNucleoModal();
+        window.filtrarTabelaPecasModal();
+    };
+
+    window.atualizarVisualFiltroNucleoModal = function () {
+        var badge = document.getElementById('modal-pecas-tipo-filtro-badge');
+        var badgeNome = document.getElementById('modal-pecas-tipo-filtro-nome');
+        if (badge && badgeNome) {
+            if (nucleoSelecionadoModal) {
+                var labelExib = (nucleoSelecionadoModal.indexOf('OUTROS') === 0) ? 'Outros Núcleos' : nucleoSelecionadoModal;
+                badgeNome.textContent = 'Núcleo: ' + labelExib;
+                badge.style.display = 'inline-flex';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+
+        if (chartModalPieInstance && chartModalPieInstance.data && chartModalPieInstance.data.datasets && chartModalPieInstance.data.datasets[0]) {
+            var labels = topNucleosAtuais || [];
+            var coresBase = labels.map(function(lbl, i) {
+                return paletaCoresNucleo[lbl] || paletaCoresFallback[i % paletaCoresFallback.length];
+            });
+            if (nucleoSelecionadoModal) {
+                var novasCores = labels.map(function (lbl, i) {
+                    return (nucleoSelecionadoModal === lbl) ? coresBase[i] : 'rgba(148, 163, 184, 0.3)';
+                });
+                chartModalPieInstance.data.datasets[0].backgroundColor = novasCores;
+            } else {
+                chartModalPieInstance.data.datasets[0].backgroundColor = coresBase;
+            }
+            chartModalPieInstance.update();
+        }
+    };
+
     window.alternarFiltroClienteModal = function (cliNome) {
         if (!cliNome) return;
         if (clienteSelecionadoModal === cliNome) {
@@ -1737,9 +1851,7 @@
             }
         }
 
-        // Atualizar visual dos gráficos com destaque na seleção
-        [chartModalPieInstance, chartModalBarInstance].forEach(function (chart) {
-            if (!chart || !chart.data || !chart.data.datasets || !chart.data.datasets[0]) return;
+        if (chartModalBarInstance && chartModalBarInstance.data && chartModalBarInstance.data.datasets && chartModalBarInstance.data.datasets[0]) {
             var labels = topClientesAtuais || [];
             var coresBase = paletaCoresClientes.slice(0, labels.length);
             
@@ -1752,12 +1864,12 @@
                         return 'rgba(148, 163, 184, 0.3)'; // Muted
                     }
                 });
-                chart.data.datasets[0].backgroundColor = novasCores;
+                chartModalBarInstance.data.datasets[0].backgroundColor = novasCores;
             } else {
-                chart.data.datasets[0].backgroundColor = coresBase;
+                chartModalBarInstance.data.datasets[0].backgroundColor = coresBase;
             }
-            chart.update();
-        });
+            chartModalBarInstance.update();
+        }
     };
 
     function renderizarChipsFiltroPecas(area) {
@@ -1901,8 +2013,15 @@
 
         elTbody.innerHTML = html;
         if (elContador) {
-            var labelCliSuffix = clienteSelecionadoModal ? ' de ' + (clienteSelecionadoModal.indexOf('OUTROS') === 0 ? 'Outros Clientes' : clienteSelecionadoModal) : '';
-            elContador.textContent = 'Exibindo ' + itensConsolidados.length + ' projetos (' + totalPecasFiltradas + ' peças' + labelCliSuffix + ')';
+            var labelsSuffix = [];
+            if (nucleoSelecionadoModal) {
+                labelsSuffix.push('Núcleo: ' + (nucleoSelecionadoModal.indexOf('OUTROS') === 0 ? 'Outros Núcleos' : nucleoSelecionadoModal));
+            }
+            if (clienteSelecionadoModal) {
+                labelsSuffix.push('Cliente: ' + (clienteSelecionadoModal.indexOf('OUTROS') === 0 ? 'Outros Clientes' : clienteSelecionadoModal));
+            }
+            var labelSuffixText = labelsSuffix.length > 0 ? ' • ' + labelsSuffix.join(' • ') : '';
+            elContador.textContent = 'Exibindo ' + itensConsolidados.length + ' projetos (' + totalPecasFiltradas + ' peças' + labelSuffixText + ')';
         }
     }
 
@@ -1914,7 +2033,22 @@
             var cli = normalizarNomeCliente(p.cliente, p.tp_mercado);
             var rawCli = (p.cliente || '').trim();
 
-            // Filtro por Cliente (Cross-Filtering vindo do gráfico)
+            // Filtro por Tipo de Núcleo (Cross-Filtering vindo do gráfico de pizza/rosca)
+            if (nucleoSelecionadoModal) {
+                var nucPeca = normalizarTipoNucleo(p.nucleo_cod, p.linha, p.tipo);
+                if (nucleoSelecionadoModal.indexOf('OUTROS') === 0) {
+                    var top6Nuc = (topNucleosAtuais || []).filter(function(l) { return l.indexOf('OUTROS') !== 0; });
+                    if (top6Nuc.some(function(t) { return t.toUpperCase() === nucPeca.toUpperCase(); })) {
+                        return false;
+                    }
+                } else {
+                    if (nucPeca.toUpperCase() !== nucleoSelecionadoModal.toUpperCase()) {
+                        return false;
+                    }
+                }
+            }
+
+            // Filtro por Cliente (Cross-Filtering vindo do gráfico de barras)
             if (clienteSelecionadoModal) {
                 if (clienteSelecionadoModal.indexOf('OUTROS') === 0) {
                     var top6 = (topClientesAtuais || []).filter(function(l) { return l.indexOf('OUTROS') !== 0; });

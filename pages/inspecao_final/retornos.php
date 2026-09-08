@@ -70,10 +70,17 @@ if ($retornos) {
                rep.descricao AS reprova_descricao, rep.local AS reprova_local
         FROM retrabalhos r
         INNER JOIN (
-            SELECT ns_transformador, MAX(id) AS max_id
-            FROM retrabalhos
-            WHERE deleted_at IS NULL AND (estacao = 'IQF' OR (setores_destino IS NOT NULL AND (FIND_IN_SET('inspecao_final', setores_destino) OR FIND_IN_SET('montagem_final', setores_destino))))
-            GROUP BY ns_transformador
+            -- ROW_NUMBER por data_reprova (não por id): registros de importação
+            -- histórica são inseridos com id novo mas data_reprova antiga, então
+            -- MAX(id) escolheria o registro importado em vez do lote real mais
+            -- recente (mesmo bug já corrigido em api/retrabalho-acao.php).
+            SELECT ns_transformador, id AS max_id FROM (
+                SELECT ns_transformador, id,
+                       ROW_NUMBER() OVER (PARTITION BY ns_transformador ORDER BY data_reprova DESC, id DESC) AS rn
+                FROM retrabalhos
+                WHERE deleted_at IS NULL AND (estacao = 'IQF' OR (setores_destino IS NOT NULL AND (FIND_IN_SET('inspecao_final', setores_destino) OR FIND_IN_SET('montagem_final', setores_destino))))
+            ) ranked
+            WHERE rn = 1
         ) AS ultimos ON r.ns_transformador = ultimos.ns_transformador
         LEFT JOIN retrabalhos r_max ON r_max.id = ultimos.max_id
         LEFT JOIN reprovas rep ON rep.id = r.id_reprova
@@ -94,7 +101,7 @@ if ($retornos) {
 $reprovasCatalogo = $pdo->query("
     SELECT id, codigo, familia, descricao, local
     FROM reprovas
-    WHERE ativo = 1 AND (local LIKE '%IQF%' OR local = 'GER' OR local = '' OR local IS NULL)
+    WHERE ativo = 1 AND (local LIKE '%IQF%' OR local = 'GER')
     ORDER BY ordem ASC, LENGTH(codigo) ASC, codigo ASC
 ")->fetchAll();
 
@@ -129,6 +136,7 @@ layoutHeader($pageTitle);
     }
     .ret-subtable { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); }
     .ret-subtable th {
+        position: static !important; top: auto !important; z-index: 1 !important; background: transparent !important; box-shadow: none !important;
         text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
         color: var(--color-text-muted); padding: 8px 10px; border-bottom: 1px solid var(--color-border); white-space: nowrap;
     }
@@ -182,9 +190,20 @@ layoutHeader($pageTitle);
         user-select: none; transition: all 0.15s ease;
     }
     .btn-expand-all:hover { background: #f8fafc; border-color: #94a3b8; color: #0f172a; }
-    .btn-expand-all.is-active { background: #fff7ed; border-color: #ea580c; color: #9a3412; }
-    .table-wrap { overflow-x:auto; overflow-y:auto; max-height:calc(100vh - 280px); max-height:calc(100dvh - 280px); }
-    .data-table thead th { position:sticky; top:0; z-index:10; background:#f8fafc; box-shadow:0 1px 2px rgba(0,0,0,0.05); }
+    .btn-expand-all .ico-expand { transition: transform 0.15s ease; }
+    .btn-expand-all[aria-expanded="true"] .ico-expand { transform: rotate(90deg); }
+    .btn-expand-col {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 24px; height: 24px; border: 1px solid #cbd5e1; border-radius: 6px;
+        background: #f8fafc; color: #475569; cursor: pointer; transition: all 0.15s ease;
+    }
+    .btn-expand-col:hover { background: #f1f5f9; border-color: #94a3b8; }
+    .btn-expand-col svg { transition: transform 0.15s ease; }
+    .btn-expand-col[aria-expanded="true"] { background: #fff7ed; border-color: #ea580c; color: #9a3412; }
+    .btn-expand-col[aria-expanded="true"] svg { transform: rotate(90deg); }
+    .js-toggle-retorno svg { transition: transform 0.15s ease; }
+    .js-toggle-retorno[aria-expanded="true"] svg { transform: rotate(90deg); }
+    .js-toggle-retorno[aria-expanded="true"] { background: #fff7ed; border-color: #ea580c; color: #9a3412; }
 </style>
 
 <!-- Container de Página com Rolagem Exclusiva na Tabela -->
@@ -232,7 +251,7 @@ layoutHeader($pageTitle);
                 </a>
             <?php endif; ?>
             <button type="button" id="btn-toggle-all-retornos" class="filter-btn btn-expand-all" aria-expanded="false" title="Expandir ou recolher todas as linhas">
-                <svg class="ico-expand" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                <svg class="ico-expand" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
                 <span class="lbl-expand">Expandir Todos</span>
             </button>
         </div>
@@ -247,7 +266,11 @@ layoutHeader($pageTitle);
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th style="width:36px;text-align:center;"><button type="button" class="btn-expand-col js-toggle-all-quick" title="Expandir/Recolher todos" style="cursor:pointer;border:1px solid #cbd5e1;border-radius:4px;background:#f8fafc;color:#475569;font-weight:700;font-size:13px;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;">⤢</button></th>
+                        <th style="width:36px;text-align:center;">
+                            <button type="button" class="btn-expand-col js-toggle-all-quick" aria-expanded="false" title="Expandir/Recolher todos">
+                                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                            </button>
+                        </th>
                         <th>N° Série</th>
                         <th>Pedido</th>
                         <th>Projeto</th>
@@ -267,7 +290,9 @@ layoutHeader($pageTitle);
                     ?>
                         <tr>
                             <td style="text-align:center;">
-                                <button type="button" class="btn-icon btn-icon-sm js-toggle-retorno" data-target="<?= htmlspecialchars($detId) ?>" aria-expanded="false" title="Mostrar reprovas">+</button>
+                                <button type="button" class="btn-icon btn-icon-sm js-toggle-retorno" data-target="<?= htmlspecialchars($detId) ?>" aria-expanded="false" title="Mostrar reprovas">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                                </button>
                             </td>
                             <td><span class="font-mono font-600"><?= htmlspecialchars($r['ns_transformador']) ?></span></td>
                             <td><?= htmlspecialchars($r['pedido_numero'] ?? '—') ?></td>
@@ -341,6 +366,7 @@ layoutHeader($pageTitle);
             </table>
         </div>
     <?php endif; ?>
+    </div>
 </div>
 
 <!-- Modal: Excluir Retorno -->
@@ -362,7 +388,6 @@ layoutHeader($pageTitle);
             <button type="button" class="btn btn-secondary" id="ret-excluir-cancelar">Cancelar</button>
             <button type="button" class="btn btn-danger" id="ret-excluir-confirmar">Excluir Retorno</button>
         </div>
-    </div>
     </div>
 </div>
 

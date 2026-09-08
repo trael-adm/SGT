@@ -537,12 +537,12 @@
 
         <!-- Painel com 2 Gráficos Analíticos por Cliente -->
         <div class="modal-charts-panel">
-            <!-- Gráfico 1: Pizza / Rosca (% por Cliente) -->
+            <!-- Gráfico 1: Pizza / Rosca (% por Cliente ou Tipo Construtivo) -->
             <div class="modal-chart-box">
                 <div class="modal-chart-box-header">
-                    <span class="modal-chart-box-title">
+                    <span class="modal-chart-box-title" id="modal-chart-pie-title">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="color:#0284c7;"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
-                        Distribuição por Cliente
+                        <span id="modal-chart-pie-title-text">Distribuição por Cliente</span>
                     </span>
                     <span style="font-size:0.68rem;color:#94a3b8;font-weight:600;">(clique para filtrar)</span>
                 </div>
@@ -572,6 +572,13 @@
                 <svg class="modal-pecas-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input type="text" id="modal-pecas-input-busca" class="modal-pecas-search-input" placeholder="Buscar por projeto, série, cliente ou descrição..." oninput="window.atualizarBotaoLimparBuscaModal(); filtrarTabelaPecasModal();">
                 <button type="button" id="modal-pecas-search-clear" class="modal-pecas-search-clear" onclick="window.limparBuscaModalPecas()" title="Limpar busca" style="display:none;">&times;</button>
+            </div>
+
+            <!-- Chip Indicador de Filtro de Tipo Construtivo / Núcleo Selecionado no Gráfico -->
+            <div id="modal-pecas-tipo-filtro-badge" class="modal-pecas-cliente-badge" style="display:none;" onclick="if(window.limparFiltroNucleoModal)window.limparFiltroNucleoModal();if(window.limparFiltroTipoConstrutivoModal)window.limparFiltroTipoConstrutivoModal();" title="Clique para remover este filtro">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                <span id="modal-pecas-tipo-filtro-nome">Núcleo</span>
+                <span class="modal-pecas-cliente-badge-close">&times;</span>
             </div>
 
             <!-- Chip Indicador de Filtro de Cliente Selecionado no Gráfico -->

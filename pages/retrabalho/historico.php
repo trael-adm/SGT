@@ -114,6 +114,28 @@ foreach ($registros as &$r) {
 }
 unset($r);
 
+// ─── Auto-healing: garante que peças aguardando retorno não fiquem 'finalizado' ──
+try {
+    $pdo->query("
+        UPDATE retrabalhos r
+        JOIN producao_etapas pe ON pe.ns_transformador = r.ns_transformador 
+                              AND pe.id_projeto = r.id_projeto
+                              AND pe.deleted_at IS NULL 
+                              AND pe.status = 'aguardando_retorno'
+        SET r.status = 'agu_causa_raiz', 
+            r.concluido_em = NULL
+        WHERE r.deleted_at IS NULL 
+          AND r.status = 'finalizado'
+    ");
+} catch (\Throwable $e) {}
+
+// ─── Retornos ativos no chão de fábrica (producao_etapas) ────────────────────
+$retornosAtivos = $pdo->query("
+    SELECT ns_transformador, estacao
+    FROM producao_etapas
+    WHERE status = 'aguardando_retorno' AND deleted_at IS NULL
+")->fetchAll(PDO::FETCH_KEY_PAIR);
+
 // ─── Reincidências: quantas vezes o transformador foi reprovado no LAB ou IQF ─
 $qtdReincidenciasPorNs = $pdo->query("
     SELECT ns_transformador, COUNT(DISTINCT COALESCE(id_lote, id)) AS qtd
@@ -175,7 +197,10 @@ foreach ($grupos as &$g) {
     $g['origens_str'] = $locais ? implode(' / ', $locais) : '—';
     $g['locais']      = $locais;
 
-    if ($temAbertura) {
+    $nsStr = (string) ($g['ns_transformador'] ?? '');
+    if (isset($retornosAtivos[$nsStr])) {
+        $g['status'] = 'aguardando_retorno';
+    } elseif ($temAbertura) {
         $g['status'] = 'agu_abertura';
     } elseif ($temCausaRaiz) {
         $g['status'] = 'agu_causa_raiz';
@@ -230,9 +255,10 @@ $MESES_PT = [1 => 'Janeiro', 2 => 'Fevereiro', 3 => 'Março', 4 => 'Abril', 5 =>
              7 => 'Julho', 8 => 'Agosto', 9 => 'Setembro', 10 => 'Outubro', 11 => 'Novembro', 12 => 'Dezembro'];
 
 $statusMap = [
-    'agu_abertura'   => ['label' => 'Agu. Abertura',   'bg' => '#fef2f2', 'fg' => '#dc2626'],
-    'agu_causa_raiz' => ['label' => 'Agu. Causa Raiz', 'bg' => '#fffbeb', 'fg' => '#b45309'],
-    'finalizado'     => ['label' => 'Finalizado',      'bg' => '#ecfdf5', 'fg' => '#16a34a'],
+    'agu_abertura'       => ['label' => 'Agu. Abertura',   'bg' => '#fef2f2', 'fg' => '#dc2626'],
+    'agu_causa_raiz'     => ['label' => 'Agu. Causa Raiz', 'bg' => '#fffbeb', 'fg' => '#b45309'],
+    'aguardando_retorno' => ['label' => 'Agu. Retorno',    'bg' => '#eff6ff', 'fg' => '#1d4ed8'],
+    'finalizado'         => ['label' => 'Finalizado',      'bg' => '#ecfdf5', 'fg' => '#16a34a'],
 ];
 $localMap = [
     'IQF' => ['label' => 'IQF', 'title' => 'Inspeção final', 'bg' => '#eff6ff', 'fg' => '#2563eb', 'border' => '#bfdbfe'],
@@ -256,7 +282,7 @@ function histFmtDataHora(?string $iso): string
 }
 
 /** Monta o payload (JSON) com tudo que foi registrado na Triagem desta reprova, pro popup "Ver detalhes". */
-function histMontarDetalhe(array $r, array $localMap, array $setoresLabel): array
+function histMontarDetalhe(array $r, array $localMap, array $setoresLabel, array $retornosAtivos = []): array
 {
     $cod = (string)($r['reprova_codigo'] ?? '');
     if (str_starts_with($cod, 'R')) {
@@ -277,19 +303,25 @@ function histMontarDetalhe(array $r, array $localMap, array $setoresLabel): arra
         ];
     }, $r['_materiais']);
 
+    $nsTransformador = (string)($r['ns_transformador'] ?? '');
+    $estaEmRetorno   = isset($retornosAtivos[$nsTransformador]);
+    $isFinalizado    = ($r['status'] === 'finalizado' && !$estaEmRetorno);
+
+    $statusExibir    = $estaEmRetorno ? 'aguardando_retorno' : $r['status'];
+    $dataConclusao   = $isFinalizado ? ($r['concluido_em'] ?: $r['data_finalizacao']) : null;
+
     return [
         'ns'              => $r['ns_transformador'] ?? '—',
         'reprova_codigo'  => $r['reprova_codigo'] ?? '—',
         'reprova_familia' => $r['reprova_familia'] ?? '—',
         'reprova_desc'    => $r['reprova_descricao'] ?? '—',
         'reprova_local'   => $lo ? $lo['label'] . ' — ' . $lo['title'] : ($origemItem ?: '—'),
-        'status'          => $r['status'],
+        'status'          => $statusExibir,
         'responsavel'     => $r['responsavel_nome'] ?? '—',
         'data_reprova'    => histFmtData($r['data_reprova']),
         'data_chegada'    => histFmtData($r['data_chegada']),
         'data_inicio'     => histFmtDataHora($r['data_inicio']),
-        'data_finalizacao'=> histFmtData($r['data_finalizacao']),
-        'concluido_em'    => histFmtDataHora($r['concluido_em']),
+        'concluido_em'    => histFmtDataHora($dataConclusao),
         'causa_reprova'   => $r['causa_reprova'] ?: '—',
         'causa_raiz'      => $r['causa_raiz'] ?: '—',
         'observacoes'     => $r['observacoes'] ?: '—',
@@ -343,8 +375,7 @@ layoutHeader($pageTitle);
     .hist-filtros { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:14px 0; }
     .hist-filtros select, .hist-filtros input[type=search] { padding:8px 10px; border:1px solid var(--color-border,#d1d5db); border-radius:8px; font-size:13px; background:#fff; }
     .hist-table { width:100%; border-collapse:collapse; font-size:13px; }
-    .hist-table-wrap { overflow-x:auto; overflow-y:auto; max-height:calc(100vh - 280px); max-height:calc(100dvh - 280px); }
-    .hist-table thead th { position:sticky; top:0; z-index:10; background:#f8fafc; box-shadow:0 1px 2px rgba(0,0,0,0.05); }
+    .hist-table > thead > tr > th { position:sticky; top:0; z-index:10; background:var(--color-surface-2,#f8fafc); box-shadow:0 1px 2px rgba(0,0,0,0.05); }
     .hist-table th { text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.6px; color:var(--color-text-muted,#6b7280); padding:8px 10px; border-bottom:1px solid var(--color-border,#e5e7eb); white-space:nowrap; }
     .hist-th-link { color:inherit; text-decoration:none; }
     .hist-th-link:hover { color:#E89B1C; text-decoration:none; }
@@ -358,11 +389,14 @@ layoutHeader($pageTitle);
     .hist-empty { text-align:center; padding:36px 16px; color:var(--color-text-muted,#6b7280); font-size:13px; }
     .hist-toggle-btn { background:#fff; border:1px solid var(--color-border,#e5e7eb); border-radius:6px; width:24px; height:24px; padding:0; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; font-size:15px; font-weight:700; line-height:1; color:var(--color-text-secondary,#5a6480); }
     .hist-toggle-btn:hover { border-color:#E89B1C; color:#E89B1C; }
+    .hist-toggle-btn svg { transition: transform 0.15s ease; }
+    .hist-toggle-btn[aria-expanded="true"] svg { transform: rotate(90deg); }
+    .hist-toggle-btn[aria-expanded="true"] { background: #fff7ed; border-color: #ea580c; color: #9a3412; }
     .hist-detail-row { display:none; }
     .hist-detail-row.is-open { display:table-row; }
     .hist-detail-wrap { background:var(--color-surface-2,#f9fafb); border-radius:8px; padding:8px 10px; margin:2px 0; }
     .hist-subtable { width:100%; border-collapse:collapse; font-size:12px; }
-    .hist-subtable th { text-align:left; font-size:9px; text-transform:uppercase; letter-spacing:.5px; color:var(--color-text-muted,#6b7280); padding:6px 8px; border-bottom:1px solid var(--color-border,#e5e7eb); white-space:nowrap; }
+    .hist-subtable th { position:static !important; top:auto !important; z-index:1 !important; background:transparent !important; box-shadow:none !important; text-align:left; font-size:9px; text-transform:uppercase; letter-spacing:.5px; color:var(--color-text-muted,#6b7280); padding:6px 8px; border-bottom:1px solid var(--color-border,#e5e7eb); white-space:nowrap; }
     .hist-subtable td { padding:7px 8px; border-bottom:1px solid var(--color-border,#eef1f5); vertical-align:middle; }
     .hist-subtable tr:last-child td { border-bottom:none; }
     .hist-pager { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin-top:16px; padding-top:14px; border-top:1px solid var(--color-border,#e5e7eb); font-size:12px; color:var(--color-text-secondary,#5a6480); }
@@ -397,6 +431,17 @@ layoutHeader($pageTitle);
     }
     .btn-expand-all:hover { background: #f8fafc; border-color: #94a3b8; color: #0f172a; }
     .btn-expand-all.is-active { background: #fff7ed; border-color: #ea580c; color: #9a3412; }
+    .btn-expand-all .ico-expand { transition: transform 0.15s ease; }
+    .btn-expand-all[aria-expanded="true"] .ico-expand { transform: rotate(90deg); }
+    .btn-expand-col {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 24px; height: 24px; border: 1px solid #cbd5e1; border-radius: 6px;
+        background: #f8fafc; color: #475569; cursor: pointer; transition: all 0.15s ease;
+    }
+    .btn-expand-col:hover { background: #f1f5f9; border-color: #94a3b8; }
+    .btn-expand-col svg { transition: transform 0.15s ease; }
+    .btn-expand-col[aria-expanded="true"] { background: #fff7ed; border-color: #ea580c; color: #9a3412; }
+    .btn-expand-col[aria-expanded="true"] svg { transform: rotate(90deg); }
 </style>
 
 <!-- Container de Página com Rolagem Exclusiva na Tabela -->
@@ -459,7 +504,7 @@ layoutHeader($pageTitle);
                 </a>
             <?php endif; ?>
             <button type="button" id="btn-toggle-all-hist" class="filter-btn btn-expand-all" aria-expanded="false" title="Expandir ou recolher todas as linhas">
-                <svg class="ico-expand" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                <svg class="ico-expand" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
                 <span class="lbl-expand">Expandir Todos</span>
             </button>
         </div>
@@ -469,7 +514,11 @@ layoutHeader($pageTitle);
         <table class="hist-table">
             <thead>
                 <tr>
-                    <th style="width:36px;text-align:center;"><button type="button" class="btn-expand-col js-toggle-all-quick" title="Expandir/Recolher todos" style="cursor:pointer;border:1px solid #cbd5e1;border-radius:4px;background:#f8fafc;color:#475569;font-weight:700;font-size:13px;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;">⤢</button></th>
+                    <th style="width:36px;text-align:center;">
+                        <button type="button" class="btn-expand-col js-toggle-all-quick" aria-expanded="false" title="Expandir/Recolher todos">
+                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                        </button>
+                    </th>
                     <?php
                     histSortTh('N° Série', 'ns');
                     histSortTh('Pedido', 'pedido');
@@ -493,7 +542,9 @@ layoutHeader($pageTitle);
                 ?>
                     <tr>
                         <td>
-                            <button type="button" class="hist-toggle-btn js-toggle-hist" data-target="<?= htmlspecialchars($detId) ?>" aria-expanded="false" title="Mostrar reprovas">+</button>
+                            <button type="button" class="hist-toggle-btn js-toggle-hist" data-target="<?= htmlspecialchars($detId) ?>" aria-expanded="false" title="Mostrar reprovas">
+                                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                            </button>
                         </td>
                         <td><span class="hist-code" style="font-weight:700;color:#111827;"><?= htmlspecialchars($g['ns_transformador'] ?? '—') ?></span></td>
                         <td><?= htmlspecialchars($g['pedido_numero'] ?? '—') ?></td>
@@ -552,6 +603,7 @@ layoutHeader($pageTitle);
                                 <table class="hist-subtable">
                                     <thead>
                                         <tr>
+                                            <th>Data Reprova</th>
                                             <th>Contenção</th>
                                             <th>Família</th>
                                             <th>Origem</th>
@@ -570,8 +622,13 @@ layoutHeader($pageTitle);
                                             $origemBg     = $lo['bg'] ?? '#f3f4f6';
                                             $origemFg     = $lo['fg'] ?? '#374151';
                                             $origemBorder = $lo['border'] ?? '#e5e7eb';
+                                            $nsTransformador = (string) ($r['ns_transformador'] ?? '');
+                                            $estaEmRetorno   = isset($retornosAtivos[$nsTransformador]);
+                                            $isFinalizado    = ($r['status'] === 'finalizado' && !$estaEmRetorno);
+                                            $dataConc        = $isFinalizado ? ($r['concluido_em'] ?: $r['data_finalizacao']) : null;
                                         ?>
                                             <tr>
+                                                <td><span class="hist-code" style="font-size:12px;font-weight:600;"><?= htmlspecialchars(histFmtData($r['data_reprova'])) ?></span></td>
                                                 <td>
                                                     <span class="hist-code" style="font-weight:500;"><?= htmlspecialchars($r['reprova_codigo'] ?? '—') ?></span>
                                                     <?php if (!empty($r['reprova_descricao'])): ?>
@@ -584,12 +641,21 @@ layoutHeader($pageTitle);
                                                         <?= htmlspecialchars($origemLabel) ?>
                                                     </span>
                                                 </td>
-                                                <td style="font-size:12px;"><?= htmlspecialchars($r['causa_raiz'] ?? '—') ?></td>
-                                                <td style="font-size:12px;"><?= htmlspecialchars(histFmtData($r['concluido_em'])) ?></td>
+                                                <td style="font-size:12px;">
+                                                    <?php if (!empty($r['causa_raiz'])): ?>
+                                                        <?= htmlspecialchars($r['causa_raiz']) ?>
+                                                    <?php elseif (!empty($r['causa_reprova'])): ?>
+                                                        <?= htmlspecialchars($r['causa_reprova']) ?>
+                                                        <span style="display:inline-block;margin-left:4px;font-size:10px;font-weight:600;color:#64748b;background:#f1f5f9;padding:1px 5px;border-radius:4px;border:1px solid #e2e8f0;" title="Registro importado da planilha histórica">Histórico</span>
+                                                    <?php else: ?>
+                                                        <span style="color:#94a3b8;">—</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td style="font-size:12px;"><?= htmlspecialchars(histFmtData($dataConc)) ?></td>
                                                 <td style="text-align:right;">
                                                     <div style="display:inline-flex;align-items:center;gap:6px;">
                                                         <button type="button" class="hist-ver-btn js-ver-detalhe"
-                                                                data-detalhe='<?= htmlspecialchars(json_encode(histMontarDetalhe($r, $localMap, $setoresLabel), JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>'
+                                                                data-detalhe='<?= htmlspecialchars(json_encode(histMontarDetalhe($r, $localMap, $setoresLabel, $retornosAtivos), JSON_UNESCAPED_UNICODE), ENT_QUOTES) ?>'
                                                                 title="Ver tudo o que foi registrado na Triagem">
                                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                                             Ver detalhes
@@ -664,8 +730,7 @@ layoutHeader($pageTitle);
                 <div class="hd-field"><div class="lbl">Data da reprova</div><div class="val" id="hd-data-reprova"></div></div>
                 <div class="hd-field"><div class="lbl">Data de chegada</div><div class="val" id="hd-data-chegada"></div></div>
                 <div class="hd-field"><div class="lbl">Início do retrabalho</div><div class="val" id="hd-data-inicio"></div></div>
-                <div class="hd-field"><div class="lbl">Data de finalização</div><div class="val" id="hd-data-finalizacao"></div></div>
-                <div class="hd-field full"><div class="lbl">Concluído em</div><div class="val" id="hd-concluido-em"></div></div>
+                <div class="hd-field"><div class="lbl">Concluído em</div><div class="val" id="hd-concluido-em"></div></div>
             </div>
 
             <div class="hd-section">Causa &amp; observações</div>
@@ -716,17 +781,22 @@ layoutHeader($pageTitle);
             var d;
             try { d = JSON.parse(btn.getAttribute('data-detalhe')); } catch (err) { return; }
 
+            var stLbl = d.status;
+            if (d.status === 'finalizado') stLbl = 'Finalizado';
+            else if (d.status === 'agu_causa_raiz') stLbl = 'Em Retrabalho';
+            else if (d.status === 'agu_abertura') stLbl = 'Aguardando Abertura';
+            else if (d.status === 'aguardando_retorno') stLbl = 'Aguardando Retorno';
+
             setTxt('hd-ns', d.ns);
             setTxt('hd-reprova-codigo', d.reprova_codigo);
             setTxt('hd-reprova-familia', d.reprova_familia);
             setTxt('hd-reprova-desc', d.reprova_desc);
             setTxt('hd-reprova-local', d.reprova_local);
-            setTxt('hd-status', d.status === 'finalizado' ? 'Finalizado' : d.status);
+            setTxt('hd-status', stLbl);
             setTxt('hd-responsavel', d.responsavel);
             setTxt('hd-data-reprova', d.data_reprova);
             setTxt('hd-data-chegada', d.data_chegada);
             setTxt('hd-data-inicio', d.data_inicio);
-            setTxt('hd-data-finalizacao', d.data_finalizacao);
             setTxt('hd-concluido-em', d.concluido_em);
             setTxt('hd-causa-raiz', d.causa_raiz);
             setTxt('hd-observacoes', d.observacoes);
@@ -790,16 +860,11 @@ layoutHeader($pageTitle);
     }());
 
     (function() {
-        var STORAGE_KEY_ALL = 'sgt_historico_expand_all';
-        var STORAGE_KEY_ROWS = 'sgt_historico_open_rows';
-
-        function getOpenRows() {
-            try { return JSON.parse(localStorage.getItem(STORAGE_KEY_ROWS) || '[]'); } catch (e) { return []; }
-        }
-
-        function saveOpenRows(rows) {
-            localStorage.setItem(STORAGE_KEY_ROWS, JSON.stringify(rows));
-        }
+        // Limpa chaves legadas de persistência para sempre iniciar com as linhas recolhidas
+        try {
+            localStorage.removeItem('sgt_historico_expand_all');
+            localStorage.removeItem('sgt_historico_open_rows');
+        } catch (e) {}
 
         function syncHeaderButtons(expandAll) {
             var btnAll = document.getElementById('btn-toggle-all-hist');
@@ -811,46 +876,34 @@ layoutHeader($pageTitle);
             }
             var quickBtn = document.querySelector('.js-toggle-all-quick');
             if (quickBtn) {
-                quickBtn.textContent = expandAll ? '−' : '⤢';
+                // Ícone gira via CSS a partir de aria-expanded (ver .btn-expand-col) —
+                // não mexe no conteúdo do botão (é um SVG, não texto).
+                quickBtn.setAttribute('aria-expanded', expandAll ? 'true' : 'false');
                 quickBtn.title = expandAll ? 'Recolher todos' : 'Expandir todos';
             }
         }
 
-        function aplicarEstado() {
-            var expandAll = localStorage.getItem(STORAGE_KEY_ALL) === 'true';
-            var openRows = getOpenRows();
-            syncHeaderButtons(expandAll);
-
+        function setAllRows(expand) {
+            syncHeaderButtons(expand);
             document.querySelectorAll('.js-toggle-hist').forEach(function(btn) {
                 var targetId = btn.dataset.target;
                 var row = document.getElementById(targetId);
                 if (!row) return;
 
-                var shouldOpen = expandAll || openRows.includes(targetId);
-                if (shouldOpen) {
+                if (expand) {
                     row.classList.add('is-open');
-                    btn.textContent = '−';
                     btn.setAttribute('aria-expanded', 'true');
                 } else {
                     row.classList.remove('is-open');
-                    btn.textContent = '+';
                     btn.setAttribute('aria-expanded', 'false');
                 }
             });
         }
 
-        function setAllRows(expand) {
-            localStorage.setItem(STORAGE_KEY_ALL, expand ? 'true' : 'false');
-            if (!expand) {
-                saveOpenRows([]);
-            }
-            aplicarEstado();
-        }
-
         document.addEventListener('click', function (e) {
             var btnAll = e.target.closest('#btn-toggle-all-hist') || e.target.closest('.js-toggle-all-quick');
             if (btnAll) {
-                var isCurrentlyExpanded = localStorage.getItem(STORAGE_KEY_ALL) === 'true';
+                var isCurrentlyExpanded = btnAll.classList.contains('is-active') || btnAll.getAttribute('aria-expanded') === 'true';
                 setAllRows(!isCurrentlyExpanded);
                 return;
             }
@@ -861,23 +914,13 @@ layoutHeader($pageTitle);
             var row = document.getElementById(targetId);
             if (!row) return;
             var aberto = row.classList.toggle('is-open');
-            btn.textContent = aberto ? '−' : '+';
             btn.setAttribute('aria-expanded', aberto ? 'true' : 'false');
 
-            var openRows = getOpenRows();
-            if (aberto) {
-                if (!openRows.includes(targetId)) openRows.push(targetId);
-            } else {
-                openRows = openRows.filter(function(id) { return id !== targetId; });
-                localStorage.setItem(STORAGE_KEY_ALL, 'false');
+            // Se alguma linha for fechada manualmente, desmarca o botão de "Expandir Todos"
+            if (!aberto) {
                 syncHeaderButtons(false);
             }
-            saveOpenRows(openRows);
         });
-
-        window.sgtAplicarExpansao = aplicarEstado;
-
-        aplicarEstado();
     })();
 
     (function() {

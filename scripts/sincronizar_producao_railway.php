@@ -13,6 +13,8 @@ date_default_timezone_set('America/Cuiaba');
 require_once __DIR__ . '/../config/conexao.php';
 require_once __DIR__ . '/../includes/helpers.php';
 require_once __DIR__ . '/../includes/boletim-planilha.php';
+require_once __DIR__ . '/../includes/boletim-atraso.php';
+require_once __DIR__ . '/../includes/boletim-atraso-forca.php';
 require_once __DIR__ . '/../includes/boletim-fluxo-pedidos.php';
 require_once __DIR__ . '/../includes/boletim-acompanhamento.php';
 
@@ -57,40 +59,65 @@ if (!empty($dadosProducao['porDia'])) {
     echo "FALHA! Nenhum dado de produção encontrado.\n";
 }
 
-// 2. Extração dos registros de Atraso de Distribuição (Base de Dados / Snapshot)
-echo "[2/5] Consultando registros de atraso de distribuição... ";
+// 2. Extração e Sincronização dos registros de Atraso de Distribuição (SQL Server -> MySQL)
+echo "[2/5] Consultando ordens de atraso no SQL Server (vsat.trael.local)... ";
 $snapshotCsv = null;
-$snapshotData = null;
+$snapshotData = date('Y-m-d');
 $atrasoRegistros = null;
+
+try {
+    $resSync = boletimSincronizarAtrasoSqlServer();
+    if ($resSync['sucesso']) {
+        if (!empty($resSync['congelado'])) {
+            echo "CONGELADO! (" . $resSync['mensagem'] . ")\n";
+        } else {
+            echo "OK! (" . $resSync['total_importado'] . " ordens extraídas e travadas para hoje - Data: {$resSync['data_extracao']})\n";
+        }
+    }
+} catch (Throwable $eSyncAtr) {}
 
 try {
     $pdoLocal = getDB();
     boletimGarantirTabelasAtraso($pdoLocal);
     $stmtAtraso = $pdoLocal->query("
-        SELECT * FROM atraso_distribuicao_registros 
+        SELECT * FROM atraso_distribuicao_registros
         WHERE data_extracao = (SELECT MAX(data_extracao) FROM atraso_distribuicao_registros)
     ");
     $atrasoRegistros = $stmtAtraso->fetchAll(PDO::FETCH_ASSOC);
     if (!empty($atrasoRegistros)) {
         $snapshotData = $atrasoRegistros[0]['data_extracao'] ?? date('Y-m-d');
-        echo "OK! (" . count($atrasoRegistros) . " ordens extraídas do banco MySQL - Data: $snapshotData)\n";
     }
 } catch (Throwable $eDbAtraso) {}
 
-if (empty($atrasoRegistros)) {
-    $snapFiles = glob(__DIR__ . '/../storage/snapshots/snapshot_*.csv');
-    if (!empty($snapFiles)) {
-        rsort($snapFiles);
-        $latestSnap = $snapFiles[0];
-        if (preg_match('/snapshot_(\d{4}-\d{2}-\d{2})\.csv$/', $latestSnap, $m)) {
-            $snapshotData = $m[1];
-            $snapshotCsv = file_get_contents($latestSnap);
-            echo "OK! (Snapshot CSV $snapshotData encontrado - " . round(strlen($snapshotCsv) / 1024, 1) . " KB)\n";
+// 2b. Extração e Sincronização dos registros de Atraso de Média Força (SQL Server -> MySQL)
+echo "[2b/5] Consultando ordens de atraso de Média Força no SQL Server... ";
+$atrasoForcaRegistros = null;
+$snapshotDataForca = date('Y-m-d');
+
+try {
+    $resSyncForca = boletimExtrairSnapshotAtrasoForca();
+    if ($resSyncForca['sucesso']) {
+        if (!empty($resSyncForca['congelado'])) {
+            echo "CONGELADO! (" . $resSyncForca['mensagem'] . ")\n";
+        } else {
+            echo "OK! (" . $resSyncForca['total_importado'] . " ordens extraídas e travadas para hoje - Data: {$resSyncForca['data_extracao']})\n";
         }
     } else {
-        echo "Nenhum registro de atraso encontrado.\n";
+        echo "FALHA! (" . ($resSyncForca['erro'] ?? 'erro desconhecido') . ")\n";
     }
-}
+} catch (Throwable $eSyncAtrForca) {}
+
+try {
+    boletimGarantirTabelasAtrasoForca($pdoLocal);
+    $stmtAtrasoForca = $pdoLocal->query("
+        SELECT * FROM atraso_forca_registros
+        WHERE data_extracao = (SELECT MAX(data_extracao) FROM atraso_forca_registros)
+    ");
+    $atrasoForcaRegistros = $stmtAtrasoForca->fetchAll(PDO::FETCH_ASSOC);
+    if (!empty($atrasoForcaRegistros)) {
+        $snapshotDataForca = $atrasoForcaRegistros[0]['data_extracao'] ?? date('Y-m-d');
+    }
+} catch (Throwable $eDbAtrasoForca) {}
 
 // 3. Extração do Fluxo de Pedidos & Esteira Industrial
 echo "[3/5] Extraindo esteira e planilha de Fluxo de Pedidos... ";
@@ -126,11 +153,12 @@ $payload = [
     'snapshot_data' => $snapshotData,
     'snapshot_csv' => $snapshotCsv,
     'atraso_registros' => sanitizarUtf8Recursivo($atrasoRegistros),
+    'snapshot_data_forca' => $snapshotDataForca,
+    'atraso_forca_registros' => sanitizarUtf8Recursivo($atrasoForcaRegistros),
     'fluxo_pedidos' => sanitizarUtf8Recursivo($fluxoPedidos),
     'fluxo_planilha' => sanitizarUtf8Recursivo($fluxoPlanilha),
     'acompanhamento' => sanitizarUtf8Recursivo($acompanhamento),
 ];
-
 
 $jsonPayload = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 
@@ -166,10 +194,11 @@ if ($httpCode === 200) {
 } else {
     echo "FALHA! (HTTP $httpCode)\n";
     if ($curlError) {
-        echo "Erro de conexão cURL: $curlError\n";
+        echo "Erro cURL: $curlError\n";
     }
-    echo "Retorno: $response\n";
+    echo "Resposta recebida:\n$response\n";
 }
 
-echo "\nFinalizado em: " . date('d/m/Y H:i:s') . "\n";
+echo "\n===============================================================\n";
+echo "Sincronização concluída em " . date('d/m/Y H:i:s') . "\n";
 echo "===============================================================\n";

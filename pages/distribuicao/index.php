@@ -1086,6 +1086,7 @@ $pctMetaMensal = $metaTpdDistribuicao > 0 ? round(($totalRealAteHoje / $metaTpdD
     window.BOLETIM_API = <?= json_encode($base . '/api/boletim-acao.php') ?>;
     window.BOLETIM_AREA = 'distrib';
     window.BOLETIM_LINE = 'TPD';
+    window.MES_REFERENCIA = <?= json_encode($mes) ?>;
     window.BOLETIM_REGISTROS = <?= json_encode(array_map(fn($r) => [
         'id' => (int) $r['id'], 'date' => $r['date'], 'core_type' => $r['core_type'],
         'prog' => (int) $r['prog'], 'real' => (int) $r['real'], 'description' => $r['description'],

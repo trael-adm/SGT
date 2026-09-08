@@ -363,8 +363,7 @@ layoutHeader($pageTitle);
     .hist-filtros { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:14px 0; }
     .hist-filtros select, .hist-filtros input[type=search] { padding:8px 10px; border:1px solid var(--color-border,#d1d5db); border-radius:8px; font-size:13px; background:#fff; }
     .hist-table { width:100%; border-collapse:collapse; font-size:13px; }
-    .hist-table-wrap { overflow-x:auto; overflow-y:auto; max-height:calc(100vh - 280px); max-height:calc(100dvh - 280px); }
-    .hist-table thead th { position:sticky; top:0; z-index:10; background:#f8fafc; box-shadow:0 1px 2px rgba(0,0,0,0.05); }
+    .hist-table > thead > tr > th { position:sticky; top:0; z-index:10; background:var(--color-surface-2,#f8fafc); box-shadow:0 1px 2px rgba(0,0,0,0.05); }
     .hist-table th { text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.6px; color:var(--color-text-muted,#6b7280); padding:8px 10px; border-bottom:1px solid var(--color-border,#e5e7eb); white-space:nowrap; }
     .hist-th-link { color:inherit; text-decoration:none; }
     .hist-th-link:hover { color:#E89B1C; text-decoration:none; }
@@ -378,11 +377,14 @@ layoutHeader($pageTitle);
     .hist-empty { text-align:center; padding:36px 16px; color:var(--color-text-muted,#6b7280); font-size:13px; }
     .hist-toggle-btn { background:#fff; border:1px solid var(--color-border,#e5e7eb); border-radius:6px; width:24px; height:24px; padding:0; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; font-size:15px; font-weight:700; line-height:1; color:var(--color-text-secondary,#5a6480); }
     .hist-toggle-btn:hover { border-color:#E89B1C; color:#E89B1C; }
+    .hist-toggle-btn svg { transition: transform 0.15s ease; }
+    .hist-toggle-btn[aria-expanded="true"] svg { transform: rotate(90deg); }
+    .hist-toggle-btn[aria-expanded="true"] { background: #fff7ed; border-color: #ea580c; color: #9a3412; }
     .hist-detail-row { display:none; }
     .hist-detail-row.is-open { display:table-row; }
     .hist-detail-wrap { background:var(--color-surface-2,#f9fafb); border-radius:8px; padding:8px 10px; margin:2px 0; }
     .hist-subtable { width:100%; border-collapse:collapse; font-size:12px; }
-    .hist-subtable th { text-align:left; font-size:9px; text-transform:uppercase; letter-spacing:.5px; color:var(--color-text-muted,#6b7280); padding:6px 8px; border-bottom:1px solid var(--color-border,#e5e7eb); white-space:nowrap; }
+    .hist-subtable th { position:static !important; top:auto !important; z-index:1 !important; background:transparent !important; box-shadow:none !important; text-align:left; font-size:9px; text-transform:uppercase; letter-spacing:.5px; color:var(--color-text-muted,#6b7280); padding:6px 8px; border-bottom:1px solid var(--color-border,#e5e7eb); white-space:nowrap; }
     .hist-subtable td { padding:7px 8px; border-bottom:1px solid var(--color-border,#eef1f5); vertical-align:middle; }
     .hist-subtable tr:last-child td { border-bottom:none; }
     .hist-pager { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin-top:16px; padding-top:14px; border-top:1px solid var(--color-border,#e5e7eb); font-size:12px; color:var(--color-text-secondary,#5a6480); }
@@ -415,6 +417,17 @@ layoutHeader($pageTitle);
     }
     .btn-expand-all:hover { background: #f8fafc; border-color: #94a3b8; color: #0f172a; }
     .btn-expand-all.is-active { background: #fff7ed; border-color: #ea580c; color: #9a3412; }
+    .btn-expand-all .ico-expand { transition: transform 0.15s ease; }
+    .btn-expand-all[aria-expanded="true"] .ico-expand { transform: rotate(90deg); }
+    .btn-expand-col {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 24px; height: 24px; border: 1px solid #cbd5e1; border-radius: 6px;
+        background: #f8fafc; color: #475569; cursor: pointer; transition: all 0.15s ease;
+    }
+    .btn-expand-col:hover { background: #f1f5f9; border-color: #94a3b8; }
+    .btn-expand-col svg { transition: transform 0.15s ease; }
+    .btn-expand-col[aria-expanded="true"] { background: #fff7ed; border-color: #ea580c; color: #9a3412; }
+    .btn-expand-col[aria-expanded="true"] svg { transform: rotate(90deg); }
 </style>
 
 <!-- Container de Página com Rolagem Exclusiva na Tabela -->
@@ -463,7 +476,7 @@ layoutHeader($pageTitle);
                 </a>
             <?php endif; ?>
             <button type="button" id="btn-toggle-all-hist" class="filter-btn btn-expand-all" aria-expanded="false" title="Expandir ou recolher todas as linhas">
-                <svg class="ico-expand" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                <svg class="ico-expand" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
                 <span class="lbl-expand">Expandir Todos</span>
             </button>
         </div>
@@ -473,7 +486,11 @@ layoutHeader($pageTitle);
         <table class="hist-table">
             <thead>
                 <tr>
-                    <th style="width:36px;text-align:center;"><button type="button" class="btn-expand-col js-toggle-all-quick" title="Expandir/Recolher todos" style="cursor:pointer;border:1px solid #cbd5e1;border-radius:4px;background:#f8fafc;color:#475569;font-weight:700;font-size:13px;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;">⤢</button></th>
+                    <th style="width:36px;text-align:center;">
+                        <button type="button" class="btn-expand-col js-toggle-all-quick" aria-expanded="false" title="Expandir/Recolher todos">
+                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                        </button>
+                    </th>
                     <?php
                     histSortTh('N° Série', 'ns');
                     histSortTh('Pedido', 'pedido');
@@ -494,7 +511,9 @@ layoutHeader($pageTitle);
                 ?>
                     <tr>
                         <td>
-                            <button type="button" class="hist-toggle-btn js-toggle-hist" data-target="<?= htmlspecialchars($detId) ?>" aria-expanded="false" title="Mostrar reprovas">+</button>
+                            <button type="button" class="hist-toggle-btn js-toggle-hist" data-target="<?= htmlspecialchars($detId) ?>" aria-expanded="false" title="Mostrar reprovas">
+                                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                            </button>
                         </td>
                         <td><span class="hist-code" style="font-weight:700;color:#111827;"><?= htmlspecialchars($g['ns_transformador'] ?? '—') ?></span></td>
                         <td><?= htmlspecialchars($g['pedido_numero'] ?? '—') ?></td>
@@ -696,16 +715,11 @@ layoutHeader($pageTitle);
     }());
 
     (function() {
-        var STORAGE_KEY_ALL = 'sgt_acompanhamento_expand_all';
-        var STORAGE_KEY_ROWS = 'sgt_acompanhamento_open_rows';
-
-        function getOpenRows() {
-            try { return JSON.parse(localStorage.getItem(STORAGE_KEY_ROWS) || '[]'); } catch (e) { return []; }
-        }
-
-        function saveOpenRows(rows) {
-            localStorage.setItem(STORAGE_KEY_ROWS, JSON.stringify(rows));
-        }
+        // Limpa chaves legadas de persistência para sempre iniciar com as linhas recolhidas
+        try {
+            localStorage.removeItem('sgt_acompanhamento_expand_all');
+            localStorage.removeItem('sgt_acompanhamento_open_rows');
+        } catch (e) {}
 
         function syncHeaderButtons(expandAll) {
             var btnAll = document.getElementById('btn-toggle-all-hist');
@@ -717,46 +731,34 @@ layoutHeader($pageTitle);
             }
             var quickBtn = document.querySelector('.js-toggle-all-quick');
             if (quickBtn) {
-                quickBtn.textContent = expandAll ? '−' : '⤢';
+                // Ícone gira via CSS a partir de aria-expanded (ver .btn-expand-col) —
+                // não mexe no conteúdo do botão (é um SVG, não texto).
+                quickBtn.setAttribute('aria-expanded', expandAll ? 'true' : 'false');
                 quickBtn.title = expandAll ? 'Recolher todos' : 'Expandir todos';
             }
         }
 
-        function aplicarEstado() {
-            var expandAll = localStorage.getItem(STORAGE_KEY_ALL) === 'true';
-            var openRows = getOpenRows();
-            syncHeaderButtons(expandAll);
-
+        function setAllRows(expand) {
+            syncHeaderButtons(expand);
             document.querySelectorAll('.js-toggle-hist').forEach(function(btn) {
                 var targetId = btn.dataset.target;
                 var row = document.getElementById(targetId);
                 if (!row) return;
 
-                var shouldOpen = expandAll || openRows.includes(targetId);
-                if (shouldOpen) {
+                if (expand) {
                     row.classList.add('is-open');
-                    btn.textContent = '−';
                     btn.setAttribute('aria-expanded', 'true');
                 } else {
                     row.classList.remove('is-open');
-                    btn.textContent = '+';
                     btn.setAttribute('aria-expanded', 'false');
                 }
             });
         }
 
-        function setAllRows(expand) {
-            localStorage.setItem(STORAGE_KEY_ALL, expand ? 'true' : 'false');
-            if (!expand) {
-                saveOpenRows([]);
-            }
-            aplicarEstado();
-        }
-
         document.addEventListener('click', function (e) {
             var btnAll = e.target.closest('#btn-toggle-all-hist') || e.target.closest('.js-toggle-all-quick');
             if (btnAll) {
-                var isCurrentlyExpanded = localStorage.getItem(STORAGE_KEY_ALL) === 'true';
+                var isCurrentlyExpanded = btnAll.classList.contains('is-active') || btnAll.getAttribute('aria-expanded') === 'true';
                 setAllRows(!isCurrentlyExpanded);
                 return;
             }
@@ -767,23 +769,13 @@ layoutHeader($pageTitle);
             var row = document.getElementById(targetId);
             if (!row) return;
             var aberto = row.classList.toggle('is-open');
-            btn.textContent = aberto ? '−' : '+';
             btn.setAttribute('aria-expanded', aberto ? 'true' : 'false');
 
-            var openRows = getOpenRows();
-            if (aberto) {
-                if (!openRows.includes(targetId)) openRows.push(targetId);
-            } else {
-                openRows = openRows.filter(function(id) { return id !== targetId; });
-                localStorage.setItem(STORAGE_KEY_ALL, 'false');
+            // Se alguma linha for fechada manualmente, desmarca o botão de "Expandir Todos"
+            if (!aberto) {
                 syncHeaderButtons(false);
             }
-            saveOpenRows(openRows);
         });
-
-        window.sgtAplicarExpansao = aplicarEstado;
-
-        aplicarEstado();
     })();
 
     (function() {

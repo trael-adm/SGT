@@ -11,6 +11,8 @@ date_default_timezone_set('America/Cuiaba');
 require_once __DIR__ . '/../config/conexao.php';
 require_once __DIR__ . '/../includes/helpers.php';
 require_once __DIR__ . '/../includes/boletim-planilha.php';
+require_once __DIR__ . '/../includes/boletim-atraso.php';
+require_once __DIR__ . '/../includes/boletim-atraso-forca.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -127,12 +129,14 @@ try {
                 data_extracao, data_programada, cd_referencia, ds_produto, qtd_item,
                 quantidade, qtd_produzida, qtd_a_produzir, cliente_nome, cliente_apelido,
                 cd_pedido, dt_pedido, dt_limite_entrega, potencia_kva, fases,
-                classe_tensao, tipo_nucleo, tipo_construtivo, linha, seq_plano, uf
+                classe_tensao, tipo_nucleo, tipo_construtivo, setor_real, tipo_bloqueio,
+                linha, seq_plano, uf
             ) VALUES (
                 :data_extracao, :data_programada, :cd_referencia, :ds_produto, :qtd_item,
                 :quantidade, :qtd_produzida, :qtd_a_produzir, :cliente_nome, :cliente_apelido,
                 :cd_pedido, :dt_pedido, :dt_limite_entrega, :potencia_kva, :fases,
-                :classe_tensao, :tipo_nucleo, :tipo_construtivo, :linha, :seq_plano, :uf
+                :classe_tensao, :tipo_nucleo, :tipo_construtivo, :setor_real, :tipo_bloqueio,
+                :linha, :seq_plano, :uf
             )
         ");
 
@@ -163,6 +167,8 @@ try {
                 'classe_tensao'     => trim((string)($ar['classe_tensao'] ?? $ar['ds_classeTensaoTrafo'] ?? '')),
                 'tipo_nucleo'       => $nuc,
                 'tipo_construtivo'  => trim((string)($ar['tipo_construtivo'] ?? $ar['Ds_tpConstrTrafo'] ?? '')),
+                'setor_real'        => ($ar['setor_real'] ?? null) ?: null,
+                'tipo_bloqueio'     => ($ar['tipo_bloqueio'] ?? null) ?: null,
                 'linha'             => $linha,
                 'seq_plano'         => (int)($ar['seq_plano'] ?? $ar['SeqPlano'] ?? 0),
                 'uf'                => trim((string)($ar['uf'] ?? $ar['cd_SglEstado'] ?? ''))
@@ -241,6 +247,60 @@ try {
             $pdo->commit();
             $atualizacoes[] = "Snapshot importado para MySQL ($snapDate) com $countCsv registros";
         }
+    }
+
+    // 3b. Atualiza dados de Atraso de Média Força diretamente no Banco de Dados MySQL
+    $atrasoForcaRegistros = $payload['atraso_forca_registros'] ?? null;
+    $snapDateForca = $payload['snapshot_data_forca'] ?? date('Y-m-d');
+
+    if (is_array($atrasoForcaRegistros) && !empty($atrasoForcaRegistros)) {
+        boletimGarantirTabelasAtrasoForca($pdo);
+        $pdo->prepare("DELETE FROM atraso_forca_registros WHERE data_extracao = ?")->execute([$snapDateForca]);
+
+        $stmtInsAtrasoForca = $pdo->prepare("
+            INSERT INTO atraso_forca_registros (
+                data_extracao, data_programada, cd_referencia, ds_produto, qtd_item,
+                quantidade, qtd_produzida, qtd_a_produzir, cliente_nome, cliente_apelido,
+                cd_pedido, dt_pedido, dt_limite_entrega, potencia_kva, fases,
+                classe_tensao, tipo_nucleo, tipo_construtivo, linha, seq_plano, uf
+            ) VALUES (
+                :data_extracao, :data_programada, :cd_referencia, :ds_produto, :qtd_item,
+                :quantidade, :qtd_produzida, :qtd_a_produzir, :cliente_nome, :cliente_apelido,
+                :cd_pedido, :dt_pedido, :dt_limite_entrega, :potencia_kva, :fases,
+                :classe_tensao, :tipo_nucleo, :tipo_construtivo, :linha, :seq_plano, :uf
+            )
+        ");
+
+        $pdo->beginTransaction();
+        $insCountForca = 0;
+        foreach ($atrasoForcaRegistros as $ar) {
+            $stmtInsAtrasoForca->execute([
+                'data_extracao'     => $snapDateForca,
+                'data_programada'   => substr((string)($ar['data_programada'] ?? $snapDateForca), 0, 10),
+                'cd_referencia'     => trim((string)($ar['cd_referencia'] ?? '')),
+                'ds_produto'        => (string)($ar['ds_produto'] ?? ''),
+                'qtd_item'          => (int)($ar['qtd_item'] ?? 1),
+                'quantidade'        => (int)($ar['quantidade'] ?? 1),
+                'qtd_produzida'     => (int)($ar['qtd_produzida'] ?? 0),
+                'qtd_a_produzir'    => (int)($ar['qtd_a_produzir'] ?? 0),
+                'cliente_nome'      => trim((string)($ar['cliente_nome'] ?? '')),
+                'cliente_apelido'   => trim((string)($ar['cliente_apelido'] ?? '')),
+                'cd_pedido'         => trim((string)($ar['cd_pedido'] ?? '')) ?: null,
+                'dt_pedido'         => ($ar['dt_pedido'] ?? null) ?: null,
+                'dt_limite_entrega' => ($ar['dt_limite_entrega'] ?? null) ?: null,
+                'potencia_kva'      => (float)($ar['potencia_kva'] ?? 0),
+                'fases'             => (int)($ar['fases'] ?? 3),
+                'classe_tensao'     => trim((string)($ar['classe_tensao'] ?? '')),
+                'tipo_nucleo'       => (string)($ar['tipo_nucleo'] ?? ''),
+                'tipo_construtivo'  => (string)($ar['tipo_construtivo'] ?? ''),
+                'linha'             => (string)($ar['linha'] ?? ''),
+                'seq_plano'         => !empty($ar['seq_plano']) ? (int)$ar['seq_plano'] : null,
+                'uf'                => trim((string)($ar['uf'] ?? ''))
+            ]);
+            $insCountForca++;
+        }
+        $pdo->commit();
+        $atualizacoes[] = "Tabela MySQL atraso_forca_registros ($snapDateForca) atualizada com $insCountForca registros";
     }
 
     // 4. Atualiza cache do Fluxo de Pedidos

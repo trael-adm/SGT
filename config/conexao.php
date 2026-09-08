@@ -112,7 +112,12 @@ function getDB(): PDO
 {
     static $pdo = null;
     if ($pdo !== null) {
-        return $pdo;
+        try {
+            $pdo->query("SELECT 1");
+            return $pdo;
+        } catch (\Throwable $e) {
+            $pdo = null;
+        }
     }
 
     $env = _GFT_ENV;
@@ -166,19 +171,6 @@ function getDB(): PDO
                     ELSE setor_causador
                 END
                 WHERE setor_causador = 'S/ Setor Causador' AND codigo REGEXP '^(EG|C|E|L|P|R)[0-9]+'
-            ");
-        } catch (\Throwable $e) {}
-
-        try {
-            $pdo->exec("
-                UPDATE reprovas 
-                SET local = 'IQF' 
-                WHERE local = 'GER' AND codigo NOT LIKE 'R%'
-            ");
-            $pdo->exec("
-                UPDATE reprovas 
-                SET local = 'GER', setor_causador = 'REVITALIZAÇÃO' 
-                WHERE codigo LIKE 'R%'
             ");
         } catch (\Throwable $e) {}
 

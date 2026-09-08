@@ -96,13 +96,18 @@ switch ($acao) {
 
         $familia       = mb_strtoupper(trim((string)($_POST['familia'] ?? '')));
         $descricao     = mb_strtoupper(trim((string)($_POST['descricao'] ?? '')));
-        $locaisPost = $_POST['locais'] ?? null;
+        // O formulário de edição só envia checkboxes "locais[]" (nunca o campo
+        // singular "local"). Checkbox HTML desmarcado não é enviado pelo navegador
+        // — então "nenhum setor marcado" chega aqui como locais AUSENTE, não como
+        // array vazio. Os dois casos significam a mesma coisa: nenhuma estação
+        // selecionada de propósito (reprova fica indisponível pra apontamento até
+        // ser reconfigurada) — não cai mais em 'GER' por padrão em nenhum dos dois.
+        $locaisPost = $_POST['locais'] ?? [];
         if (is_array($locaisPost)) {
             $validos = array_values(array_unique(array_intersect(array_map('strtoupper', array_map('trim', $locaisPost)), ['IQF', 'LAB', 'RET'])));
-            $local = $validos ? implode(',', $validos) : 'GER';
+            $local = implode(',', $validos);
         } else {
-            $local = mb_strtoupper(trim((string)($_POST['local'] ?? 'GER')));
-            if ($local === '') $local = 'GER';
+            $local = mb_strtoupper(trim((string)$locaisPost));
         }
 
         $vaiRetrabalho = isset($_POST['vai_retrabalho']) ? ((int)$_POST['vai_retrabalho'] === 0 ? 0 : 1) : 1;
@@ -216,9 +221,9 @@ switch ($acao) {
 
             $currentLocal = strtoupper(trim((string)$currentLocal));
             $locais = [];
-            if ($currentLocal === 'GER' || $currentLocal === '') {
+            if ($currentLocal === 'GER') {
                 $locais = ['LAB', 'RET', 'IQF'];
-            } else {
+            } elseif ($currentLocal !== '') {
                 $locais = array_values(array_filter(array_map('trim', explode(',', $currentLocal))));
             }
 

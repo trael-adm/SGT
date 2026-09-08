@@ -95,6 +95,32 @@
         });
     }
 
+    // ─── Auto-abertura via URL (?abrir=novo&ns=...&projeto=...) ───────────────
+    // Usada pelo botão "Reprovar" do Paint Check (pages/qualidade/paint-check.php)
+    // pra já cair com o formulário aberto e o NS/Pedido/Projeto pré-preenchidos,
+    // em vez do operador ter que clicar em "+ Novo Retrabalho" e digitar tudo de novo.
+    (function () {
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('abrir') !== 'novo') return;
+
+        resetForm();
+        if (titleEl) titleEl.textContent = 'Registrar retrabalho de pintura';
+
+        var ns = params.get('ns') || '';
+        setField('f-ns', ns);
+
+        var codProjeto = params.get('projeto') || '';
+        if (codProjeto) {
+            var proj = PROJETOS.filter(function (p) { return p.codigo === codProjeto; })[0];
+            if (proj) {
+                setField('f-pedido', proj.id_pedido);
+                popularProjetos(proj.id_pedido, proj.id);
+            }
+        }
+
+        openModal();
+    })();
+
     // ─── Excluir uma reprova direto da lista (sem abrir a Triagem) ─────────────
     // Delegado no document (mesmo motivo do toggle de grupo, logo abaixo): o
     // auto-refresh recria a tabela periodicamente. Exclusão é soft delete (acao=

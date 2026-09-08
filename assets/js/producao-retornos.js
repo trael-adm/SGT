@@ -32,16 +32,12 @@
     }
 
     // ─── Expandir/recolher reprovas por trás do "+" & Expandir Todos ───────────
-    var STORAGE_KEY_ALL = 'sgt_retornos_expand_all';
-    var STORAGE_KEY_ROWS = 'sgt_retornos_open_rows';
-
-    function getOpenRows() {
-        try { return JSON.parse(localStorage.getItem(STORAGE_KEY_ROWS) || '[]'); } catch (e) { return []; }
-    }
-
-    function saveOpenRows(rows) {
-        localStorage.setItem(STORAGE_KEY_ROWS, JSON.stringify(rows));
-    }
+    // ─── Expandir/recolher reprovas por trás do "+" & Expandir Todos ───────────
+    // Limpa chaves legadas de persistência para sempre iniciar com as linhas recolhidas
+    try {
+        localStorage.removeItem('sgt_retornos_expand_all');
+        localStorage.removeItem('sgt_retornos_open_rows');
+    } catch (e) {}
 
     function syncHeaderButtons(expandAll) {
         var btnAll = document.getElementById('btn-toggle-all-retornos');
@@ -53,46 +49,34 @@
         }
         var quickBtn = document.querySelector('.js-toggle-all-quick');
         if (quickBtn) {
-            quickBtn.textContent = expandAll ? '−' : '⤢';
+            // Ícone gira via CSS a partir de aria-expanded (ver .btn-expand-col) —
+            // não mexe no conteúdo do botão (é um SVG, não texto).
+            quickBtn.setAttribute('aria-expanded', expandAll ? 'true' : 'false');
             quickBtn.title = expandAll ? 'Recolher todos' : 'Expandir todos';
         }
     }
 
-    function aplicarEstado() {
-        var expandAll = localStorage.getItem(STORAGE_KEY_ALL) === 'true';
-        var openRows = getOpenRows();
-        syncHeaderButtons(expandAll);
-
+    function setAllRows(expand) {
+        syncHeaderButtons(expand);
         document.querySelectorAll('.js-toggle-retorno').forEach(function(btn) {
             var targetId = btn.dataset.target;
             var row = document.getElementById(targetId);
             if (!row) return;
 
-            var shouldOpen = expandAll || openRows.includes(targetId);
-            if (shouldOpen) {
+            if (expand) {
                 row.classList.add('is-open');
-                btn.textContent = '−';
                 btn.setAttribute('aria-expanded', 'true');
             } else {
                 row.classList.remove('is-open');
-                btn.textContent = '+';
                 btn.setAttribute('aria-expanded', 'false');
             }
         });
     }
 
-    function setAllRows(expand) {
-        localStorage.setItem(STORAGE_KEY_ALL, expand ? 'true' : 'false');
-        if (!expand) {
-            saveOpenRows([]);
-        }
-        aplicarEstado();
-    }
-
     document.addEventListener('click', function (e) {
         var btnAll = e.target.closest('#btn-toggle-all-retornos') || e.target.closest('.js-toggle-all-quick');
         if (btnAll) {
-            var isCurrentlyExpanded = localStorage.getItem(STORAGE_KEY_ALL) === 'true';
+            var isCurrentlyExpanded = btnAll.classList.contains('is-active') || btnAll.getAttribute('aria-expanded') === 'true';
             setAllRows(!isCurrentlyExpanded);
             return;
         }
@@ -103,22 +87,12 @@
         var row = document.getElementById(targetId);
         if (!row) return;
         var aberto = row.classList.toggle('is-open');
-        btn.textContent = aberto ? '−' : '+';
         btn.setAttribute('aria-expanded', aberto ? 'true' : 'false');
 
-        var openRows = getOpenRows();
-        if (aberto) {
-            if (!openRows.includes(targetId)) openRows.push(targetId);
-        } else {
-            openRows = openRows.filter(function(id) { return id !== targetId; });
-            localStorage.setItem(STORAGE_KEY_ALL, 'false');
+        // Se alguma linha for fechada manualmente, desmarca o botão de "Expandir Todos"
+        if (!aberto) {
             syncHeaderButtons(false);
         }
-        saveOpenRows(openRows);
-    });
-
-    document.addEventListener('DOMContentLoaded', function() {
-        aplicarEstado();
     });
 
     // ─── Aprovado: ação direta ────────────────────────────────────────────────

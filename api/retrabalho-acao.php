@@ -225,20 +225,39 @@ if (!function_exists('sincronizarRetornosProducaoEtapas')) {
      * estações de produção suportadas ('LAB' para 'laboratorio' e 'IQF' para 'inspecao_final')
      * quando o transformador é direcionado a elas na Triagem ou Edição do Retrabalho.
      * 
-     * Se ambos 'inspecao_final' e 'laboratorio' foram marcados, a peça vai primeiramente
-     * para a Inspeção Final (etapa intermediária). Ao ser aprovada na IQF, ela avança
-     * automaticamente para o Laboratório (setor de origem).
+     * Regra de Isolamento de Retornos:
+     * - Se a reprova foi originada na Inspeção Final ('IQF'), ela SEMPRE retorna para 'IQF'.
+     * - Se a reprova foi originada no Laboratório ('LAB'):
+     *   - Se 'inspecao_final' ou 'montagem_final' foi marcado nos próximos setores,
+     *     a peça vai primeiramente para a Inspeção Final (IQF, etapa intermediária).
+     *     Ao ser aprovada na IQF, ela avança automaticamente para o Laboratório (LAB).
+     *   - Caso contrário, vai diretamente para o Laboratório ('LAB').
      */
     function sincronizarRetornosProducaoEtapas(PDO $pdo, string $ns, int $idProjeto, ?string $setoresDestinoStr, int $userId): void
     {
         $setoresDestino = $setoresDestinoStr !== null ? explode(',', $setoresDestinoStr) : [];
 
-        if (in_array('inspecao_final', $setoresDestino, true) || in_array('montagem_final', $setoresDestino, true)) {
+        // Identifica a estação de origem do retrabalho ativo deste transformador
+        $stmtEst = $pdo->prepare("
+            SELECT estacao FROM retrabalhos
+            WHERE ns_transformador = ? AND id_projeto = ? AND deleted_at IS NULL
+            ORDER BY data_reprova DESC, id DESC
+            LIMIT 1
+        ");
+        $stmtEst->execute([$ns, $idProjeto]);
+        $estacaoOrigem = strtoupper(trim((string) $stmtEst->fetchColumn()));
+        if ($estacaoOrigem === '') $estacaoOrigem = 'LAB';
+
+        if ($estacaoOrigem === 'IQF') {
+            // Reprova de Inspeção Final NUNCA vai para a aba de retorno do Laboratório
             $estacoesParaCriar = ['IQF'];
-        } elseif (in_array('laboratorio', $setoresDestino, true)) {
-            $estacoesParaCriar = ['LAB'];
         } else {
-            $estacoesParaCriar = [];
+            // Reprova de Laboratório (LAB)
+            if (in_array('inspecao_final', $setoresDestino, true) || in_array('montagem_final', $setoresDestino, true)) {
+                $estacoesParaCriar = ['IQF'];
+            } else {
+                $estacoesParaCriar = ['LAB'];
+            }
         }
 
         foreach ($estacoesParaCriar as $estacaoSigla) {
@@ -348,18 +367,20 @@ if (!function_exists('vincularAnexos')) {
 
 if (!function_exists('derivarStatus')) {
     /**
-     * Deriva o status a partir dos dados (fluxo por etapas, automático ao salvar):
-     *   causa raiz preenchida        -> finalizado
-     *   data de finalização presente -> agu_causa_raiz
-     *   já está "finalizado" (retorno ao Laboratório aprovado sem causa raiz) -> mantém, a menos que
-     *   os campos acima empurrem o fluxo adiante
-     *   senão                        -> agu_abertura
+     * Deriva o status a partir dos dados:
+     *   statusAtual === 'finalizado' -> finalizado (mantém se já foi finalizado no retorno)
+     *   data de chegada / início / finalização / causa raiz -> agu_causa_raiz (em andamento)
+     *   senão -> agu_abertura
+     *
+     * Nota: O retrabalho só é considerado 'finalizado' de fato quando for APROVADO no retorno
+     * (pelo Laboratório ou Inspeção Final) ou caso seja correção interna direta sem retorno.
      */
     function derivarStatus(array $c, ?string $statusAtual = null): string
     {
-        if ($c['causa_raiz'] !== null) return 'finalizado';
-        if ($statusAtual === 'finalizado' && $c['causa_raiz'] === null && $c['data_finalizacao'] !== null) return 'finalizado';
-        if ($c['data_chegada'] !== null || $c['data_inicio'] !== null || $c['data_finalizacao'] !== null) {
+        if ($statusAtual === 'finalizado') {
+            return 'finalizado';
+        }
+        if ($c['data_chegada'] !== null || $c['data_inicio'] !== null || $c['causa_raiz'] !== null || $c['data_finalizacao'] !== null) {
             return 'agu_causa_raiz';
         }
         return 'agu_abertura';
@@ -541,6 +562,11 @@ try {
                 if ($c['causa_raiz'] === null) {
                     $c['causa_raiz'] = 'Correção interna no setor';
                 }
+            } else {
+                // Vai ao retrabalho / setores fabris / retornos: mantém em andamento (agu_causa_raiz)
+                // e só finaliza quando o retorno for efetivamente APROVADO pelo Laboratório ou IQF.
+                $status = 'agu_causa_raiz';
+                $concluidoEm = null;
             }
 
             $pdo->beginTransaction();
@@ -598,13 +624,14 @@ try {
                     ...$todosIds,
                 ]);
 
-                // Causa raiz é rascunhada por reprova (acao=definir_causa_raiz, sem finalizar
-                // ainda) — só finaliza de fato quando a Triagem inteira é reenviada, aqui.
-                // Não afeta reprovas sem causa raiz nem as já encerradas.
-                $pdo->prepare("
-                    UPDATE retrabalhos SET status = 'finalizado', concluido_em = COALESCE(concluido_em, NOW())
-                    WHERE id IN ($ph) AND causa_raiz IS NOT NULL AND status != 'finalizado'
-                ")->execute($todosIds);
+                // Só finaliza diretamente se NÃO vai ao retrabalho (correção interna imediata).
+                // Se vai ao retrabalho ou setores/retorno, continua como 'agu_causa_raiz' até a aprovação do retorno.
+                if (!$vaiAoRetrabalho) {
+                    $pdo->prepare("
+                        UPDATE retrabalhos SET status = 'finalizado', concluido_em = COALESCE(concluido_em, NOW())
+                        WHERE id IN ($ph)
+                    ")->execute($todosIds);
+                }
             }
 
             gravarMateriaisUsados($pdo, (int) $idLote, lerMateriaisUsados($pdo), $userId);
@@ -1084,9 +1111,8 @@ try {
             // (ex.: peça reprovada no LAB -> retrabalho enviou para IQF -> ao aprovar na IQF deve cair no LAB)
             $origemTeveLab = false;
             $stmtOrigens = $pdo->prepare("
-                SELECT r.estacao AS ret_estacao, rep.local AS rep_local
+                SELECT r.estacao AS ret_estacao
                 FROM retrabalhos r
-                LEFT JOIN reprovas rep ON rep.id = r.id_reprova
                 WHERE r.ns_transformador = ? AND r.id_projeto = ? AND r.deleted_at IS NULL
                   AND r.status != 'finalizado'
             ");
@@ -1094,21 +1120,28 @@ try {
             $origensRows = $stmtOrigens->fetchAll(PDO::FETCH_ASSOC);
 
             if (empty($origensRows)) {
+                // Nenhuma reprova em aberto: cai no ciclo de retrabalho mais recente
+                // (não nos últimos 10 registros quaisquer). Ordena por data_reprova,
+                // não por id — o histórico importado tem eventos antigos com id novo
+                // (inseridos hoje, com data_reprova de anos atrás), então ordenar por
+                // id faria um evento antigo "parecer" mais recente que um atual.
                 $stmtOrigens2 = $pdo->prepare("
-                    SELECT r.estacao AS ret_estacao, rep.local AS rep_local
+                    SELECT r.estacao AS ret_estacao
                     FROM retrabalhos r
-                    LEFT JOIN reprovas rep ON rep.id = r.id_reprova
                     WHERE r.ns_transformador = ? AND r.id_projeto = ? AND r.deleted_at IS NULL
-                    ORDER BY r.id DESC LIMIT 10
+                    ORDER BY r.data_reprova DESC, r.id DESC LIMIT 1
                 ");
                 $stmtOrigens2->execute([$ns, $idProjeto]);
                 $origensRows = $stmtOrigens2->fetchAll(PDO::FETCH_ASSOC);
             }
 
+            // Origem real da reprova = o campo `estacao` gravado na própria ocorrência
+            // (retrabalhos.estacao), nunca o `local` do catálogo de reprovas — esse é
+            // só a lista de estações onde aquele código PODE ocorrer em geral (ex.:
+            // "LAB,IQF"), não onde esta peça especificamente foi reprovada.
             foreach ($origensRows as $row) {
                 $retEst = strtoupper(trim((string)($row['ret_estacao'] ?? '')));
-                $repLoc = strtoupper(trim((string)($row['rep_local'] ?? '')));
-                if ($retEst === 'LAB' || str_contains($repLoc, 'LAB')) {
+                if ($retEst === 'LAB') {
                     $origemTeveLab = true;
                     break;
                 }
@@ -1439,12 +1472,17 @@ try {
                 exit;
             }
 
-            // Herda dados do lote / registros existentes para este NS/projeto
+            // Herda dados do lote / registros existentes para este NS/projeto.
+            // ORDER BY data_reprova (não por id): registros de importação histórica
+            // são inseridos com id novo mas data_reprova antiga — ORDER BY id sozinho
+            // escolheria o registro importado (sem id_lote/chegada/início) em vez do
+            // lote real ativo, perdendo a continuidade da triagem (602 pares NS+projeto
+            // confirmados afetados por esse padrão em ago/2026).
             $stmtExist = $pdo->prepare("
                 SELECT id_lote, data_chegada, data_inicio, status, observacoes, causa_reprova, setores_destino
                 FROM retrabalhos
                 WHERE id_projeto = ? AND ns_transformador = ? AND deleted_at IS NULL
-                ORDER BY id DESC LIMIT 1
+                ORDER BY data_reprova DESC, id DESC LIMIT 1
             ");
             $stmtExist->execute([$idProjeto, $ns]);
             $rowExist = $stmtExist->fetch();

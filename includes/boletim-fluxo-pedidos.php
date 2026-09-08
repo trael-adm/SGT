@@ -471,7 +471,9 @@ function obterDadosSetorEspecifico(string $setor): array
 function avaliarStatusCelulaFluxo(array $subNos, string $tipo, bool $isMaeEnc): string
 {
     if ($isMaeEnc) return 'OK';
-    if (empty($subNos)) return 'PEND';
+    // Nenhum sub-componente encontrado no join de 5 níveis: célula desconhecida,
+    // não "pendente" (evita que o item caia sempre na primeira célula checada, ex. BT).
+    if (empty($subNos)) return 'DESCONHECIDO';
 
     foreach ($subNos as $n) {
         $ref = strtoupper(trim((string) ($n['cd_Referencia'] ?? '')));

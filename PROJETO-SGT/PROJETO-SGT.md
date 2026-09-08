@@ -30,7 +30,7 @@ O **SGT (Sistema de Gestão Trael)** é a plataforma integrada de inteligência 
 - **PHP 8.4 Vanilla:** Arquitetura limpa sem frameworks externos (sem Laravel, Symfony, etc.); uso obrigatório da declaração estrita `declare(strict_types=1)` em todos os arquivos PHP.
 - **Conexão Dual de Banco de Dados:**
   - **MySQL (Aplicação Principal):** Conexão singleton gerenciada exclusivamente por `getDB()` em `config/conexao.php` (autenticação, sessões, retrabalho, metas mensais, catálogo e cronoanálise).
-  - **SQL Server (ERP Trael / Kardex / piAudit):** Conexão singleton segura `getSqlServerDB(): ?PDO` via PDO ODBC (`vsat.trael.local` / `vsattrael`) em `config/conexao.php`, com timeout curto e tolerância a falhas na rede interna da fábrica.
+  - **SQL Server (ERP Trael / Kardex / piAudit):** Conexão singleton segura `getSqlServerDB(): ?PDO` via PDO ODBC (`vsat.trael.local` / `vsattrael`) em por que não atualizou?`config/conexao.php`, com timeout curto e tolerância a falhas na rede interna da fábrica.
 - **Planilhas-Ponte & Leitura Server-Side:**
   - Leitura no servidor via `PharData` (sem dependência de extensões pesadas como ZipArchive ou Composer), cacheada em `storage/cache/`.
   - `PLANILHA QUE ATUALIZA/NS.OF.xlsx`: Índice de Ordens de Fabricação (~4,8 MB, atualizado por Power Query, lido por `includes/planilha-ns-of.php`).

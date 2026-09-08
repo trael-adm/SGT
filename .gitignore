@@ -3,13 +3,10 @@
 .env.production
 .env.railway
 cookies*.txt
-uploads/*.tmp
-uploads/*.bak
-uploads/*.jpg
-uploads/*.jpeg
-uploads/*.png
-uploads/*.gif
-uploads/retrabalho/
+uploads/*
+!uploads/.gitkeep
+graphify-out/
+.graphifyignore
 scratch/
 .vscode/
 .idea/
@@ -35,6 +32,7 @@ storage/cache/*
 !storage/cache/kardex_mes_*.json
 !storage/cache/fluxo_*.json
 !storage/cache/acompanhamento.json
+!storage/cache/atraso_ns_suplementar.json
 !storage/snapshots/
 !storage/snapshots/*.csv
 PLANILHA QUE ATUALIZA/~$*.xlsx
@@ -45,3 +43,10 @@ log*.md*
 log_conversa.md
 troca de servidor.txt
 docs/INFORMATIVO.md
+
+# Testes (PHPUnit) — composer.json/composer.lock ficam versionados pra
+# reprodutibilidade; o resto é reconstruível (composer install) ou binário
+# baixado à parte.
+vendor/
+composer.phar
+.phpunit.result.cache

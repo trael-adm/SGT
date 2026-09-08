@@ -74,11 +74,20 @@ function boletimAjustarDataFimDeSemanaParaSexta(string $dataYmd): string
  * - JC-TRIF (JC): APENAS se ds_TpEnrolamentoNucleo for 'JC' E o transformador for Trifásico ('TRI' ou '3F').
  * - ENR: se for 'ENR' OU se for 'JC' Monofásico/Bifásico ('MON', 'BIF', '1F', '2F').
  */
-function boletimClassificarNucleoTrafo(?string $dsTpEnrolamentoNucleo, ?string $nrofasesTrafo, ?string $dsProd = ''): string
+function boletimClassificarNucleoTrafo(?string $dsTpEnrolamentoNucleo, ?string $nrofasesTrafo, ?string $dsProd = '', ?float $potenciaKva = null): string
 {
-    $nucRaw  = strtoupper(trim((string) $dsTpEnrolamentoNucleo));
+    $nucRaw = strtoupper(trim((string) $dsTpEnrolamentoNucleo));
     $faseRaw = strtoupper(trim((string) $nrofasesTrafo));
-    $prod    = strtoupper((string) $dsProd);
+    $prod = strtoupper((string) $dsProd);
+
+    // REGRA OFICIAL DA FÁBRICA: Todos os transformadores de 5, 10 e 15 kVA (inclusive JC) são classificados como ENR
+    $kva = $potenciaKva;
+    if ($kva === null && preg_match('/(\d+(?:[.,]\d+)?)\s*kva\b/i', $prod, $m)) {
+        $kva = (float) str_replace(',', '.', $m[1]);
+    }
+    if ($kva !== null && in_array((int) round($kva), [5, 10, 15], true)) {
+        return 'ENR';
+    }
 
     if ($nucRaw === 'EMP' || $nucRaw === 'EMP-LM') {
         return 'EMP';
@@ -167,7 +176,7 @@ function boletimObterDadosMes(string $mes = '', bool $forcarRefresh = false): ar
         return $memo[$mes];
     }
 
-    $jsonFile  = BOLETIM_KARDEX_CACHE_DIR . '/kardex_mes_' . $mes . '.json';
+    $jsonFile = BOLETIM_KARDEX_CACHE_DIR . '/kardex_mes_' . $mes . '.json';
     $cacheFile = BOLETIM_KARDEX_CACHE_DIR . '/kardex_mes_' . $mes . '.cache';
 
     // 1. Se existir cache em disco (JSON ou binário) com dados válidos, lê o cache
@@ -177,11 +186,8 @@ function boletimObterDadosMes(string $mes = '', bool $forcarRefresh = false): ar
             if ($rawJson !== false) {
                 $cachedJson = @json_decode($rawJson, true);
                 if (is_array($cachedJson) && !empty($cachedJson['dados']) && (!empty($cachedJson['dados']['porDia']) || !empty($cachedJson['dados']['nucleoPorDia']))) {
-                    if (!getSqlServerDB()) {
-                        return $memo[$mes] = $cachedJson['dados'];
-                    }
                     $idade = time() - ($cachedJson['timestamp'] ?? 0);
-                    if ($mes !== date('Y-m') || $idade < 600) {
+                    if ($mes !== date('Y-m') || $idade < 600 || !getSqlServerDB()) {
                         return $memo[$mes] = $cachedJson['dados'];
                     }
                 }
@@ -193,11 +199,8 @@ function boletimObterDadosMes(string $mes = '', bool $forcarRefresh = false): ar
             if ($raw !== false) {
                 $cached = @unserialize($raw, ['allowed_classes' => false]);
                 if (is_array($cached) && !empty($cached['dados']) && (!empty($cached['dados']['porDia']) || !empty($cached['dados']['nucleoPorDia']))) {
-                    if (!getSqlServerDB()) {
-                        return $memo[$mes] = $cached['dados'];
-                    }
                     $idade = time() - ($cached['timestamp'] ?? 0);
-                    if ($mes !== date('Y-m') || $idade < 600) {
+                    if ($mes !== date('Y-m') || $idade < 600 || !getSqlServerDB()) {
                         return $memo[$mes] = $cached['dados'];
                     }
                 }
@@ -256,8 +259,8 @@ function boletimConsultarSqlServerMes(string $mes): ?array
     }
 
     $inicio = $mes . '-01';
-    $fim    = date('Y-m-t', strtotime($inicio));
-    $dtInicioMes   = $inicio . ' 00:00:00';
+    $fim = date('Y-m-t', strtotime($inicio));
+    $dtInicioMes = $inicio . ' 00:00:00';
     $dtFimMesTurno = date('Y-m-d', strtotime($fim . ' +1 day')) . ' 07:30:00';
     $dtInicioShift = $inicio . ' 07:30:00';
 
@@ -316,7 +319,7 @@ function boletimConsultarSqlServerMes(string $mes): ?array
             $inicio,
             $fim
         ]);
-        
+
         $linhasProd = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // 2. Reprovas (cd_AlmoxEmpresa 22/422 com Entra_Sai = 'ENT')
@@ -371,20 +374,20 @@ function boletimConsultarSqlServerMes(string $mes): ?array
         $linhasRep = $stmtRep->fetchAll(PDO::FETCH_ASSOC);
 
         // Agregação dos dados por data do turno
-        $porDia              = [];
-        $nucleoPorDia        = [];
-        $forcaPorDia         = [];
-        $potenciaPorDia      = [];
-        $potenciaNucleo      = ['ENR' => ['soma' => 0.0, 'qtd' => 0], 'JC' => ['soma' => 0.0, 'qtd' => 0], 'EMP' => ['soma' => 0.0, 'qtd' => 0]];
+        $porDia = [];
+        $nucleoPorDia = [];
+        $forcaPorDia = [];
+        $potenciaPorDia = [];
+        $potenciaNucleo = ['ENR' => ['soma' => 0.0, 'qtd' => 0], 'JC' => ['soma' => 0.0, 'qtd' => 0], 'EMP' => ['soma' => 0.0, 'qtd' => 0]];
         $potenciaForcaNucleo = ['TPD' => ['soma' => 0.0, 'qtd' => 0], 'TPS' => ['soma' => 0.0, 'qtd' => 0], 'TPM' => ['soma' => 0.0, 'qtd' => 0]];
-        $reprovasPorDia      = [];
-        $analitico           = [];
-        $ultimaData          = null;
+        $reprovasPorDia = [];
+        $analitico = [];
+        $ultimaData = null;
 
         foreach ($linhasProd as $r) {
-            $d       = boletimAjustarDataFimDeSemanaParaSexta($r['data_turno']);
-            $ref     = trim((string) $r['cd_Referencia']);
-            $cdEnt   = trim((string) ($r['cdEnt'] ?? ''));
+            $d = boletimAjustarDataFimDeSemanaParaSexta($r['data_turno']);
+            $ref = trim((string) $r['cd_Referencia']);
+            $cdEnt = trim((string) ($r['cdEnt'] ?? ''));
 
             if (!isset($porDia[$d])) {
                 $porDia[$d] = ['TPM' => 0, 'TPS' => 0, 'TPD_distrib' => 0, 'TPD_forca' => 0];
@@ -401,8 +404,8 @@ function boletimConsultarSqlServerMes(string $mes): ?array
             }
 
             $nucleoNome = '';
-            $nucleoCod  = '';
-            $linha      = '';
+            $nucleoCod = '';
+            $linha = '';
             $tipoConstrutivo = '';
 
             if ($cdEnt === '1') {
@@ -415,14 +418,14 @@ function boletimConsultarSqlServerMes(string $mes): ?array
                 if (!isset($nucleoPorDia[$d])) {
                     $nucleoPorDia[$d] = ['ENR' => 0, 'JC' => 0, 'EMP' => 0];
                 }
-                $nuc = boletimClassificarNucleoTrafo($r['ds_TpEnrolamentoNucleo'] ?? null, $r['nrofasesTrafo'] ?? null, $r['ds_Prod'] ?? '');
+                $nuc = boletimClassificarNucleoTrafo($r['ds_TpEnrolamentoNucleo'] ?? null, $r['nrofasesTrafo'] ?? null, $r['ds_Prod'] ?? '', $kva);
                 if (isset($nucleoPorDia[$d][$nuc])) {
                     $nucleoPorDia[$d][$nuc]++;
                 }
                 $nucleoCod = $nuc;
                 $nucleoNome = match ($nuc) {
                     'ENR' => 'ENR (Enrolado)',
-                    'JC'  => 'JC-TRIF (Jean Cor Trifásico)',
+                    'JC' => 'JC-TRIF (Jean Cor Trifásico)',
                     'EMP' => 'EMP (Convencional)',
                     default => 'N/D',
                 };
@@ -486,29 +489,29 @@ function boletimConsultarSqlServerMes(string $mes): ?array
             }
 
             $analitico[] = [
-                'tipo'                 => 'PRODUÇÃO',
-                'data_turno'           => $d,
-                'data_audit'           => $r['data_hora_audit'] ?: $r['data_mov'],
-                'data_mov'             => $r['data_mov'],
-                'operador'             => $r['operador_audit'] ?? ($r['data_hora_audit'] ? 'Sistema' : 'PierServer'),
-                'area'                 => ($area === 'distrib') ? 'Distribuição' : 'Média Força',
-                'area_cod'             => $area,
-                'linha'                => $linha,
-                'nucleo'               => $nucleoNome,
-                'nucleo_cod'           => $nucleoCod,
-                'of'                   => $r['num_Docto'],
-                'serie'                => $r['NumSerie'] ?? '',
-                'referencia'           => $r['cd_Referencia'] ?? '',
-                'projeto'              => $r['cd_Referencia'] ?? '',
-                'descricao'            => $r['ds_Prod'] ?? '',
-                'pedido'               => '—',
-                'pedido_cliente'       => '',
-                'cliente'              => '—',
-                'kva'                  => $kva !== null ? (string)$kva : '',
-                'cdEnt'                => $cdEnt,
-                'almoxarifado'         => $r['cd_AlmoxEmpresa'] ?? '',
-                'motivo_reprova'       => '',
-                'tipo_construtivo'     => $tipoConstrutivo,
+                'tipo' => 'PRODUÇÃO',
+                'data_turno' => $d,
+                'data_audit' => $r['data_hora_audit'] ?: $r['data_mov'],
+                'data_mov' => $r['data_mov'],
+                'operador' => $r['operador_audit'] ?? ($r['data_hora_audit'] ? 'Sistema' : 'PierServer'),
+                'area' => ($area === 'distrib') ? 'Distribuição' : 'Média Força',
+                'area_cod' => $area,
+                'linha' => $linha,
+                'nucleo' => $nucleoNome,
+                'nucleo_cod' => $nucleoCod,
+                'of' => $r['num_Docto'],
+                'serie' => $r['NumSerie'] ?? '',
+                'referencia' => $r['cd_Referencia'] ?? '',
+                'projeto' => $r['cd_Referencia'] ?? '',
+                'descricao' => $r['ds_Prod'] ?? '',
+                'pedido' => '—',
+                'pedido_cliente' => '',
+                'cliente' => '—',
+                'kva' => $kva !== null ? (string) $kva : '',
+                'cdEnt' => $cdEnt,
+                'almoxarifado' => $r['cd_AlmoxEmpresa'] ?? '',
+                'motivo_reprova' => '',
+                'tipo_construtivo' => $tipoConstrutivo,
             ];
 
             if ($ultimaData === null || $d > $ultimaData) {
@@ -523,29 +526,29 @@ function boletimConsultarSqlServerMes(string $mes): ?array
             $reprovasPorDia[$d][$area] = ($reprovasPorDia[$d][$area] ?? 0) + 1;
 
             $analitico[] = [
-                'tipo'                 => 'REPROVA LAB',
-                'data_turno'           => $d,
-                'data_audit'           => ($r['data_hora_audit'] ?? null) ?: ($r['data_mov'] ?? ''),
-                'data_mov'             => $r['data_mov'] ?? '',
-                'operador'             => ($r['operador_audit'] ?? null) ?: 'PierServer',
-                'area'                 => ($area === 'distrib') ? 'Distribuição' : 'Média Força',
-                'area_cod'             => $area,
-                'linha'                => 'LAB',
-                'nucleo'               => 'Reprova de Laboratório',
-                'nucleo_cod'           => 'LAB',
-                'of'                   => $r['num_Docto'] ?? '',
-                'serie'                => $r['NumSerie'] ?? '',
-                'referencia'           => $r['cd_Referencia'] ?? '',
-                'projeto'              => $r['cd_Referencia'] ?? '',
-                'descricao'            => $r['ds_Prod'] ?? '',
-                'pedido'               => '—',
-                'pedido_cliente'       => '',
-                'cliente'              => '—',
-                'kva'                  => '',
-                'cdEnt'                => $r['cdEnt'] ?? '',
-                'almoxarifado'         => $almox,
-                'motivo_reprova'       => 'Reprova / Retrabalho em Ensaios de Laboratório (Almoxarifado ' . $almox . ')',
-                'tipo_construtivo'     => trim((string) ($r['Ds_tpConstrTrafo'] ?? '')),
+                'tipo' => 'REPROVA LAB',
+                'data_turno' => $d,
+                'data_audit' => ($r['data_hora_audit'] ?? null) ?: ($r['data_mov'] ?? ''),
+                'data_mov' => $r['data_mov'] ?? '',
+                'operador' => ($r['operador_audit'] ?? null) ?: 'PierServer',
+                'area' => ($area === 'distrib') ? 'Distribuição' : 'Média Força',
+                'area_cod' => $area,
+                'linha' => 'LAB',
+                'nucleo' => 'Reprova de Laboratório',
+                'nucleo_cod' => 'LAB',
+                'of' => $r['num_Docto'] ?? '',
+                'serie' => $r['NumSerie'] ?? '',
+                'referencia' => $r['cd_Referencia'] ?? '',
+                'projeto' => $r['cd_Referencia'] ?? '',
+                'descricao' => $r['ds_Prod'] ?? '',
+                'pedido' => '—',
+                'pedido_cliente' => '',
+                'cliente' => '—',
+                'kva' => '',
+                'cdEnt' => $r['cdEnt'] ?? '',
+                'almoxarifado' => $almox,
+                'motivo_reprova' => 'Reprova / Retrabalho em Ensaios de Laboratório (Almoxarifado ' . $almox . ')',
+                'tipo_construtivo' => trim((string) ($r['Ds_tpConstrTrafo'] ?? '')),
             ];
 
             if ($ultimaData === null || $d > $ultimaData) {
@@ -557,7 +560,7 @@ function boletimConsultarSqlServerMes(string $mes): ?array
         if (!empty($analitico)) {
             $seriesMap = [];
             foreach ($analitico as $idx => $item) {
-                $s = trim((string)($item['serie'] ?? ''));
+                $s = trim((string) ($item['serie'] ?? ''));
                 if ($s !== '' && is_numeric($s)) {
                     $seriesMap[$s][] = $idx;
                 }
@@ -587,13 +590,13 @@ function boletimConsultarSqlServerMes(string $mes): ?array
                         $st = $pdo->prepare($sqlCli);
                         $st->execute($chunk);
                         while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
-                            $sKey = (string)$row['NumSerie'];
+                            $sKey = (string) $row['NumSerie'];
                             if (isset($seriesMap[$sKey])) {
-                                $cliNome = trim((string)($row['ClienteApelido'] ?: $row['ClienteNome'] ?: ''));
-                                $pedNum  = trim((string)($row['cdPedido'] ?? ''));
-                                $tpMerc  = trim((string)($row['tp_mercado'] ?? ''));
+                                $cliNome = trim((string) ($row['ClienteApelido'] ?: $row['ClienteNome'] ?: ''));
+                                $pedNum = trim((string) ($row['cdPedido'] ?? ''));
+                                $tpMerc = trim((string) ($row['tp_mercado'] ?? ''));
                                 if ($pedNum === '' && !empty($row['PedidoCliente'])) {
-                                    $pedNum = trim((string)$row['PedidoCliente']);
+                                    $pedNum = trim((string) $row['PedidoCliente']);
                                 }
                                 $cliNormalizado = boletimNormalizarNomeCliente($cliNome, $tpMerc);
                                 foreach ($seriesMap[$sKey] as $targetIdx) {
@@ -604,7 +607,7 @@ function boletimConsultarSqlServerMes(string $mes): ?array
                                         $analitico[$targetIdx]['pedido'] = $pedNum;
                                     }
                                     if (!empty($row['PedidoCliente'])) {
-                                        $analitico[$targetIdx]['pedido_cliente'] = (string)$row['PedidoCliente'];
+                                        $analitico[$targetIdx]['pedido_cliente'] = (string) $row['PedidoCliente'];
                                     }
                                     if ($tpMerc !== '') {
                                         $analitico[$targetIdx]['tp_mercado'] = $tpMerc;
@@ -628,17 +631,17 @@ function boletimConsultarSqlServerMes(string $mes): ?array
         }
 
         return [
-            'porDia'              => $porDia,
-            'nucleoPorDia'        => $nucleoPorDia,
-            'forcaPorDia'         => $forcaPorDia,
-            'potenciaPorDia'      => $potenciaPorDia,
-            'potenciaNucleo'      => $potenciaNucleo,
+            'porDia' => $porDia,
+            'nucleoPorDia' => $nucleoPorDia,
+            'forcaPorDia' => $forcaPorDia,
+            'potenciaPorDia' => $potenciaPorDia,
+            'potenciaNucleo' => $potenciaNucleo,
             'potenciaForcaNucleo' => $potenciaForcaNucleo,
-            'reprovasPorDia'      => $reprovasPorDia,
-            'analitico'           => $analitico,
-            'ultimaData'          => $ultimaData,
-            'sincronizadoEm'      => date('d/m/Y H:i:s'),
-            'fonte'               => 'SQL Server (Tempo Real - Turno Fábrica)',
+            'reprovasPorDia' => $reprovasPorDia,
+            'analitico' => $analitico,
+            'ultimaData' => $ultimaData,
+            'sincronizadoEm' => date('d/m/Y H:i:s'),
+            'fonte' => 'SQL Server (Tempo Real - Turno Fábrica)',
         ];
 
     } catch (Throwable $e) {
@@ -716,7 +719,8 @@ function boletimKardexPotenciaMediaDoDia(string $dataYmd, string $area): ?float
     $mes = $m[1];
     $dados = boletimObterDadosMes($mes);
     $dia = $dados['potenciaPorDia'][$dataYmd][$area] ?? null;
-    if ($dia === null || $dia['qtd'] <= 0) return null;
+    if ($dia === null || $dia['qtd'] <= 0)
+        return null;
     return round($dia['soma'] / $dia['qtd'], 2);
 }
 
@@ -727,7 +731,8 @@ function boletimKardexPotenciaMediaNucleo(string $mes, string $nucleo): ?float
 {
     $dados = boletimObterDadosMes($mes);
     $n = $dados['potenciaNucleo'][$nucleo] ?? null;
-    if ($n === null || ($n['qtd'] ?? 0) <= 0) return null;
+    if ($n === null || ($n['qtd'] ?? 0) <= 0)
+        return null;
     return round($n['soma'] / $n['qtd'], 1);
 }
 
@@ -751,7 +756,8 @@ function boletimKardexPotenciaMediaForcaLinha(string $mes, string $linha): ?floa
 {
     $dados = boletimObterDadosMes($mes);
     $n = $dados['potenciaForcaNucleo'][$linha] ?? null;
-    if ($n === null || ($n['qtd'] ?? 0) <= 0) return null;
+    if ($n === null || ($n['qtd'] ?? 0) <= 0)
+        return null;
     return round($n['soma'] / $n['qtd'], 1);
 }
 
@@ -788,8 +794,8 @@ function boletimBuscarLinhasAnaliticasMes(string $mes, string $filtroArea = 'tod
     }
 
     $inicio = $mes . '-01';
-    $fim    = date('Y-m-t', strtotime($inicio));
-    $dtInicioMes   = $inicio . ' 00:00:00';
+    $fim = date('Y-m-t', strtotime($inicio));
+    $dtInicioMes = $inicio . ' 00:00:00';
     $dtFimMesTurno = date('Y-m-d', strtotime($fim . ' +1 day')) . ' 07:30:00';
     $dtInicioShift = $inicio . ' 07:30:00';
 
@@ -867,10 +873,10 @@ function boletimBuscarLinhasAnaliticasMes(string $mes, string $filtroArea = 'tod
         $inicio,
         $fim
     ]);
-    
+
     while ($r = $stmt->fetch(PDO::FETCH_ASSOC)) {
-        $ref     = trim((string) $r['cd_Referencia']);
-        $cdEnt   = trim((string) ($r['cdEnt'] ?? ''));
+        $ref = trim((string) $r['cd_Referencia']);
+        $cdEnt = trim((string) ($r['cdEnt'] ?? ''));
 
         // Potência kVA
         $prod = (string) ($r['ds_Prod'] ?? '');
@@ -885,10 +891,10 @@ function boletimBuscarLinhasAnaliticasMes(string $mes, string $filtroArea = 'tod
         if ($cdEnt === '1') {
             $area = 'distrib';
             $linha = 'TPD';
-            $nuc = boletimClassificarNucleoTrafo($r['ds_TpEnrolamentoNucleo'] ?? null, $r['nrofasesTrafo'] ?? null, $r['ds_Prod'] ?? '');
+            $nuc = boletimClassificarNucleoTrafo($r['ds_TpEnrolamentoNucleo'] ?? null, $r['nrofasesTrafo'] ?? null, $r['ds_Prod'] ?? '', $kvaNum);
             $nucleo = match ($nuc) {
                 'ENR' => 'ENR (Enrolado)',
-                'JC'  => 'JC-TRIF (Jean Cor Trifásico)',
+                'JC' => 'JC-TRIF (Jean Cor Trifásico)',
                 'EMP' => 'EMP (Convencional)',
                 default => 'N/D',
             };
@@ -912,34 +918,34 @@ function boletimBuscarLinhasAnaliticasMes(string $mes, string $filtroArea = 'tod
         }
 
         $cliente = trim((string) ($r['ClienteApelido'] ?: $r['ClienteNome'] ?: ''));
-        $pedido  = trim((string) ($r['cdPedido'] ?? ''));
+        $pedido = trim((string) ($r['cdPedido'] ?? ''));
         if ($pedido === '' && !empty($r['PedidoCliente'])) {
             $pedido = trim((string) $r['PedidoCliente']);
         }
 
         $linhas[] = [
-            'tipo'                 => 'PRODUÇÃO',
-            'data_turno'           => boletimAjustarDataFimDeSemanaParaSexta($r['data_turno']),
-            'data_audit'           => $r['data_hora_audit'] ?: $r['data_mov'],
-            'data_mov'             => $r['data_mov'],
-            'operador'             => $r['operador_audit'] ?: 'PierServer',
-            'area'                 => ($area === 'distrib') ? 'Distribuição' : 'Média Força',
-            'linha'                => $linha,
-            'nucleo'               => $nucleo,
-            'nucleo_cod'           => $nucleoCod,
-            'of'                   => $r['num_Docto'],
-            'serie'                => $r['NumSerie'] ?? '',
-            'referencia'           => $ref,
-            'projeto'              => $ref,
-            'descricao'            => $prod,
-            'pedido'               => $pedido ?: '—',
-            'pedido_cliente'       => $r['PedidoCliente'] ?? '',
-            'cliente'              => $cliente ?: 'Trael',
-            'kva'                  => $kva,
-            'cdEnt'                => $cdEnt,
-            'almoxarifado'         => $r['cd_AlmoxEmpresa'] ?? '',
-            'motivo_reprova'       => '',
-            'tipo_construtivo'     => $tipoConstrutivo,
+            'tipo' => 'PRODUÇÃO',
+            'data_turno' => boletimAjustarDataFimDeSemanaParaSexta($r['data_turno']),
+            'data_audit' => $r['data_hora_audit'] ?: $r['data_mov'],
+            'data_mov' => $r['data_mov'],
+            'operador' => $r['operador_audit'] ?: 'PierServer',
+            'area' => ($area === 'distrib') ? 'Distribuição' : 'Média Força',
+            'linha' => $linha,
+            'nucleo' => $nucleo,
+            'nucleo_cod' => $nucleoCod,
+            'of' => $r['num_Docto'],
+            'serie' => $r['NumSerie'] ?? '',
+            'referencia' => $ref,
+            'projeto' => $ref,
+            'descricao' => $prod,
+            'pedido' => $pedido ?: '—',
+            'pedido_cliente' => $r['PedidoCliente'] ?? '',
+            'cliente' => $cliente ?: 'Trael',
+            'kva' => $kva,
+            'cdEnt' => $cdEnt,
+            'almoxarifado' => $r['cd_AlmoxEmpresa'] ?? '',
+            'motivo_reprova' => '',
+            'tipo_construtivo' => $tipoConstrutivo,
         ];
     }
 
@@ -1010,44 +1016,44 @@ function boletimBuscarLinhasAnaliticasMes(string $mes, string $filtroArea = 'tod
         $inicio,
         $fim
     ]);
-    
+
     while ($r = $stmtRep->fetch(PDO::FETCH_ASSOC)) {
         $almox = (string) $r['cd_AlmoxEmpresa'];
-        $area  = ($almox === '22') ? 'distrib' : 'forca';
+        $area = ($almox === '22') ? 'distrib' : 'forca';
 
         if ($filtroArea !== 'todas' && $filtroArea !== $area) {
             continue;
         }
 
         $cliente = trim((string) ($r['ClienteApelido'] ?: $r['ClienteNome'] ?: ''));
-        $pedido  = trim((string) ($r['cdPedido'] ?? ''));
+        $pedido = trim((string) ($r['cdPedido'] ?? ''));
         if ($pedido === '' && !empty($r['PedidoCliente'])) {
             $pedido = trim((string) $r['PedidoCliente']);
         }
 
         $linhas[] = [
-            'tipo'                 => 'REPROVA LAB',
-            'data_turno'           => boletimAjustarDataFimDeSemanaParaSexta($r['data_turno']),
-            'data_audit'           => $r['data_hora_audit'] ?: $r['data_mov'],
-            'data_mov'             => $r['data_mov'],
-            'operador'             => $r['operador_audit'] ?: 'PierServer',
-            'area'                 => ($area === 'distrib') ? 'Distribuição' : 'Média Força',
-            'linha'                => 'LAB',
-            'nucleo'               => 'Reprova de Laboratório',
-            'nucleo_cod'           => 'LAB',
-            'of'                   => $r['num_Docto'],
-            'serie'                => $r['NumSerie'] ?? '',
-            'referencia'           => $r['cd_Referencia'] ?? '',
-            'projeto'              => $r['cd_Referencia'] ?? '',
-            'descricao'            => $r['ds_Prod'] ?? '',
-            'pedido'               => $pedido ?: '—',
-            'pedido_cliente'       => $r['PedidoCliente'] ?? '',
-            'cliente'              => $cliente ?: 'Trael',
-            'kva'                  => '',
-            'cdEnt'                => $r['cdEnt'] ?? '',
-            'almoxarifado'         => $almox,
-            'motivo_reprova'       => 'Reprova / Retrabalho em Ensaios de Laboratório (Almoxarifado ' . $almox . ')',
-            'tipo_construtivo'     => trim((string) ($r['Ds_tpConstrTrafo'] ?? '')),
+            'tipo' => 'REPROVA LAB',
+            'data_turno' => boletimAjustarDataFimDeSemanaParaSexta($r['data_turno']),
+            'data_audit' => $r['data_hora_audit'] ?: $r['data_mov'],
+            'data_mov' => $r['data_mov'],
+            'operador' => $r['operador_audit'] ?: 'PierServer',
+            'area' => ($area === 'distrib') ? 'Distribuição' : 'Média Força',
+            'linha' => 'LAB',
+            'nucleo' => 'Reprova de Laboratório',
+            'nucleo_cod' => 'LAB',
+            'of' => $r['num_Docto'],
+            'serie' => $r['NumSerie'] ?? '',
+            'referencia' => $r['cd_Referencia'] ?? '',
+            'projeto' => $r['cd_Referencia'] ?? '',
+            'descricao' => $r['ds_Prod'] ?? '',
+            'pedido' => $pedido ?: '—',
+            'pedido_cliente' => $r['PedidoCliente'] ?? '',
+            'cliente' => $cliente ?: 'Trael',
+            'kva' => '',
+            'cdEnt' => $r['cdEnt'] ?? '',
+            'almoxarifado' => $almox,
+            'motivo_reprova' => 'Reprova / Retrabalho em Ensaios de Laboratório (Almoxarifado ' . $almox . ')',
+            'tipo_construtivo' => trim((string) ($r['Ds_tpConstrTrafo'] ?? '')),
         ];
     }
 
@@ -1104,17 +1110,23 @@ function boletimBuscarDetalhesProducao(string $mes, ?string $dataDia = null, ?st
                     continue;
                 }
             } elseif ($tipoUpper === 'ENR') {
-                if ($nucCod !== 'ENR') continue;
+                if ($nucCod !== 'ENR')
+                    continue;
             } elseif ($tipoUpper === 'JC' || $tipoUpper === 'JC-TRIF') {
-                if ($nucCod !== 'JC') continue;
+                if ($nucCod !== 'JC')
+                    continue;
             } elseif ($tipoUpper === 'EMP') {
-                if ($nucCod !== 'EMP') continue;
+                if ($nucCod !== 'EMP')
+                    continue;
             } elseif ($tipoUpper === 'TPD') {
-                if ($linhaCod !== 'TPD' && $nucCod !== 'TPD') continue;
+                if ($linhaCod !== 'TPD' && $nucCod !== 'TPD')
+                    continue;
             } elseif ($tipoUpper === 'TPS') {
-                if ($linhaCod !== 'TPS' && $nucCod !== 'TPS') continue;
+                if ($linhaCod !== 'TPS' && $nucCod !== 'TPS')
+                    continue;
             } elseif ($tipoUpper === 'TPM') {
-                if ($linhaCod !== 'TPM' && $nucCod !== 'TPM') continue;
+                if ($linhaCod !== 'TPM' && $nucCod !== 'TPM')
+                    continue;
             }
         }
 
@@ -1125,7 +1137,7 @@ function boletimBuscarDetalhesProducao(string $mes, ?string $dataDia = null, ?st
     if (!empty($filtradas)) {
         $seriesMap = [];
         foreach ($filtradas as $idx => $f) {
-            $s = trim((string)($f['serie'] ?? ''));
+            $s = trim((string) ($f['serie'] ?? ''));
             if ($s !== '' && is_numeric($s)) {
                 $seriesMap[$s][] = $idx;
             }
@@ -1157,13 +1169,13 @@ function boletimBuscarDetalhesProducao(string $mes, ?string $dataDia = null, ?st
                         $st = $pdo->prepare($sqlCli);
                         $st->execute($chunk);
                         while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
-                            $sKey = (string)$row['NumSerie'];
+                            $sKey = (string) $row['NumSerie'];
                             if (isset($seriesMap[$sKey])) {
-                                $cliNome = trim((string)($row['ClienteApelido'] ?: $row['ClienteNome'] ?: ''));
-                                $pedNum  = trim((string)($row['cdPedido'] ?? ''));
-                                $tpMerc  = trim((string)($row['tp_mercado'] ?? ''));
+                                $cliNome = trim((string) ($row['ClienteApelido'] ?: $row['ClienteNome'] ?: ''));
+                                $pedNum = trim((string) ($row['cdPedido'] ?? ''));
+                                $tpMerc = trim((string) ($row['tp_mercado'] ?? ''));
                                 if ($pedNum === '' && !empty($row['PedidoCliente'])) {
-                                    $pedNum = trim((string)$row['PedidoCliente']);
+                                    $pedNum = trim((string) $row['PedidoCliente']);
                                 }
                                 foreach ($seriesMap[$sKey] as $targetIdx) {
                                     if ($cliNome !== '') {
@@ -1173,7 +1185,7 @@ function boletimBuscarDetalhesProducao(string $mes, ?string $dataDia = null, ?st
                                         $filtradas[$targetIdx]['pedido'] = $pedNum;
                                     }
                                     if (!empty($row['PedidoCliente'])) {
-                                        $filtradas[$targetIdx]['pedido_cliente'] = (string)$row['PedidoCliente'];
+                                        $filtradas[$targetIdx]['pedido_cliente'] = (string) $row['PedidoCliente'];
                                     }
                                     if ($tpMerc !== '') {
                                         $filtradas[$targetIdx]['tp_mercado'] = $tpMerc;
@@ -1204,7 +1216,7 @@ function boletimBuscarDetalhesProducao(string $mes, ?string $dataDia = null, ?st
  */
 function boletimNormalizarNomeCliente(?string $nome, ?string $tpMercado = null): string
 {
-    $n = trim((string)$nome);
+    $n = trim((string) $nome);
     if ($n === '' || $n === '—' || $n === '-' || strcasecmp($n, 'CLIENTE NÃO INFORMADO') === 0 || strcasecmp($n, 'CLIENTE NÃO IDENTIFICADO') === 0) {
         return 'Trael';
     }
@@ -1266,7 +1278,7 @@ function boletimNormalizarNomeCliente(?string $nome, ?string $tpMercado = null):
     }
 
     // Mercado VAR / Varejo ou Clientes Privados / Particulares
-    $mercadoUpper = strtoupper(trim((string)$tpMercado));
+    $mercadoUpper = strtoupper(trim((string) $tpMercado));
     if ($mercadoUpper === 'VAR' || str_contains($upper, 'VAR') || str_contains($upper, 'PARTICULAR')) {
         return 'Particular';
     }
@@ -1283,12 +1295,12 @@ function boletimNormalizarNomeCliente(?string $nome, ?string $tpMercado = null):
 function boletimFallbackPlanilhaExcel(): array
 {
     return [
-        'porDia'         => [],
-        'nucleoPorDia'   => [],
+        'porDia' => [],
+        'nucleoPorDia' => [],
         'potenciaPorDia' => [],
         'reprovasPorDia' => [],
-        'ultimaData'     => null,
+        'ultimaData' => null,
         'sincronizadoEm' => date('d/m/Y H:i:s'),
-        'fonte'          => 'Sem conexão com o banco',
+        'fonte' => 'Sem conexão com o banco',
     ];
 }
