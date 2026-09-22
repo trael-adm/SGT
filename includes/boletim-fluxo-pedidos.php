@@ -23,24 +23,26 @@ declare(strict_types=1);
 const FLUXO_ANO_BASE = 2026;
 
 // ─── Sanitização UTF-8 (não existia ainda no PCP) ───────────────────────────
-function sanitizarUtf8Recursivo(mixed $dado): mixed
-{
-    if (is_string($dado)) {
-        if (!mb_check_encoding($dado, 'UTF-8')) {
-            $convertido = @mb_convert_encoding($dado, 'UTF-8', 'Windows-1252');
-            return is_string($convertido) ? $convertido : @mb_convert_encoding($dado, 'UTF-8', 'ISO-8859-1');
+if (!function_exists('sanitizarUtf8Recursivo')) {
+    function sanitizarUtf8Recursivo(mixed $dado): mixed
+    {
+        if (is_string($dado)) {
+            if (!mb_check_encoding($dado, 'UTF-8')) {
+                $convertido = @mb_convert_encoding($dado, 'UTF-8', 'Windows-1252');
+                return is_string($convertido) ? $convertido : (string) @mb_convert_encoding($dado, 'UTF-8', 'ISO-8859-1');
+            }
+            return $dado;
+        }
+        if (is_array($dado)) {
+            $saida = [];
+            foreach ($dado as $k => $v) {
+                $chaveSanitizada = is_string($k) ? sanitizarUtf8Recursivo($k) : $k;
+                $saida[$chaveSanitizada] = sanitizarUtf8Recursivo($v);
+            }
+            return $saida;
         }
         return $dado;
     }
-    if (is_array($dado)) {
-        $saida = [];
-        foreach ($dado as $k => $v) {
-            $chaveSanitizada = is_string($k) ? sanitizarUtf8Recursivo($k) : $k;
-            $saida[$chaveSanitizada] = sanitizarUtf8Recursivo($v);
-        }
-        return $saida;
-    }
-    return $dado;
 }
 
 // ─── Follow-ups / SAC (planilhas/Dados.csv) ─────────────────────────────────
@@ -612,13 +614,13 @@ function carregarPlanilhaProducaoFluxo(
                     $totalConcluidos = count(array_filter($itens, fn($x) => !empty($x['is_concluido'])));
                     $totalPendentes = count($itens) - $totalConcluidos;
 
-                    return [
+                    return sanitizarUtf8Recursivo([
                         'sucesso'          => true,
                         'total'            => count($itens),
                         'total_concluidos' => $totalConcluidos,
                         'total_pendentes'  => $totalPendentes,
                         'itens'            => $itens,
-                    ];
+                    ]);
                 }
             }
         }
@@ -698,7 +700,7 @@ function carregarPlanilhaProducaoFluxo(
             cli.Apelido AS ClienteApelido,
             m.cd_Referencia AS Projeto,
             m.ds_Prod AS DescricaoProjeto,
-            ISNULL(seq_info.SeqPlano, 0) AS SeqPlano,
+            ISNULL(cip.SeqPlano, 0) AS SeqPlano,
             pot.PotenciaKVA,
             cl.ds_classeTensaoTrafo AS ClasseTensao,
             tp.ds_TpEnrolamentoNucleo AS TipoNucleo,
@@ -733,15 +735,10 @@ function carregarPlanilhaProducaoFluxo(
         LEFT JOIN dbo.TipoEnrolamentoNucleo tp WITH(NOLOCK) ON esp.id_TpEnrolamentoNucleo = tp.id_TpEnrolamentoNucleo
         LEFT JOIN dbo.NormaTrafo norm WITH(NOLOCK) ON esp.id_normaTrafo = norm.id_normaTrafo
         LEFT JOIN dbo.TipoConstrutivoTrafo tc WITH(NOLOCK) ON esp.id_tpConstrTrafo = tc.id_tpConstrTrafo
-        OUTER APPLY (
-            SELECT TOP 1 cip.SeqPlano
-            FROM dbo.CtrlItemPedidoPCP cip WITH(NOLOCK)
-            WHERE cip.id_it_pedido = it.id_it_pedido
-              AND cip.PierSitReg = 'ATV'
-            ORDER BY cip.IDCtrlItPedidoPCP DESC
-        ) AS seq_info
+        LEFT JOIN dbo.RlcCtrlItemPedidoPCPProgProd rlc_cip WITH(NOLOCK) ON rlc_cip.id_ProgProdPCP = prog.id_ProgProdPCP AND rlc_cip.PierSitReg = 'ATV'
+        LEFT JOIN dbo.CtrlItemPedidoPCP cip WITH(NOLOCK) ON cip.IDCtrlItPedidoPCP = rlc_cip.IDCtrlItPedidoPCP AND cip.PierSitReg = 'ATV'
         WHERE $whereStr
-        ORDER BY prog.DataHoraProducaoAux ASC, ISNULL(seq_info.SeqPlano, 0) ASC, p.cdPedido ASC, cns.NumSerie ASC
+        ORDER BY prog.DataHoraProducaoAux ASC, ISNULL(cip.SeqPlano, 0) ASC, p.cdPedido ASC, cns.NumSerie ASC
     ";
 
     try {
@@ -909,11 +906,11 @@ function carregarPlanilhaProducaoFluxo(
         ];
     }
 
-    return [
+    return sanitizarUtf8Recursivo([
         'sucesso'          => true,
         'total'            => count($trafosFinais),
         'total_concluidos' => $totalConcluidos,
         'total_pendentes'  => $totalPendentes,
         'itens'            => $trafosFinais,
-    ];
+    ]);
 }

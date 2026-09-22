@@ -323,11 +323,230 @@ function planoMestreConstruirIndice(string $caminhoXlsx): array
 }
 
 /**
+ * Consulta ao vivo o VSAT (SQL Server da fábrica) pra reconstruir a programação do
+ * Plano Mestre de um mês inteiro (empresas 1 e 4), na mesma granularidade da planilha
+ * (Quantidade por DataHoraProducaoAux). Reaproveita a mesma cadeia de tabelas já usada
+ * na consulta de atraso em boletim-atraso.php (ProgramacaoProducao → Materiais →
+ * OrdemFabricacao → CtrlItemPedidoPCP), sem o filtro de backlog pendente daquela
+ * consulta — aqui precisamos do programado do mês inteiro, não só do que falta produzir.
+ * Distribuição (empresa 1) usa CatGrupo 40; Média Força (empresa 4) não está nessa
+ * categoria, então é identificada pelo prefixo TPD/TPM/TPS de cd_Referencia.
+ * Validado em 2026-09-18 contra a xlsx congelada em 03/09: bateu exato em empresa 4
+ * (17/14/14) e com 1 unidade de diferença em empresa 1 (220/220/220 vs 220/220/221),
+ * dentro do esperado por mudanças reais no ERP nos 15 dias sem reexportação.
+ */
+function planoMestreConsultarSqlServerMes(string $mes): ?array
+{
+    $pdo = getSqlServerDB();
+    if (!$pdo) {
+        return null;
+    }
+
+    $inicio = $mes . '-01';
+    $fim = date('Y-m-d', strtotime($inicio . ' +1 month'));
+
+    $sql = "
+        SELECT
+            CONVERT(VARCHAR(10), PP.DataHoraProducaoAux, 120) AS Dia,
+            EmpDestino.cdEnt AS Empresa,
+            CAST(PP.Quantidade AS INT) AS Quantidade,
+            M.cd_Referencia AS Referencia,
+            M.ds_Prod AS Descricao,
+            Ped.cdPedido AS Pedido,
+            COALESCE(Cli.Apelido, Cli.Nome) AS Cliente,
+            PT.PotenciaKVA AS PotenciaKVA,
+            ET.nrofasesTrafo AS NroFases,
+            TEN.ds_TpEnrolamentoNucleo AS Nucleo,
+            CAST(ISNULL(ORDF.QtdProduzida, 0) AS INT) AS QtdProduzida,
+            CtrlItemPedidoPCP.SeqPlano AS SeqPlano
+        FROM ProgramacaoProducao AS PP WITH(NOLOCK)
+        INNER JOIN Materiais AS M WITH(NOLOCK) ON (M.id_Produto = PP.id_Produto)
+        INNER JOIN SubGrupoProduto AS SG WITH(NOLOCK) ON (SG.id_SubGrupoPrd = M.id_SubGrupoPrd)
+        INNER JOIN GrupoProduto AS G WITH(NOLOCK) ON (G.id_grpProd = SG.id_grpProd)
+        INNER JOIN CatGrupo AS CG WITH(NOLOCK) ON (CG.id_catGrupo = G.id_catGrupo)
+        INNER JOIN ControleProjetoPCP AS PCP WITH(NOLOCK) ON (PCP.id_Produto = M.id_Produto AND PCP.PierSitReg = 'ATV')
+        LEFT JOIN Entidade AS EmpDestino WITH(NOLOCK) ON (EmpDestino.Id_Ent = PP.id_Empresa AND EmpDestino.PierSitReg = 'ATV')
+        LEFT JOIN RlcProgramacaoItPedido AS RPP WITH(NOLOCK) ON (RPP.id_ProgProdPCP = PP.id_ProgProdPCP AND RPP.PierSitReg = 'ATV')
+        LEFT JOIN It_Pedido AS IPE WITH(NOLOCK) ON (IPE.id_it_pedido = RPP.id_it_pedido AND IPE.PierSitReg = 'ATV')
+        LEFT JOIN Pedidos AS Ped WITH(NOLOCK) ON (Ped.id_Ped = IPE.id_Ped)
+        LEFT JOIN Entidade AS Cli WITH(NOLOCK) ON (Cli.Id_Ent = Ped.id_Cliente)
+        LEFT JOIN EspecTrafo AS ET WITH(NOLOCK) ON (ET.id_Produto = M.id_Produto)
+        LEFT JOIN Potencia AS PT WITH(NOLOCK) ON (PT.id_potencia = ET.id_potencia)
+        LEFT JOIN TipoEnrolamentoNucleo AS TEN WITH(NOLOCK) ON (TEN.id_TpEnrolamentoNucleo = ET.id_TpEnrolamentoNucleo)
+        LEFT JOIN OrdemFabricacao AS ORDF WITH(NOLOCK) ON (ORDF.id_of = PP.id_of AND ORDF.PierSitReg = 'ATV')
+        LEFT JOIN RlcCtrlItemPedidoPCPProgProd AS RlcPP WITH(NOLOCK) ON (RlcPP.id_ProgProdPCP = PP.id_ProgProdPCP AND RlcPP.PierSitReg = 'ATV')
+        LEFT JOIN CtrlItemPedidoPCP AS CtrlItemPedidoPCP WITH(NOLOCK) ON (CtrlItemPedidoPCP.IDCtrlItPedidoPCP = RlcPP.IDCtrlItPedidoPCP AND CtrlItemPedidoPCP.PierSitReg = 'ATV')
+        WHERE PP.PierSitReg = 'ATV'
+          AND PP.DataHoraProducaoAux >= ? AND PP.DataHoraProducaoAux < ?
+          AND (PCP.statusProjeto = 'PRD' OR (PCP.statusProjeto = 'DES' AND NOT EXISTS (SELECT 1 FROM ControleProjetoPCP AS PCP2 WHERE PCP2.id_Produto = M.id_Produto AND PCP2.PierSitReg = 'ATV' AND PCP2.statusProjeto = 'PRD')))
+          AND (
+                (EmpDestino.cdEnt = '1' AND CG.cd_CatGrupo = 40)
+             OR (EmpDestino.cdEnt = '4' AND (M.cd_Referencia LIKE 'TPD%' OR M.cd_Referencia LIKE 'TPM%' OR M.cd_Referencia LIKE 'TPS%'))
+          )
+        ORDER BY PP.DataHoraProducaoAux
+    ";
+
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([$inicio, $fim]);
+        $linhas = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (\Throwable $e) {
+        error_log('Erro ao consultar Plano Mestre no SQL Server: ' . $e->getMessage());
+        return null;
+    }
+
+    $resultado = [
+        'porDia' => [],
+        'porDiaTotal' => [],
+        'porDiaNucleo' => [],
+        'porDiaItens' => [],
+    ];
+
+    foreach ($linhas as $r) {
+        $dtFmt = (string) $r['Dia'];
+        $empresaLinha = ((string) $r['Empresa'] === '4') ? 4 : 1;
+        $qtd = (float) $r['Quantidade'];
+        if ($qtd <= 0)
+            $qtd = 1.0;
+
+        $ref = strtoupper(trim((string) $r['Referencia']));
+        $nuc = strtoupper(trim((string) $r['Nucleo']));
+        $potInt = (int) round((float) $r['PotenciaKVA']);
+
+        $linhaNormalizada = 'OUTROS';
+        $nucleoNormalizado = 'OUTROS';
+
+        if ($empresaLinha === 1) {
+            // Mesma regra oficial de planoMestreConstruirIndice(): 5/10/15 kVA são sempre ENR
+            if (in_array($potInt, [5, 10, 15], true)) {
+                $linhaNormalizada = 'ENR';
+                $nucleoNormalizado = 'ENR';
+            } elseif (str_contains($nuc, 'ENR')) {
+                $linhaNormalizada = 'ENR';
+                $nucleoNormalizado = 'ENR';
+            } elseif (str_contains($nuc, 'EMP')) {
+                $linhaNormalizada = 'EMP';
+                $nucleoNormalizado = 'EMP';
+            } elseif (str_contains($nuc, 'JC')) {
+                $linhaNormalizada = 'JC';
+                $nucleoNormalizado = 'JC';
+            } else {
+                $nucleoNormalizado = $nuc ?: 'OUTROS';
+            }
+        } else {
+            if (str_starts_with($ref, 'TPD')) {
+                $linhaNormalizada = 'TPD';
+            } elseif (str_starts_with($ref, 'TPM')) {
+                $linhaNormalizada = 'TPM';
+            } elseif (str_starts_with($ref, 'TPS')) {
+                $linhaNormalizada = 'TPS';
+            }
+            $nucleoNormalizado = $nuc ?: $linhaNormalizada;
+        }
+
+        $resultado['porDiaItens'][$empresaLinha][$dtFmt][] = [
+            'op' => $ref,
+            'descricao' => trim((string) $r['Descricao']),
+            'pedido' => trim((string) $r['Pedido']),
+            'cliente' => trim((string) $r['Cliente']),
+            'potencia' => (float) $r['PotenciaKVA'],
+            'fases' => trim((string) $r['NroFases']),
+            'nucleo' => $nucleoNormalizado,
+            'linha' => $linhaNormalizada,
+            'quantidade' => $qtd,
+            'qtd_produzida' => (float) $r['QtdProduzida'],
+            'qtd_a_produzir' => max(0.0, $qtd - (float) $r['QtdProduzida']),
+            'seq_plano' => (int) $r['SeqPlano'],
+        ];
+
+        $resultado['porDiaTotal'][$empresaLinha][$dtFmt] = ($resultado['porDiaTotal'][$empresaLinha][$dtFmt] ?? 0.0) + $qtd;
+        $resultado['porDia'][$empresaLinha][$dtFmt][$linhaNormalizada] = ($resultado['porDia'][$empresaLinha][$dtFmt][$linhaNormalizada] ?? 0.0) + $qtd;
+        $resultado['porDiaNucleo'][$empresaLinha][$dtFmt][$nucleoNormalizado] = ($resultado['porDiaNucleo'][$empresaLinha][$dtFmt][$nucleoNormalizado] ?? 0.0) + $qtd;
+    }
+
+    return $resultado;
+}
+
+/**
+ * Filtra o índice histórico da xlsx (planoMestreCarregar) pra um único mês, na mesma
+ * estrutura de planoMestreConsultarSqlServerMes() — usado só quando o VSAT está
+ * inacessível e não há cache SQL do mês em disco.
+ */
+function planoMestreFiltrarIndiceXlsxPorMes(string $mes): array
+{
+    $dados = planoMestreCarregar();
+    $resultado = [
+        'porDia' => [],
+        'porDiaTotal' => [],
+        'porDiaNucleo' => [],
+        'porDiaItens' => [],
+    ];
+
+    foreach ([1, 4] as $empresa) {
+        foreach (($dados['porDiaTotal'][$empresa] ?? []) as $dt => $v) {
+            if (substr($dt, 0, 7) === $mes) {
+                $resultado['porDiaTotal'][$empresa][$dt] = $v;
+                $resultado['porDia'][$empresa][$dt] = $dados['porDia'][$empresa][$dt] ?? [];
+                $resultado['porDiaNucleo'][$empresa][$dt] = $dados['porDiaNucleo'][$empresa][$dt] ?? [];
+                $resultado['porDiaItens'][$empresa][$dt] = $dados['porDiaItens'][$empresa][$dt] ?? [];
+            }
+        }
+    }
+
+    return $resultado;
+}
+
+/**
+ * Retorna os dados do Plano Mestre de um mês (YYYY-MM), com o VSAT (SQL Server) como
+ * fonte primária — sempre em dia, sem depender de reexportação manual da xlsx — e cache
+ * em disco (10 min pro mês corrente) pra não consultar o ERP a cada requisição. Cai pra
+ * xlsx só se o VSAT estiver inacessível (ex.: fora da rede da fábrica).
+ */
+function planoMestreObterDadosMes(string $mes, bool $forcarRefresh = false): array
+{
+    static $memo = [];
+    if (!$forcarRefresh && isset($memo[$mes])) {
+        return $memo[$mes];
+    }
+
+    $cacheFile = __DIR__ . '/../storage/cache/plano_mestre_mes_' . $mes . '.cache';
+
+    if (!$forcarRefresh && is_file($cacheFile)) {
+        $cached = @unserialize((string) file_get_contents($cacheFile), ['allowed_classes' => false]);
+        if (is_array($cached) && !empty($cached['dados'])) {
+            $idade = time() - ($cached['timestamp'] ?? 0);
+            if ($mes !== date('Y-m') || $idade < 600 || !getSqlServerDB()) {
+                return $memo[$mes] = $cached['dados'];
+            }
+        }
+    }
+
+    $dados = planoMestreConsultarSqlServerMes($mes);
+
+    if ($dados === null) {
+        if (is_file($cacheFile)) {
+            $cached = @unserialize((string) file_get_contents($cacheFile), ['allowed_classes' => false]);
+            if (is_array($cached) && !empty($cached['dados'])) {
+                return $memo[$mes] = $cached['dados'];
+            }
+        }
+        return $memo[$mes] = planoMestreFiltrarIndiceXlsxPorMes($mes);
+    }
+
+    if (!is_dir(dirname($cacheFile))) {
+        @mkdir(dirname($cacheFile), 0775, true);
+    }
+    @file_put_contents($cacheFile, serialize(['timestamp' => time(), 'dados' => $dados]), LOCK_EX);
+
+    return $memo[$mes] = $dados;
+}
+
+/**
  * Retorna a lista detalhada de peças programadas para um dia específico.
  */
 function planoMestreObterItensDia(string $dataYmd, int $empresa = 1, string $linha = 'TODOS'): array
 {
-    $dados = planoMestreCarregar();
+    $dados = planoMestreObterDadosMes(substr($dataYmd, 0, 7));
     if (!in_array($empresa, [1, 4], true))
         $empresa = 1;
 
@@ -352,7 +571,7 @@ function planoMestreObterItensDia(string $dataYmd, int $empresa = 1, string $lin
  */
 function planoMestreObterProgramadoDia(string $dataYmd, int $empresa = 1, string $linha = 'TODOS'): float
 {
-    $dados = planoMestreCarregar();
+    $dados = planoMestreObterDadosMes(substr($dataYmd, 0, 7));
     if (!in_array($empresa, [1, 4], true))
         $empresa = 1;
 

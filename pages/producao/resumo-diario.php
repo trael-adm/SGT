@@ -36,10 +36,10 @@ if ($modoData === 'hoje') {
     $dataFim    = $dataFimParam;
     if ($dataInicio > $dataFim) [$dataInicio, $dataFim] = [$dataFim, $dataInicio];
 } else {
-    // Primeira visita (sem filtro na URL): mantém o padrão histórico — mês corrente até hoje
-    $modoData   = 'personalizado';
-    $dataInicio = date('Y-m-01');
-    $dataFim    = date('Y-m-d');
+    // Primeira visita (sem filtro na URL): abre sempre no dia de hoje — o usuário troca pelo filtro.
+    $modoData   = 'hoje';
+    $dataInicio = $dataFim = date('Y-m-d');
+    $mes        = date('Y-m');
 }
 if (!preg_match('/^\d{4}-\d{2}$/', $mes)) {
     $mes = date('Y-m', strtotime($dataInicio));
@@ -309,6 +309,30 @@ layoutHeader($pageTitle);
     .sgt-modal-table tr:hover td {
         background: #f8fafc;
     }
+
+    @media print {
+        .sgt-no-print,
+        .sgt-filter-card,
+        #modalOfs,
+        aside,
+        nav,
+        header,
+        .sidebar {
+            display: none !important;
+        }
+        .sgt-grid-2 {
+            grid-template-columns: 1fr 1fr !important;
+            gap: 12px !important;
+        }
+        .sgt-table-card {
+            box-shadow: none !important;
+            border: 1px solid #ccc !important;
+            break-inside: avoid;
+        }
+        body {
+            background: #fff !important;
+        }
+    }
 </style>
 
 <div style="max-width: 100%; margin: 0 auto; padding: 4px 0 24px 0;">
@@ -326,7 +350,11 @@ layoutHeader($pageTitle);
                 Análise Executiva &bull; Programado vs Realizado de Todos os Setores
             </p>
         </div>
-        <div style="display:flex;align-items:center;gap:10px;">
+        <div style="display:flex;align-items:center;gap:10px;" class="sgt-no-print">
+            <button type="button" onclick="window.print()" class="btn btn-primary btn-sm" style="display:inline-flex;align-items:center;gap:6px;font-weight:600;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>
+                Imprimir Resumo
+            </button>
             <a href="/pages/painel-setor/index.php" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:6px;font-weight:600;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14l-4-4 4-4"/><path d="M5 10h11a4 4 0 1 1 0 8h-1"/></svg>
                 Painel por Setor
@@ -393,7 +421,7 @@ layoutHeader($pageTitle);
         <div class="sgt-table-card">
             <div class="sgt-table-card-header">
                 <span style="font-size:12px;font-weight:700;color:var(--color-text-primary);text-transform:uppercase;letter-spacing:0.3px;">Pré-Montagem & Núcleo</span>
-                <span class="badge" style="background:var(--color-surface);border:1px solid var(--color-border);font-size:10px;color:var(--color-text-muted);font-weight:700;">Bloco 1</span>
+                <span class="badge" style="background:#e0f2fe;border:1px solid #bae6fd;font-size:10px;color:#0369a1;font-weight:700;">Distribuição</span>
             </div>
             <table class="sgt-table">
                 <thead>
@@ -426,7 +454,7 @@ layoutHeader($pageTitle);
         <div class="sgt-table-card">
             <div class="sgt-table-card-header">
                 <span style="font-size:12px;font-weight:700;color:var(--color-text-primary);text-transform:uppercase;letter-spacing:0.3px;">Acabamento, Solda & Final</span>
-                <span class="badge" style="background:var(--color-surface);border:1px solid var(--color-border);font-size:10px;color:var(--color-text-muted);font-weight:700;">Bloco 2</span>
+                <span class="badge" style="background:#e0f2fe;border:1px solid #bae6fd;font-size:10px;color:#0369a1;font-weight:700;">Distribuição</span>
             </div>
             <table class="sgt-table">
                 <thead>
@@ -457,39 +485,154 @@ layoutHeader($pageTitle);
 
     </div>
     <?php else: ?>
-    <!-- Card Único Consolidado (Média Força — sem quebra por célula fabril ainda) -->
-    <div class="sgt-table-card" style="margin-bottom:24px;">
-        <div class="sgt-table-card-header">
-            <span style="font-size:12px;font-weight:700;color:var(--color-text-primary);text-transform:uppercase;letter-spacing:0.3px;">Média Força — Fábrica Consolidada</span>
-            <span class="badge" style="background:var(--color-surface);border:1px solid var(--color-border);font-size:10px;color:var(--color-text-muted);font-weight:700;">TPD + TPM + TPS</span>
+    <!-- Tabela(s) Média Força — Óleo (TPD/TPM) e Seco (TPS), com status por célula do Fluxo de Pedidos -->
+    <?php
+        $ordemCelulasForca = ['CH', 'BT', 'AT', 'CNC', 'SOL', 'MN', 'PIN', 'ME', 'MF', 'LAB'];
+        $nomesCelulasForca = [
+            'CH' => 'Chaparia', 'BT' => 'Bobinagem BT', 'AT' => 'Bobinagem AT', 'CNC' => 'Corte Núcleo',
+            'SOL' => 'Solda', 'MN' => 'Montagem Núcleo', 'PIN' => 'Pintura', 'ME' => 'Montagem Elétrica',
+            'MF' => 'Montagem Final', 'LAB' => 'Laboratório',
+        ];
+        // Mini-tabela por célula, no mesmo estilo visual (SETOR/PROGRAMADO/REALIZADO/ADERÊNCIA) da
+        // tabela de setores da Distribuição — aqui TOTAL/CONCLUÍDAS/ADERÊNCIA vêm do Fluxo de Pedidos.
+        $renderCelulasTabelaForca = function (array $celulas) use ($ordemCelulasForca, $nomesCelulasForca): string {
+            $linhasHtml = '';
+            foreach ($ordemCelulasForca as $cel) {
+                if (empty($celulas[$cel]) || (int) $celulas[$cel]['total'] === 0) continue;
+                $ok = (int) $celulas[$cel]['ok'];
+                $total = (int) $celulas[$cel]['total'];
+                $pct = $total > 0 ? round(($ok / $total) * 100, 2) : 0.0;
+                $cor = $pct >= 100.0 ? 'var(--color-success, #16a34a)' : ($pct >= 90 ? '#0284c7' : 'var(--color-danger, #dc2626)');
+                $nome = ($nomesCelulasForca[$cel] ?? $cel) . ' (' . $cel . ')';
+                $linhasHtml .= '<tr>'
+                    . '<td style="padding:6px 10px;font-weight:700;color:var(--color-text-primary);font-family:var(--font-sans, sans-serif);">' . htmlspecialchars($nome) . '</td>'
+                    . '<td style="padding:6px 10px;text-align:center;color:var(--color-text-secondary);">' . $total . '</td>'
+                    . '<td style="padding:6px 10px;text-align:center;font-weight:700;color:var(--color-text-primary);">' . $ok . '</td>'
+                    . '<td style="padding:6px 10px;text-align:right;font-weight:800;color:' . $cor . ';">' . number_format($pct, 2, ',', '.') . '%</td>'
+                    . '</tr>';
+            }
+            if ($linhasHtml === '') {
+                return '<p style="padding:6px 10px;margin:0;font-size:11px;color:var(--color-text-muted);">— sem correspondência no Fluxo de Pedidos</p>';
+            }
+            return '<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+                . '<thead><tr>'
+                . '<th style="text-align:left;padding:4px 10px;font-size:9px;color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.3px;border-bottom:1px solid var(--color-border, #e2e6ed);">Célula</th>'
+                . '<th style="text-align:center;padding:4px 10px;font-size:9px;color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.3px;border-bottom:1px solid var(--color-border, #e2e6ed);">Total</th>'
+                . '<th style="text-align:center;padding:4px 10px;font-size:9px;color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.3px;border-bottom:1px solid var(--color-border, #e2e6ed);">Concluídas</th>'
+                . '<th style="text-align:right;padding:4px 10px;font-size:9px;color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.3px;border-bottom:1px solid var(--color-border, #e2e6ed);">Aderência</th>'
+                . '</tr></thead>'
+                . '<tbody style="font-family:var(--font-mono, monospace);">' . $linhasHtml . '</tbody>'
+                . '</table>';
+        };
+
+        $linhaRenderRow = function (array $row, bool $destaque = false) use ($renderCelulasTabelaForca): void {
+            $isOk = ($row['aderencia_val'] >= 100.0);
+            $onclick = $destaque
+                ? "abrirModalOfs('', '" . htmlspecialchars($row['setor'], ENT_QUOTES) . "')"
+                : "abrirModalOfs('', '" . htmlspecialchars($row['setor'], ENT_QUOTES) . "', '" . htmlspecialchars($row['codigo'] ?? '', ENT_QUOTES) . "')";
+            $pesoSetor = $destaque ? '800' : '700';
+            $pesoProg = $destaque ? '700' : '400';
+            $pesoReal = $destaque ? '800' : '700';
+            $bgLinha = $destaque ? 'background:var(--color-surface-2, #f8f9fb);' : '';
+            ?>
+            <tr class="sgt-row-clicavel" onclick="<?= $onclick ?>" style="<?= $bgLinha ?>">
+                <td style="border-bottom:none;font-weight:<?= $pesoSetor ?>;color:var(--color-text-primary);font-family:var(--font-sans, sans-serif);"><?= htmlspecialchars($row['setor']) ?></td>
+                <td style="border-bottom:none;text-align:center;font-weight:<?= $pesoProg ?>;color:var(--color-text-secondary);"><?= $row['programado'] ?></td>
+                <td style="border-bottom:none;text-align:center;font-weight:<?= $pesoReal ?>;color:var(--color-text-primary);"><?= $row['realizado'] ?></td>
+                <td style="border-bottom:none;text-align:right;" class="aderencia-badge">
+                    <span style="color: <?= $isOk ? 'var(--color-success, #16a34a)' : ($row['aderencia_val'] >= 90 ? '#0284c7' : 'var(--color-danger, #dc2626)') ?>;">
+                        <?= $row['aderencia'] ?>
+                    </span>
+                </td>
+            </tr>
+            <tr style="<?= $bgLinha ?>">
+                <td colspan="4" style="padding:2px 16px 14px 16px;">
+                    <div style="font-size:9px;font-weight:700;color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:2px;">Células (Fluxo de Pedidos)</div>
+                    <?= $renderCelulasTabelaForca($row['celulas'] ?? []) ?>
+                </td>
+            </tr>
+            <?php
+        };
+
+        $totalRow = $dados['total_consolidado'];
+        $linhasForca = $dados['tabela_forca'];
+        $linhasOleo = array_values(array_filter($linhasForca, fn($r) => in_array($r['codigo'], ['TPD', 'TPM'], true)));
+        $linhasSeco = array_values(array_filter($linhasForca, fn($r) => $r['codigo'] === 'TPS'));
+    ?>
+    <?php if (!empty($linhasOleo) && !empty($linhasSeco)): ?>
+        <!-- Ambas as famílias presentes (filtro "Todos"): 2 blocos lado a lado, igual ao layout da Distribuição -->
+        <div class="sgt-grid-2">
+            <div class="sgt-table-card">
+                <div class="sgt-table-card-header">
+                    <span style="font-size:12px;font-weight:700;color:var(--color-text-primary);text-transform:uppercase;letter-spacing:0.3px;">Média Força — Óleo (TPD e TPM)</span>
+                    <span class="badge" style="background:var(--color-surface);border:1px solid var(--color-border);font-size:10px;color:var(--color-text-muted);font-weight:700;">Bloco 1</span>
+                </div>
+                <table class="sgt-table">
+                    <thead>
+                        <tr>
+                            <th>LINHA</th>
+                            <th style="text-align:center;">PROGRAMADO</th>
+                            <th style="text-align:center;">REALIZADO</th>
+                            <th style="text-align:right;">ADERÊNCIA</th>
+                        </tr>
+                    </thead>
+                    <tbody style="font-family:var(--font-mono, monospace);">
+                        <?php foreach ($linhasOleo as $row) $linhaRenderRow($row); ?>
+                    </tbody>
+                </table>
+            </div>
+            <div class="sgt-table-card">
+                <div class="sgt-table-card-header">
+                    <span style="font-size:12px;font-weight:700;color:var(--color-text-primary);text-transform:uppercase;letter-spacing:0.3px;">Média Força — Seco (TPS)</span>
+                    <span class="badge" style="background:var(--color-surface);border:1px solid var(--color-border);font-size:10px;color:var(--color-text-muted);font-weight:700;">Bloco 2</span>
+                </div>
+                <table class="sgt-table">
+                    <thead>
+                        <tr>
+                            <th>LINHA</th>
+                            <th style="text-align:center;">PROGRAMADO</th>
+                            <th style="text-align:center;">REALIZADO</th>
+                            <th style="text-align:right;">ADERÊNCIA</th>
+                        </tr>
+                    </thead>
+                    <tbody style="font-family:var(--font-mono, monospace);">
+                        <?php foreach ($linhasSeco as $row) $linhaRenderRow($row); ?>
+                        <?php $linhaRenderRow($totalRow, true); ?>
+                    </tbody>
+                </table>
+            </div>
         </div>
-        <table class="sgt-table">
-            <thead>
-                <tr>
-                    <th>FÁBRICA</th>
-                    <th style="text-align:center;">PROGRAMADO</th>
-                    <th style="text-align:center;">REALIZADO</th>
-                    <th style="text-align:right;">ADERÊNCIA</th>
-                </tr>
-            </thead>
-            <tbody style="font-family:var(--font-mono, monospace);">
-                <?php $row = $dados['total_consolidado']; $isOk = ($row['aderencia_val'] >= 100.0); ?>
-                <tr class="sgt-row-clicavel" onclick="abrirModalOfs('', '<?= htmlspecialchars($row['setor'], ENT_QUOTES) ?>')">
-                    <td style="font-weight:700;color:var(--color-text-primary);font-family:var(--font-sans, sans-serif);"><?= htmlspecialchars($row['setor']) ?></td>
-                    <td style="text-align:center;color:var(--color-text-secondary);"><?= $row['programado'] ?></td>
-                    <td style="text-align:center;font-weight:700;color:var(--color-text-primary);"><?= $row['realizado'] ?></td>
-                    <td style="text-align:right;" class="aderencia-badge">
-                        <span style="color: <?= $isOk ? 'var(--color-success, #16a34a)' : ($row['aderencia_val'] >= 90 ? '#0284c7' : 'var(--color-danger, #dc2626)') ?>;">
-                            <?= $row['aderencia'] ?>
-                        </span>
-                    </td>
-                </tr>
-            </tbody>
-        </table>
-        <p style="padding:12px 18px;margin:0;font-size:11px;color:var(--color-text-muted);border-top:1px dashed var(--color-border);">
-            Ainda não existe uma quebra por célula fabril pra Média Força — mostra o total da fábrica (Plano Mestre + Kardex), igual à Aderência Mensal.
+        <p style="padding:10px 4px;margin:0;font-size:11px;color:var(--color-text-muted);">
+            Programado/Realizado por linha vêm do Plano Mestre + Kardex. As "Células" (CH/BT/AT/CNC/SOL/MN/PIN/ME/MF/LAB) vêm de uma fonte separada, o Fluxo de Pedidos — nem toda OF tem correspondência lá (regras mais restritas do ERP), então uma linha pode aparecer sem nenhuma célula. "Média Força — Consolidado" é o total das linhas somadas.
         </p>
-    </div>
+    <?php else: ?>
+        <!-- Filtro de linha específico ativo: só uma família tem linhas, um card só -->
+        <?php $linhasUnicas = !empty($linhasOleo) ? $linhasOleo : $linhasSeco; ?>
+        <?php $tituloUnico = !empty($linhasOleo) ? 'Média Força — Óleo (TPD e TPM)' : 'Média Força — Seco (TPS)'; ?>
+        <div class="sgt-table-card" style="margin-bottom:24px;">
+            <div class="sgt-table-card-header">
+                <span style="font-size:12px;font-weight:700;color:var(--color-text-primary);text-transform:uppercase;letter-spacing:0.3px;"><?= htmlspecialchars($tituloUnico) ?></span>
+                <span class="badge" style="background:var(--color-surface);border:1px solid var(--color-border);font-size:10px;color:var(--color-text-muted);font-weight:700;">TPD · TPM · TPS</span>
+            </div>
+            <table class="sgt-table">
+                <thead>
+                    <tr>
+                        <th>LINHA</th>
+                        <th style="text-align:center;">PROGRAMADO</th>
+                        <th style="text-align:center;">REALIZADO</th>
+                        <th style="text-align:right;">ADERÊNCIA</th>
+                    </tr>
+                </thead>
+                <tbody style="font-family:var(--font-mono, monospace);">
+                    <?php foreach ($linhasUnicas as $row) $linhaRenderRow($row); ?>
+                    <?php $linhaRenderRow($totalRow, true); ?>
+                </tbody>
+            </table>
+            <p style="padding:12px 18px;margin:0;font-size:11px;color:var(--color-text-muted);border-top:1px dashed var(--color-border);">
+                As "Células" vêm do Fluxo de Pedidos (fonte separada do Plano Mestre) — nem toda OF tem correspondência lá.
+            </p>
+        </div>
+    <?php endif; ?>
     <?php endif; ?>
 
     <!-- Modal Relação de OFs por Setor/Empresa -->
@@ -552,7 +695,7 @@ layoutHeader($pageTitle);
 
                 <!-- Conteúdo Aba 1: Programadas (Plano Mestre) -->
                 <div id="modalOfsTabContentProg" style="display:block;">
-                    <div style="max-height:380px;overflow-y:auto;border:1px solid var(--color-border);border-radius:8px;">
+                    <div style="max-height:380px;overflow-y:auto;overflow-x:auto;border:1px solid var(--color-border);border-radius:8px;">
                         <table class="sgt-modal-table" id="modalOfsTabelaProg">
                             <thead>
                                 <tr>
@@ -566,6 +709,7 @@ layoutHeader($pageTitle);
                                     <th style="text-align:right;">Qtd Prog</th>
                                     <th style="text-align:right;">Qtd Prod</th>
                                     <th style="text-align:right;">Saldo</th>
+                                    <th id="modalOfsThCelulas" style="display:none;min-width:200px;" title="Status por célula do Fluxo de Pedidos (CH/BT/AT/CNC/SOL/MN/PIN/ME/MF/LAB)">Células (Fluxo)</th>
                                 </tr>
                             </thead>
                             <tbody id="modalOfsTbodyProg">
@@ -577,11 +721,11 @@ layoutHeader($pageTitle);
 
                 <!-- Conteúdo Aba 2: Produzidas (Kardex / Laboratório) -->
                 <div id="modalOfsTabContentReal" style="display:none;">
-                    <div style="max-height:380px;overflow-y:auto;border:1px solid var(--color-border);border-radius:8px;">
+                    <div style="max-height:380px;overflow-y:auto;overflow-x:auto;border:1px solid var(--color-border);border-radius:8px;">
                         <table class="sgt-modal-table" id="modalOfsTabelaReal">
                             <thead>
                                 <tr>
-                                    <th style="width:90px;">Data</th>
+                                    <th style="width:90px;" title="Data programada da OF (não a data do apontamento no Laboratório)">Data (OF)</th>
                                     <th>N° Série</th>
                                     <th>OF</th>
                                     <th>Projeto / Ref</th>
@@ -620,7 +764,15 @@ layoutHeader($pageTitle);
         linha: <?= json_encode($linha) ?>,
     };
 
-    function abrirModalOfs(setorCod, setorLabel) {
+    // Auto-atualização: recarrega a página a cada 10 min pra refletir novas
+    // versões do PLANO MESTRE.xlsx assim que o PCP resalvar o arquivo.
+    setInterval(function () {
+        const modalAberto = document.getElementById('modalOfs')?.classList.contains('active');
+        if (modalAberto) return; // não interrompe quem está revisando a Relação de OFs
+        window.location.reload();
+    }, 10 * 60 * 1000);
+
+    function abrirModalOfs(setorCod, setorLabel, linhaOverride) {
         const modal = document.getElementById('modalOfs');
         document.getElementById('modalOfsSetorLabel').textContent = 'Carregando ' + (setorLabel || 'setor') + '...';
         modal.classList.add('active');
@@ -638,8 +790,10 @@ layoutHeader($pageTitle);
             data_inicio: sgtResumoDiarioCtx.dataInicio,
             data_fim: sgtResumoDiarioCtx.dataFim,
             empresa: sgtResumoDiarioCtx.empresa,
-            linha: sgtResumoDiarioCtx.linha,
-            setor: setorCod || '',
+            // Linhas da Média Força (TPD/TPM/TPS) são clicadas individualmente — usam a própria
+            // linha da célula em vez do filtro global de "Linha" da tela.
+            linha: linhaOverride || sgtResumoDiarioCtx.linha,
+            setor: linhaOverride ? '' : (setorCod || ''),
         });
 
         fetch('../../api/producao-aderencia-pecas.php?' + params.toString())
@@ -677,6 +831,20 @@ layoutHeader($pageTitle);
         if (e.key === 'Escape') fecharModalOfs();
     });
 
+    const ORDEM_CELULAS_FLUXO = ['CH', 'BT', 'AT', 'CNC', 'SOL', 'MN', 'PIN', 'ME', 'MF', 'LAB'];
+    function renderizarCelulasFluxo(celulas) {
+        if (!celulas) return '<span style="color:#94a3b8;">— (fora do Fluxo de Pedidos)</span>';
+        let html = '<span style="display:inline-flex;gap:2px;flex-wrap:wrap;">';
+        ORDEM_CELULAS_FLUXO.forEach((cel) => {
+            const c = celulas[cel];
+            if (!c || !c.total) return;
+            const cor = c.ok === c.total ? 'background:#dcfce7;color:#15803d;' : (c.ok === 0 ? 'background:#fee2e2;color:#b91c1c;' : 'background:#fef3c7;color:#92400e;');
+            html += `<span title="${cel}: ${c.ok}/${c.total} OK" style="font-size:9px;font-weight:800;padding:1px 4px;border-radius:3px;${cor}">${cel}</span>`;
+        });
+        html += '</span>';
+        return html;
+    }
+
     function renderizarModalOfs(res, setorLabel) {
         document.getElementById('modalOfsSetorLabel').textContent = setorLabel || '—';
         document.getElementById('modalOfsSubtitulo').textContent =
@@ -713,9 +881,12 @@ layoutHeader($pageTitle);
         document.getElementById('modalOfsBadgeCountProg').textContent = res.pecas_programadas.length;
         document.getElementById('modalOfsBadgeCountReal').textContent = res.pecas_produzidas.length;
 
+        const mostrarCelulas = Number(res.empresa) === 4;
+        document.getElementById('modalOfsThCelulas').style.display = mostrarCelulas ? '' : 'none';
+
         const tbodyProg = document.getElementById('modalOfsTbodyProg');
         if (!res.pecas_programadas || res.pecas_programadas.length === 0) {
-            tbodyProg.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:30px;color:#94a3b8;">Nenhuma OF programada nesse período no Plano Mestre.</td></tr>';
+            tbodyProg.innerHTML = '<tr><td colspan="' + (mostrarCelulas ? 11 : 10) + '" style="text-align:center;padding:30px;color:#94a3b8;">Nenhuma OF programada nesse período no Plano Mestre.</td></tr>';
         } else {
             let html = '';
             res.pecas_programadas.forEach((p) => {
@@ -731,6 +902,7 @@ layoutHeader($pageTitle);
                     <td style="text-align:right;font-weight:800;font-family:monospace;color:#1e40af;">${p.quantidade}</td>
                     <td style="text-align:right;font-family:monospace;color:#15803d;">${p.qtd_produzida}</td>
                     <td style="text-align:right;font-family:monospace;font-weight:700;color:${p.qtd_a_produzir > 0 ? '#b91c1c' : '#15803d'};">${p.qtd_a_produzir}</td>
+                    ${mostrarCelulas ? `<td>${renderizarCelulasFluxo(p.celulas)}</td>` : ''}
                 </tr>`;
             });
             tbodyProg.innerHTML = html;

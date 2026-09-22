@@ -48,6 +48,10 @@ try {
     $erroMsg = $e->getMessage();
 }
 
+$atualizacaoAtraso = !empty($metricas['sucesso'])
+    ? boletimUltimaAtualizacaoAtrasoForca($metricas['data_extracao'] ?? $dataExtracao)
+    : null;
+
 layoutHeader('Atraso Média Força');
 ?>
 
@@ -652,6 +656,7 @@ layoutHeader('Atraso Média Força');
                 <div class="text-lg font-black text-white capitalize leading-tight">
                     <?= htmlspecialchars($metricas['data_corte_formatada']) ?>
                 </div>
+                <?= boletimHtmlAtualizacaoAtraso($atualizacaoAtraso, 'forca') ?>
             </div>
 
             <!-- Direita: Filtro Minimalista (8 cols) -->

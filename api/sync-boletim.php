@@ -13,6 +13,7 @@ require_once __DIR__ . '/../includes/helpers.php';
 require_once __DIR__ . '/../includes/boletim-planilha.php';
 require_once __DIR__ . '/../includes/boletim-atraso.php';
 require_once __DIR__ . '/../includes/boletim-atraso-forca.php';
+require_once __DIR__ . '/../includes/planilha-plano-mestre.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -328,6 +329,23 @@ try {
         if (!is_dir($cacheDir)) @mkdir($cacheDir, 0775, true);
         file_put_contents($cacheDir . '/acompanhamento.json', json_encode($acompanhamento, JSON_UNESCAPED_UNICODE));
         $atualizacoes[] = "Acompanhamento de Produção (" . count($acompanhamento['itens']) . " trafos) atualizado";
+    }
+
+    // 7. Atualiza cache do Plano Mestre
+    if (!empty($payload['plano_mestre_gz'])) {
+        $raw = @gzdecode(base64_decode((string)$payload['plano_mestre_gz']));
+        if ($raw) {
+            $dadosPm = json_decode($raw, true);
+            if (is_array($dadosPm) && !empty($dadosPm['porDiaTotal'])) {
+                planoMestreSalvarCache($dadosPm);
+                $diasDist = count($dadosPm['porDiaTotal'][1] ?? []);
+                $diasForca = count($dadosPm['porDiaTotal'][4] ?? []);
+                $atualizacoes[] = "Plano Mestre sincronizado via gzip ($diasDist dias Dist / $diasForca dias Força)";
+            }
+        }
+    } elseif (!empty($payload['plano_mestre']) && is_array($payload['plano_mestre'])) {
+        planoMestreSalvarCache($payload['plano_mestre']);
+        $atualizacoes[] = "Plano Mestre sincronizado (" . count($payload['plano_mestre']['porDiaTotal'][1] ?? []) . " dias)";
     }
 
     echo json_encode([

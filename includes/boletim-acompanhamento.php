@@ -112,7 +112,10 @@ function carregarAcompanhamentoProducao(): array
     ];
     $whereStr = implode(' AND ', $where);
 
-    // Consulta sem produto cartesiano, capturando SeqPlano via OUTER APPLY TOP 1
+    // Consulta sem produto cartesiano, capturando SeqPlano via join na relação
+    // ProgProdPCP → CtrlItemPedidoPCP (não dá pra amarrar só por id_it_pedido:
+    // um item de pedido pode virar vários lotes de plano mestre com SeqPlano
+    // diferente — ver PROJETO-SGT.md, bug do Fluxo de Pedidos).
     $sql = "
         SELECT
             cns.NumSerie,
@@ -123,7 +126,7 @@ function carregarAcompanhamentoProducao(): array
             m.cd_Referencia AS Projeto,
             m.ds_Prod AS DescricaoProjeto,
             prog.DataHoraProducaoAux,
-            ISNULL(seq_info.SeqPlano, 0) AS SeqPlano,
+            ISNULL(cip.SeqPlano, 0) AS SeqPlano,
             ofp.StatusOF
         FROM dbo.CtrlNumSerie cns WITH(NOLOCK)
         JOIN dbo.ProgramacaoProducao prog WITH(NOLOCK) ON cns.id_ProgProdPCP = prog.id_ProgProdPCP
@@ -137,15 +140,10 @@ function carregarAcompanhamentoProducao(): array
         JOIN dbo.GrupoProduto gp WITH(NOLOCK) ON sg.id_grpProd = gp.id_grpProd
         JOIN dbo.CatGrupo cg WITH(NOLOCK) ON gp.id_catGrupo = cg.id_catGrupo
         LEFT JOIN dbo.OrdemFabricacao ofp WITH(NOLOCK) ON cns.id_of = ofp.id_of
-        OUTER APPLY (
-            SELECT TOP 1 cip.SeqPlano
-            FROM dbo.CtrlItemPedidoPCP cip WITH(NOLOCK)
-            WHERE cip.id_it_pedido = it.id_it_pedido
-              AND cip.PierSitReg = 'ATV'
-            ORDER BY cip.IDCtrlItPedidoPCP DESC
-        ) AS seq_info
+        LEFT JOIN dbo.RlcCtrlItemPedidoPCPProgProd rlc_cip WITH(NOLOCK) ON rlc_cip.id_ProgProdPCP = prog.id_ProgProdPCP AND rlc_cip.PierSitReg = 'ATV'
+        LEFT JOIN dbo.CtrlItemPedidoPCP cip WITH(NOLOCK) ON cip.IDCtrlItPedidoPCP = rlc_cip.IDCtrlItPedidoPCP AND cip.PierSitReg = 'ATV'
         WHERE $whereStr
-        ORDER BY prog.DataHoraProducaoAux ASC, ISNULL(seq_info.SeqPlano, 0) ASC, p.cdPedido ASC, cns.NumSerie ASC
+        ORDER BY prog.DataHoraProducaoAux ASC, ISNULL(cip.SeqPlano, 0) ASC, p.cdPedido ASC, cns.NumSerie ASC
     ";
 
     try {

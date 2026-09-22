@@ -252,6 +252,54 @@
   box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
 
+/* ─── Colunas das 10 Células fixas na borda direita (sticky) ─────────────
+   A tela existe pra mostrar o status das 10 células (CH...LAB); com todas
+   as colunas de identificação do pedido antes delas, LAB (e ME/MF/PIN)
+   ficavam fora da viewport ao abrir a tela em telas menores que ~1700px,
+   exigindo rolar pra achar o que a tela deveria mostrar de cara. Mantém
+   o bloco sempre visível colado na direita — o resto (PEDIDO...FAIXA DE
+   SÉRIE) rola por baixo dele, mesmo padrão do cabeçalho sticky acima. */
+.page-setor .data-table th.col-cell,
+.page-setor .data-table td.col-cell {
+  position: sticky;
+}
+.page-setor .data-table th.col-cell {
+  z-index: 41;
+}
+.page-setor .data-table td.col-cell {
+  background: var(--color-surface);
+  z-index: 20;
+}
+.page-setor .data-table tr:hover td.col-cell {
+  background: var(--color-surface-2);
+}
+.page-setor .data-table th.col-cell:nth-last-child(1),
+.page-setor .data-table td.col-cell:nth-last-child(1) { right: 0; }
+.page-setor .data-table th.col-cell:nth-last-child(2),
+.page-setor .data-table td.col-cell:nth-last-child(2) { right: 36px; }
+.page-setor .data-table th.col-cell:nth-last-child(3),
+.page-setor .data-table td.col-cell:nth-last-child(3) { right: 72px; }
+.page-setor .data-table th.col-cell:nth-last-child(4),
+.page-setor .data-table td.col-cell:nth-last-child(4) { right: 108px; }
+.page-setor .data-table th.col-cell:nth-last-child(5),
+.page-setor .data-table td.col-cell:nth-last-child(5) { right: 144px; }
+.page-setor .data-table th.col-cell:nth-last-child(6),
+.page-setor .data-table td.col-cell:nth-last-child(6) { right: 180px; }
+.page-setor .data-table th.col-cell:nth-last-child(7),
+.page-setor .data-table td.col-cell:nth-last-child(7) { right: 216px; }
+.page-setor .data-table th.col-cell:nth-last-child(8),
+.page-setor .data-table td.col-cell:nth-last-child(8) { right: 252px; }
+.page-setor .data-table th.col-cell:nth-last-child(9),
+.page-setor .data-table td.col-cell:nth-last-child(9) { right: 288px; }
+.page-setor .data-table td.col-cell:nth-last-child(10) {
+  right: 324px;
+  box-shadow: -2px 0 4px rgba(0,0,0,0.08);
+}
+.page-setor .data-table th.col-cell:nth-last-child(10) {
+  right: 324px;
+  box-shadow: -2px 0 4px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06);
+}
+
 /* Scrollbars Industriais Elegantes */
 .page-setor .table-wrap::-webkit-scrollbar {
   width: 8px;

@@ -50,6 +50,7 @@ if (is_array($mesesFiltroRaw)) {
 $resultado = boletimCalcularMetricasAtraso($dataCorte, $mesesFiltro, $dataExtracaoSel);
 $metricas  = $resultado['sucesso'] ? $resultado : null;
 $erroMsg   = !$resultado['sucesso'] ? ($resultado['erro'] ?? 'Erro ao processar dados de atraso.') : null;
+$atualizacaoAtraso = $resultado['sucesso'] ? boletimUltimaAtualizacaoAtraso($dataExtracaoSel) : null;
 
 layoutHeader('Atraso Distribuição');
 ?>
@@ -702,6 +703,7 @@ layoutHeader('Atraso Distribuição');
                 <div class="text-lg font-black text-white capitalize leading-tight">
                     <?= htmlspecialchars($metricas['data_corte_formatada']) ?>
                 </div>
+                <?= boletimHtmlAtualizacaoAtraso($atualizacaoAtraso) ?>
             </div>
 
             <!-- Direita: Filtro Minimalista (8 cols) -->

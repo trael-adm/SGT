@@ -59,7 +59,10 @@ function boletimGarantirTabelasAtrasoForca(PDO $pdo): void
 }
 
 /**
- * Extrai snapshot diário de atraso de Média Força do SQL Server e congela no MySQL.
+ * Extrai snapshot diário de atraso de Média Força do SQL Server e grava no MySQL.
+ * Sem $forcarSobrescrita, a foto de hoje já existente fica congelada; com ela
+ * (scripts/atualizar_atraso.php, a cada 15 min) a foto de hoje é substituída no lugar e
+ * os dias anteriores nunca são tocados.
  */
 function boletimExtrairSnapshotAtrasoForca(?string $dataExtracao = null, bool $forcarSobrescrita = false): array
 {
@@ -70,6 +73,7 @@ function boletimExtrairSnapshotAtrasoForca(?string $dataExtracao = null, bool $f
 
     boletimGarantirTabelasAtrasoForca($pdoLocal);
 
+    $inicioSync = microtime(true);
     $dataHoje = $dataExtracao ?: date('Y-m-d');
 
     if (!$forcarSobrescrita) {
@@ -166,6 +170,22 @@ function boletimExtrairSnapshotAtrasoForca(?string $dataExtracao = null, bool $f
         $stmt->execute([$dataHoje, $dataHoje]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        // Atualização automática: nunca troca uma foto boa do dia por uma extração vazia.
+        if ($forcarSobrescrita && empty($rows)) {
+            $stmtAtual = $pdoLocal->prepare("SELECT COUNT(*) FROM atraso_forca_registros WHERE data_extracao = ?");
+            $stmtAtual->execute([$dataHoje]);
+            $qtdAtual = (int) $stmtAtual->fetchColumn();
+            if ($qtdAtual > 0) {
+                return [
+                    'sucesso'    => false,
+                    'preservado' => true,
+                    'erro'       => "Extração veio vazia; foto de $dataHoje ($qtdAtual ordens de Média Força) mantida.",
+                ];
+            }
+        }
+
+        // DELETE + INSERT na mesma transação: a tela nunca vê a foto do dia vazia no meio da troca.
+        $pdoLocal->beginTransaction();
         $pdoLocal->prepare("DELETE FROM atraso_forca_registros WHERE data_extracao = ?")->execute([$dataHoje]);
 
         $stmtIns = $pdoLocal->prepare("
@@ -223,16 +243,55 @@ function boletimExtrairSnapshotAtrasoForca(?string $dataExtracao = null, bool $f
             ]);
             $totalInserido++;
         }
+        $pdoLocal->commit();
 
         return [
             'sucesso' => true,
             'total_importado' => $totalInserido,
             'data_extracao' => $dataHoje,
             'congelado' => true,
+            'duracao_s' => round(microtime(true) - $inicioSync, 1),
             'mensagem' => "Snapshot de Média Força de $dataHoje importado com sucesso ($totalInserido ordens)."
         ];
     } catch (Exception $e) {
+        if ($pdoLocal->inTransaction()) {
+            $pdoLocal->rollBack();
+        }
         return ['sucesso' => false, 'erro' => 'Erro ao extrair do SQL Server: ' . $e->getMessage()];
+    }
+}
+
+/**
+ * Quando a foto de atraso de Média Força foi gravada pela última vez (criado_em das linhas da
+ * extração). Base do "Atualizado em HH:MM" da tela e do alerta de dados desatualizados.
+ *
+ * @return array{data_extracao:string, atualizado_em:string, idade_s:int, ultima:bool}|null
+ */
+function boletimUltimaAtualizacaoAtrasoForca(?string $dataExtracao = null): ?array
+{
+    try {
+        $pdo = getDB();
+        $maxData = (string) $pdo->query("SELECT MAX(data_extracao) FROM atraso_forca_registros")->fetchColumn();
+        if ($dataExtracao === null || $dataExtracao === '') {
+            $dataExtracao = $maxData;
+        }
+        if ($dataExtracao === '') {
+            return null;
+        }
+        $stmt = $pdo->prepare("SELECT MAX(criado_em) FROM atraso_forca_registros WHERE data_extracao = ?");
+        $stmt->execute([$dataExtracao]);
+        $quando = (string) $stmt->fetchColumn();
+        if ($quando === '') {
+            return null;
+        }
+        return [
+            'data_extracao' => $dataExtracao,
+            'atualizado_em' => $quando,
+            'idade_s'       => max(0, time() - (int) strtotime($quando)),
+            'ultima'        => $dataExtracao === $maxData,
+        ];
+    } catch (\Throwable $e) {
+        return null;
     }
 }
 

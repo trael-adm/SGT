@@ -468,6 +468,58 @@ layoutHeader($pageTitle);
         transition: color 0.15s;
     }
     .pf-btn-clear:hover { color: #16a34a; }
+
+    /* Impressão — mostra só a área do dashboard (KPIs + gráfico), sem título nem filtros */
+    @media print {
+        /* html/body ficam com overflow:hidden + height:100% pra controlar o scroll da tela
+           (ver main.css) — sem resetar isso, o navegador trata o documento como 1 viewport só
+           e recorta tudo que passar da altura da tela. */
+        html, body {
+            height: auto !important;
+            overflow: visible !important;
+        }
+        /* Margem padrão do navegador (~1in) sobra pouco espaço vertical pro card do
+           gráfico não estourar pra 2ª folha — reduzindo aqui garante caber tudo numa só. */
+        @page {
+            size: landscape;
+            margin: 8mm;
+        }
+        .sgt-dash-header,
+        .sgt-filter-card {
+            display: none !important;
+        }
+        /* O layout padrão (sidebar/header) usa flex com overflow controlado — sem isso,
+           .app-content mantém a largura/rolagem da tela e o gráfico sai cortado pela metade. */
+        .app-wrapper, .app-main, .app-content {
+            display: block !important;
+            height: auto !important;
+            overflow: visible !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+        .sgt-kpi-grid-3 {
+            grid-template-columns: repeat(3, 1fr) !important;
+            gap: 8px !important;
+            margin-bottom: 14px !important;
+        }
+        .sgt-kpi-card {
+            padding: 10px 8px !important;
+            box-shadow: none !important;
+            border: 1px solid #d0d5dd !important;
+        }
+        .sgt-kpi-value { font-size: 1.25rem !important; }
+        .sgt-chart-card {
+            box-shadow: none !important;
+            border: 1px solid #d0d5dd !important;
+            page-break-inside: avoid;
+            break-inside: avoid;
+            margin-bottom: 0 !important;
+            padding: 12px !important;
+        }
+        .sgt-chart-card canvas { max-height: 330px !important; max-width: 100% !important; width: 100% !important; }
+    }
 </style>
 
 <div style="max-width: 100%; margin: 0 auto; padding: 4px 0 24px 0;">
@@ -486,6 +538,10 @@ layoutHeader($pageTitle);
             </p>
         </div>
         <div style="display:flex;align-items:center;gap:10px;">
+            <button type="button" onclick="window.print()" class="btn btn-primary btn-sm btn-print" style="display:inline-flex;align-items:center;gap:6px;font-weight:600;cursor:pointer;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                Imprimir
+            </button>
             <a href="/pages/painel-setor/index.php" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:6px;font-weight:600;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14l-4-4 4-4"/><path d="M5 10h11a4 4 0 1 1 0 8h-1"/></svg>
                 Painel por Setor
@@ -535,9 +591,20 @@ layoutHeader($pageTitle);
         </div>
 
         <!-- 2. Aderência Anual -->
+        <?php
+            $anosAderCard = $kpis['aderencia_anual_anos'] ?? [];
+            $corAder = $kpis['aderencia_anual'] >= 100
+                ? 'var(--color-success, #16a34a)'
+                : ($kpis['aderencia_anual'] >= 90 ? '#0ea5e9' : '#dc2626');
+        ?>
         <div class="sgt-kpi-card">
             <span class="sgt-kpi-label">ADERÊNCIA ANUAL</span>
-            <span class="sgt-kpi-value" style="color:var(--color-success, #16a34a);"><?= number_format($kpis['aderencia_anual'], 2, ',', '.') ?>%</span>
+            <span class="sgt-kpi-value" style="color:<?= $corAder ?>;"><?= number_format($kpis['aderencia_anual'], 2, ',', '.') ?>%</span>
+            <?php if (!empty($anosAderCard)): ?>
+                <span style="display:block;font-size:0.7rem;color:var(--color-text-secondary, #5a6480);margin-top:2px;">
+                    Real ÷ Programado (Plano Mestre) &bull; <?= count($anosAderCard) > 1 ? (min($anosAderCard) . '–' . max($anosAderCard)) : $anosAderCard[0] ?>
+                </span>
+            <?php endif; ?>
         </div>
 
         <!-- 3. Total Produzido -->
@@ -653,6 +720,10 @@ layoutHeader($pageTitle);
                 <div style="position:relative;height:200px;width:100%;">
                     <canvas id="chartBarrasModal"></canvas>
                 </div>
+                <p id="modalNotaMesParcial" style="display:none;margin:8px 0 0 0;font-size:10.5px;color:#d97706;font-weight:600;align-items:center;gap:5px;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    <span id="modalNotaMesParcialTexto"></span>
+                </p>
             </div>
         </div>
     </div>
@@ -662,6 +733,14 @@ layoutHeader($pageTitle);
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
 <script>
     Chart.register(ChartDataLabels);
+
+    function hexParaRgba(hex, alpha) {
+        const h = hex.replace('#', '');
+        const r = parseInt(h.substring(0, 2), 16);
+        const g = parseInt(h.substring(2, 4), 16);
+        const b = parseInt(h.substring(4, 6), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
 
     const mesesLabels = <?= json_encode($dados['meses_labels']) ?>;
     const datasetsConfig = <?= json_encode($dados['datasets']) ?>;
@@ -678,6 +757,9 @@ layoutHeader($pageTitle);
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            layout: {
+                padding: { top: 24 }
+            },
             onClick: function(evt, elements) {
                 if (elements && elements.length > 0) {
                     const el = elements[0];
@@ -694,6 +776,7 @@ layoutHeader($pageTitle);
                 },
                 y: {
                     beginAtZero: true,
+                    grace: '8%',
                     grid: { color: '#f1f5f9' },
                     ticks: { color: '#9aa3b8', font: { family: 'monospace' } }
                 }
@@ -701,11 +784,12 @@ layoutHeader($pageTitle);
             plugins: {
                 legend: { display: false },
                 datalabels: {
+                    clip: false,
                     color: '#1a2133',
                     anchor: 'end',
                     align: 'top',
                     offset: 3,
-                    font: { size: 10, weight: '700', family: 'monospace' },
+                    font: { size: 12, weight: '700', family: 'monospace' },
                     formatter: function(val) {
                         return (val && val > 0) ? val : '';
                     }
@@ -829,6 +913,29 @@ layoutHeader($pageTitle);
         const ctxDonut = document.getElementById('chartDonutModal').getContext('2d');
         if (chartDonutInstance) chartDonutInstance.destroy();
 
+        // Plugin local: escreve o total no vazio central da rosca (em vez de deixar
+        // o miolo vazio) — só desenha quando há dado, evita "0" órfão sem contexto.
+        const centroDonutPlugin = {
+            id: 'centroDonutTotal',
+            afterDraw(chart) {
+                const totalCentro = chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
+                if (!totalCentro) return;
+                const { ctx: c, chartArea } = chart;
+                const cx = (chartArea.left + chartArea.right) / 2;
+                const cy = (chartArea.top + chartArea.bottom) / 2;
+                c.save();
+                c.textAlign = 'center';
+                c.textBaseline = 'middle';
+                c.fillStyle = '#1a2133';
+                c.font = "800 20px 'SFMono-Regular', Consolas, monospace";
+                c.fillText(totalCentro.toLocaleString('pt-BR'), cx, cy - 8);
+                c.fillStyle = '#9aa3b8';
+                c.font = "700 10px system-ui, sans-serif";
+                c.fillText('PEÇAS', cx, cy + 12);
+                c.restore();
+            }
+        };
+
         chartDonutInstance = new Chart(ctxDonut, {
             type: 'doughnut',
             data: {
@@ -841,10 +948,11 @@ layoutHeader($pageTitle);
                     hoverOffset: 6
                 }]
             },
+            plugins: [centroDonutPlugin],
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                cutout: '62%',
+                cutout: '68%',
                 plugins: {
                     legend: { display: false },
                     datalabels: {
@@ -858,6 +966,11 @@ layoutHeader($pageTitle);
                         }
                     },
                     tooltip: {
+                        backgroundColor: '#1a2133',
+                        titleColor: '#ffffff',
+                        borderColor: '#e2e6ed',
+                        borderWidth: 1,
+                        padding: 10,
                         callbacks: {
                             label: function(ctx) {
                                 const val = ctx.raw || 0;
@@ -872,20 +985,37 @@ layoutHeader($pageTitle);
         });
 
         // ─── Atualiza Gráfico de Barras Mensais do Ano ───
+        // Mês corrente e ainda em andamento (ex.: dia 8 de setembro) produz uma barra
+        // baixa que não é queda de produção — é mês incompleto. Marcamos essa barra com
+        // cor esmaecida + aviso abaixo do gráfico em vez de deixar o dado "mentir" mudo.
+        const hoje = new Date();
+        const mesEmAndamentoIdx = (Number(ano) === hoje.getFullYear()) ? hoje.getMonth() : -1; // 0-based
+
         const dadosMesAno = (modalComposicao.por_mes && modalComposicao.por_mes[ano]) ? modalComposicao.por_mes[ano] : {};
         const barrasDatasets = subtipos.map(s => {
             const dataSerie = [];
             for (let m = 1; m <= 12; m++) {
                 dataSerie.push((dadosMesAno[m] && dadosMesAno[m][s]) ? dadosMesAno[m][s] : 0);
             }
+            const corBase = coresMap[s] || '#64748b';
             return {
                 label: labelsMap[s] || s,
                 data: dataSerie,
-                backgroundColor: coresMap[s] || '#64748b',
+                backgroundColor: dataSerie.map((_, idx) => idx === mesEmAndamentoIdx ? hexParaRgba(corBase, 0.4) : corBase),
                 borderRadius: 4,
-                barPercentage: 0.85
+                barPercentage: 0.85,
+                minBarLength: 2
             };
         });
+
+        const notaEl = document.getElementById('modalNotaMesParcial');
+        if (mesEmAndamentoIdx >= 0) {
+            document.getElementById('modalNotaMesParcialTexto').textContent =
+                `${mesesLabels[mesEmAndamentoIdx]}/${ano} ainda está em andamento — a barra clara não é comparável aos meses fechados.`;
+            notaEl.style.display = 'flex';
+        } else {
+            notaEl.style.display = 'none';
+        }
 
         const ctxBarras = document.getElementById('chartBarrasModal').getContext('2d');
         if (chartBarrasInstance) chartBarrasInstance.destroy();
@@ -902,7 +1032,10 @@ layoutHeader($pageTitle);
                 scales: {
                     x: {
                         grid: { display: false },
-                        ticks: { color: '#5a6480', font: { weight: '600', size: 10 } }
+                        ticks: {
+                            font: { weight: '600', size: 10 },
+                            color: (ctx) => ctx.index === mesEmAndamentoIdx ? '#d97706' : '#5a6480'
+                        }
                     },
                     y: {
                         beginAtZero: true,
@@ -916,14 +1049,21 @@ layoutHeader($pageTitle);
                         position: 'top',
                         labels: { boxWidth: 10, font: { size: 11, weight: '600' } }
                     },
-                    datalabels: {
-                        color: '#1a2133',
-                        anchor: 'end',
-                        align: 'top',
-                        offset: 2,
-                        font: { size: 8, weight: '700' },
-                        formatter: function(val) {
-                            return (val && val > 0) ? val : '';
+                    datalabels: { display: false },
+                    tooltip: {
+                        backgroundColor: '#1a2133',
+                        titleColor: '#ffffff',
+                        borderColor: '#e2e6ed',
+                        borderWidth: 1,
+                        padding: 10,
+                        callbacks: {
+                            title: function(items) {
+                                const idx = items[0].dataIndex;
+                                return idx === mesEmAndamentoIdx ? `${items[0].label} (mês em andamento)` : items[0].label;
+                            },
+                            label: function(ctx) {
+                                return ` ${ctx.dataset.label}: ${(ctx.raw || 0).toLocaleString('pt-BR')} peças`;
+                            }
                         }
                     }
                 }

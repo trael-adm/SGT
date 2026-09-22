@@ -138,10 +138,14 @@ function getDB(): PDO
     $pdo->exec("SET NAMES utf8mb4");
     $pdo->exec("SET time_zone = '-04:00'");
 
-    // Auto-verificação e criação direta de colunas essenciais (evita erro 1054 em produção/Railway)
-    static $schemaChecked = false;
-    if (!$schemaChecked) {
-        $schemaChecked = true;
+    // Auto-verificação e criação direta de colunas essenciais (evita erro 1054 em produção/Railway).
+    // Marcador em disco (não `static`): cada requisição HTTP é um processo PHP novo, então um guard
+    // `static` nunca persiste entre requisições — sem o marcador esse bloco de CREATE/ALTER TABLE
+    // roda em TODA página do sistema, e CREATE TABLE IF NOT EXISTS toma metadata lock mesmo quando a
+    // tabela já existe (medido: ~97% do tempo de banco do app era esse bloco se repetindo, com picos
+    // de até 7s por disputa de lock quando várias telas abrem junto). Apagar o marcador força reexecução.
+    $schemaMarcador = __DIR__ . '/../storage/cache/.schema_verificado';
+    if (!is_file($schemaMarcador)) {
         try {
             $pdo->exec("ALTER TABLE itens_catalogo ADD COLUMN preco_medio DECIMAL(14,4) NULL DEFAULT NULL AFTER unidade");
         } catch (\Throwable $e) {}
@@ -284,6 +288,11 @@ function getDB(): PDO
         try {
             $pdo->exec("ALTER TABLE retrabalho_materiais_catalogo ADD COLUMN custo_unitario DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER unidade");
         } catch (\Throwable $e) {}
+
+        if (!is_dir(dirname($schemaMarcador))) {
+            @mkdir(dirname($schemaMarcador), 0775, true);
+        }
+        @file_put_contents($schemaMarcador, date('Y-m-d H:i:s'));
     }
 
     return $pdo;

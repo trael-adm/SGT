@@ -17,6 +17,7 @@ require_once __DIR__ . '/../includes/boletim-atraso.php';
 require_once __DIR__ . '/../includes/boletim-atraso-forca.php';
 require_once __DIR__ . '/../includes/boletim-fluxo-pedidos.php';
 require_once __DIR__ . '/../includes/boletim-acompanhamento.php';
+require_once __DIR__ . '/../includes/planilha-plano-mestre.php';
 
 $urlRailway = getenv('RAILWAY_URL') ?: 'https://sgt-production-10fe.up.railway.app';
 $syncToken  = getenv('SYNC_TOKEN') ?: 'trael_sgt_sync_token_2026';
@@ -30,7 +31,7 @@ echo "Destino: $urlRailway/api/sync-boletim.php\n";
 echo "===============================================================\n\n";
 
 // 1. Extração do SQL Server local (Distribuição e Média Força)
-echo "[1/5] Consultando dados de produção no SQL Server (vsat.trael.local)... ";
+echo "[1/6] Consultando dados de produção no SQL Server (vsat.trael.local)... ";
 $dadosProducao = boletimConsultarSqlServerMes($mes);
 
 if ($dadosProducao === null || (empty($dadosProducao['porDia']) && empty($dadosProducao['nucleoPorDia']))) {
@@ -60,7 +61,7 @@ if (!empty($dadosProducao['porDia'])) {
 }
 
 // 2. Extração e Sincronização dos registros de Atraso de Distribuição (SQL Server -> MySQL)
-echo "[2/5] Consultando ordens de atraso no SQL Server (vsat.trael.local)... ";
+echo "[2/6] Consultando ordens de atraso no SQL Server (vsat.trael.local)... ";
 $snapshotCsv = null;
 $snapshotData = date('Y-m-d');
 $atrasoRegistros = null;
@@ -90,7 +91,7 @@ try {
 } catch (Throwable $eDbAtraso) {}
 
 // 2b. Extração e Sincronização dos registros de Atraso de Média Força (SQL Server -> MySQL)
-echo "[2b/5] Consultando ordens de atraso de Média Força no SQL Server... ";
+echo "[2b/6] Consultando ordens de atraso de Média Força no SQL Server... ";
 $atrasoForcaRegistros = null;
 $snapshotDataForca = date('Y-m-d');
 
@@ -120,7 +121,7 @@ try {
 } catch (Throwable $eDbAtrasoForca) {}
 
 // 3. Extração do Fluxo de Pedidos & Esteira Industrial
-echo "[3/5] Extraindo esteira e planilha de Fluxo de Pedidos... ";
+echo "[3/6] Extraindo esteira e planilha de Fluxo de Pedidos... ";
 $fluxoPedidos = null;
 $fluxoPlanilha = null;
 try {
@@ -134,7 +135,7 @@ try {
 }
 
 // 4. Extração de Acompanhamento (Pintura x Montagem)
-echo "[4/5] Extraindo dados de Acompanhamento de Produção... ";
+echo "[4/6] Extraindo dados de Acompanhamento de Produção... ";
 $acompanhamento = null;
 try {
     $acompanhamento = carregarAcompanhamentoProducao();
@@ -144,8 +145,24 @@ try {
     echo "Erro Acompanhamento: " . $e->getMessage() . "\n";
 }
 
-// 5. Envio do payload completo para o Railway via cURL
-echo "[5/5] Enviando payload consolidado para o Railway... ";
+// 5. Extração e Sincronização do Plano Mestre direto do SQL Server
+echo "[5/6] Extraindo Plano Mestre no SQL Server (vsat.trael.local)... ";
+$planoMestreGz = null;
+try {
+    $resPm = planoMestreSincronizarSqlServer();
+    if ($resPm['sucesso']) {
+        echo "OK! ({$resPm['total_registros']} registros — Dist: {$resPm['total_pecas_distribuicao']} pcs / Força: {$resPm['total_pecas_forca']} pcs em {$resPm['tempo_segundos']}s)\n";
+        $dadosPm = planoMestreCarregar(false);
+        $planoMestreGz = base64_encode((string) gzencode((string) json_encode($dadosPm), 6));
+    } else {
+        echo "FALHA! (" . ($resPm['erro'] ?? 'erro desconhecido') . ")\n";
+    }
+} catch (Throwable $e) {
+    echo "Erro Plano Mestre: " . $e->getMessage() . "\n";
+}
+
+// 6. Envio do payload completo para o Railway via cURL
+echo "[6/6] Enviando payload consolidado para o Railway... ";
 
 $payload = [
     'mes' => $mes,
@@ -158,6 +175,7 @@ $payload = [
     'fluxo_pedidos' => sanitizarUtf8Recursivo($fluxoPedidos),
     'fluxo_planilha' => sanitizarUtf8Recursivo($fluxoPlanilha),
     'acompanhamento' => sanitizarUtf8Recursivo($acompanhamento),
+    'plano_mestre_gz' => $planoMestreGz,
 ];
 
 $jsonPayload = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);

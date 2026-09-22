@@ -272,6 +272,56 @@ layoutHeader($pageTitle);
     .sgt-modal-table tr:hover td {
         background: #f8fafc;
     }
+
+    /* Impressão — mostra só a área do dashboard (KPIs + gráficos), sem título nem filtros */
+    @media print {
+        /* html/body ficam com overflow:hidden + height:100% pra controlar o scroll da tela
+           (ver main.css) — sem resetar isso, o navegador trata o documento como 1 viewport só
+           e recorta tudo que passar da altura da tela, ignorando qualquer page-break-before. */
+        html, body {
+            height: auto !important;
+            overflow: visible !important;
+        }
+        .sgt-dash-header,
+        .sgt-filter-card,
+        #dicaEvolucaoDiaria,
+        #resumoAderenciaDiaria {
+            display: none !important;
+        }
+        /* O layout padrão (sidebar/header) usa flex com overflow controlado — sem isso,
+           .app-content mantém a largura/rolagem da tela e o gráfico sai cortado pela metade. */
+        .app-wrapper, .app-main, .app-content {
+            display: block !important;
+            height: auto !important;
+            overflow: visible !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+        .sgt-kpi-grid {
+            grid-template-columns: repeat(5, 1fr) !important;
+            gap: 8px !important;
+            margin-bottom: 14px !important;
+        }
+        .sgt-kpi-card {
+            padding: 8px 6px !important;
+            box-shadow: none !important;
+            border: 1px solid #d0d5dd !important;
+        }
+        .sgt-kpi-value { font-size: 1rem !important; }
+        .sgt-chart-card {
+            box-shadow: none !important;
+            border: 1px solid #d0d5dd !important;
+            page-break-inside: avoid;
+            break-inside: avoid;
+            margin-bottom: 16px !important;
+        }
+        .sgt-chart-card + .sgt-chart-card {
+            page-break-before: always;
+        }
+        .sgt-chart-card canvas { max-height: 340px !important; max-width: 100% !important; width: 100% !important; }
+    }
 </style>
 
 <div style="max-width: 100%; margin: 0 auto; padding: 4px 0 24px 0;">
@@ -290,6 +340,10 @@ layoutHeader($pageTitle);
             </p>
         </div>
         <div style="display:flex;align-items:center;gap:10px;">
+            <button type="button" onclick="window.print()" class="btn btn-primary btn-sm btn-print" style="display:inline-flex;align-items:center;gap:6px;font-weight:600;cursor:pointer;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                Imprimir
+            </button>
             <a href="/pages/painel-setor/index.php" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:6px;font-weight:600;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14l-4-4 4-4"/><path d="M5 10h11a4 4 0 1 1 0 8h-1"/></svg>
                 Painel por Setor
@@ -380,14 +434,6 @@ layoutHeader($pageTitle);
         <div class="sgt-kpi-card">
             <span class="sgt-kpi-label">Dias Úteis</span>
             <span class="sgt-kpi-value"><?= $kpis['dias_uteis'] ?> <span style="font-size:12px;color:var(--color-text-muted);font-weight:500;">/ <?= $kpis['total_dias_uteis'] ?></span></span>
-            <?php if (!empty($dados['feriados_mes'])): ?>
-                <div style="font-size:10px;color:#0284c7;margin-top:4px;font-weight:600;display:flex;align-items:center;gap:4px;" title="<?= htmlspecialchars(implode(" \n", array_map(fn($dt, $nm) => date('d/m', strtotime($dt)) . ' — ' . $nm, array_keys($dados['feriados_mes']), $dados['feriados_mes']))) ?>">
-                    <span>🏛️ <?= count($dados['feriados_mes']) ?> feriado<?= count($dados['feriados_mes']) > 1 ? 's' : '' ?></span>
-                    <span style="font-weight:500;color:var(--color-text-muted);">(<?= htmlspecialchars(implode(', ', array_map(fn($dt) => date('d/m', strtotime($dt)), array_keys($dados['feriados_mes'])))) ?>)</span>
-                </div>
-            <?php else: ?>
-                <div style="font-size:10px;color:var(--color-text-muted);margin-top:4px;">Sem feriados no mês</div>
-            <?php endif; ?>
         </div>
 
         <!-- 5. Aderência Anual -->
@@ -428,7 +474,7 @@ layoutHeader($pageTitle);
         <div class="sgt-card-header">
             <div>
                 <h3 style="font-size:14px;font-weight:700;color:var(--color-text-primary);margin:0;">Evolução Diária</h3>
-                <p style="font-size:11px;color:var(--color-text-muted);margin:2px 0 0 0;">Meta programada vs produção realizada por dia (calendário nacional e regional MT/Cuiabá aplicado)</p>
+                <p style="font-size:11px;color:var(--color-text-muted);margin:2px 0 0 0;">Meta programada vs produção realizada por dia</p>
             </div>
             <!-- Legenda -->
             <div style="display:flex;align-items:center;gap:14px;font-size:11px;font-weight:700;color:var(--color-text-secondary);">
@@ -442,7 +488,7 @@ layoutHeader($pageTitle);
             <canvas id="chartEvolucaoDiaria"></canvas>
         </div>
 
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:10px;border-top:1px dashed var(--color-border);font-size:11px;color:var(--color-text-secondary);flex-wrap:wrap;gap:8px;">
+        <div id="dicaEvolucaoDiaria" style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:10px;border-top:1px dashed var(--color-border);font-size:11px;color:var(--color-text-secondary);flex-wrap:wrap;gap:8px;">
             <span style="display:inline-flex;align-items:center;gap:6px;">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
                 <span><strong>Dica:</strong> Clique em qualquer barra de dia para ver a <strong>relação completa de peças</strong> programadas e produzidas.</span>
@@ -627,7 +673,7 @@ layoutHeader($pageTitle);
     });
 
     const ctx = document.getElementById('chartEvolucaoDiaria').getContext('2d');
-    new Chart(ctx, {
+    const chartEvolucaoDiaria = new Chart(ctx, {
         type: 'bar',
         data: {
             labels: labels,
@@ -754,15 +800,6 @@ layoutHeader($pageTitle);
                     borderWidth: 1,
                     padding: 10,
                     callbacks: {
-                        afterTitle: function(tooltipItems) {
-                            if (!tooltipItems || tooltipItems.length === 0) return '';
-                            const i = tooltipItems[0].dataIndex;
-                            const item = rawData[i];
-                            if (item && item.is_feriado && item.nome_feriado) {
-                                return '🏛️ ' + item.nome_feriado;
-                            }
-                            return '';
-                        },
                         label: function(context) {
                             const i = context.dataIndex;
                             if (context.datasetIndex === 0) {
@@ -819,7 +856,7 @@ layoutHeader($pageTitle);
         `<span style="color:#dc2626;font-weight:700;">${diasAbaixo} abaixo</span>`;
 
     const ctxAderencia = document.getElementById('chartAderenciaDiariaPercent').getContext('2d');
-    new Chart(ctxAderencia, {
+    const chartAderenciaDiaria = new Chart(ctxAderencia, {
         data: {
             labels: labels,
             datasets: [
@@ -1097,6 +1134,17 @@ layoutHeader($pageTitle);
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#039;');
     }
+
+    // Redimensiona os gráficos ao entrar/sair do modo impressão, já que o layout
+    // (sidebar/filtros ocultos) muda a largura disponível depois que os gráficos já foram desenhados.
+    window.addEventListener('beforeprint', () => {
+        chartEvolucaoDiaria.resize();
+        chartAderenciaDiaria.resize();
+    });
+    window.addEventListener('afterprint', () => {
+        chartEvolucaoDiaria.resize();
+        chartAderenciaDiaria.resize();
+    });
 </script>
 
 <?php layoutFooter(); ?>

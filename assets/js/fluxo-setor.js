@@ -286,7 +286,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const celulas = ['CH', 'BT', 'AT', 'CNC', 'SOL', 'MN', 'PIN', 'ME', 'MF', 'LAB'];
         
         let thCelulas = celulas.map(c => `
-            <th style="width:36px; min-width:36px;">
+            <th class="col-cell" style="width:36px; min-width:36px;">
                 <div class="th-content">
                     <span class="th-title" onclick="window.ordenarColuna('${c}')">${c}</span>
                     <button class="excel-th-filter-btn ${temFiltroAtivo(c.toLowerCase()) ? 'has-filter' : ''}" onclick="window.abrirPopupFiltro(event, '${c.toLowerCase()}')" title="Filtrar ${c}">▾</button>

@@ -17,8 +17,11 @@ require_once __DIR__ . '/helpers.php';
  */
 function boletimGarantirTabelasAtraso(PDO $pdo): void
 {
-    static $tabelasVerificadas = false;
-    if ($tabelasVerificadas) return;
+    // Marcador em disco em vez de `static`: mesmo motivo do fix em config/conexao.php::getDB() —
+    // `static` não sobrevive entre requisições (cada request é um processo PHP novo), então sem o
+    // marcador esse bloco de CREATE TABLE roda em toda página de Atraso/Produção.
+    $marcadorAtraso = __DIR__ . '/../storage/cache/.schema_atraso_verificado';
+    if (is_file($marcadorAtraso)) return;
 
     try {
         $pdo->exec("
@@ -47,14 +50,51 @@ function boletimGarantirTabelasAtraso(PDO $pdo): void
                 `linha` VARCHAR(30) NOT NULL,
                 `seq_plano` INT NULL,
                 `uf` VARCHAR(10) NULL,
+                `num_serie` INT NULL,
                 `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 INDEX `idx_data_extracao` (`data_extracao`),
                 INDEX `idx_data_prog` (`data_programada`),
                 INDEX `idx_linha` (`linha`),
                 INDEX `idx_extracao_linha` (`data_extracao`, `linha`),
-                INDEX `idx_pedido_ref` (`cd_pedido`, `cd_referencia`)
+                INDEX `idx_pedido_ref` (`cd_pedido`, `cd_referencia`),
+                INDEX `idx_num_serie` (`num_serie`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         ");
+
+        // Colunas e tabelas novas em bancos que já tinham a tabela
+        try {
+            $temColuna = $pdo->query("
+                SELECT COUNT(*) FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'atraso_distribuicao_registros' AND COLUMN_NAME = 'num_serie'
+            ")->fetchColumn();
+            if ((int) $temColuna === 0) {
+                $pdo->exec("ALTER TABLE atraso_distribuicao_registros ADD COLUMN num_serie INT NULL, ADD INDEX idx_num_serie (num_serie)");
+            }
+
+            $temColSetores = $pdo->query("
+                SELECT COUNT(*) FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'atraso_distribuicao_registros' AND COLUMN_NAME = 'setores_pendentes'
+            ")->fetchColumn();
+            if ((int) $temColSetores === 0) {
+                $pdo->exec("ALTER TABLE atraso_distribuicao_registros ADD COLUMN setores_pendentes VARCHAR(255) NULL AFTER setor_real");
+            }
+
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS `atraso_distribuicao_celulas` (
+                    `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    `registro_id` BIGINT NOT NULL,
+                    `data_extracao` DATE NOT NULL,
+                    `celula_sigla` VARCHAR(10) NOT NULL,
+                    `celula_nome` VARCHAR(60) NOT NULL,
+                    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX `idx_extracao_celula` (`data_extracao`, `celula_nome`),
+                    INDEX `idx_registro` (`registro_id`),
+                    INDEX `idx_extracao_sigla` (`data_extracao`, `celula_sigla`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            ");
+        } catch (\Throwable $e) {
+            // Log silencioso
+        }
 
         $pdo->exec("
             CREATE TABLE IF NOT EXISTS `atraso_metas` (
@@ -88,7 +128,10 @@ function boletimGarantirTabelasAtraso(PDO $pdo): void
                 UNIQUE KEY `uk_modulo_data` (`modulo`, `data_referencia`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         ");
-        $tabelasVerificadas = true;
+        if (!is_dir(dirname($marcadorAtraso))) {
+            @mkdir(dirname($marcadorAtraso), 0775, true);
+        }
+        @file_put_contents($marcadorAtraso, date('Y-m-d H:i:s'));
     } catch (\Throwable $e) {
         // Log silencioso
     }
@@ -116,35 +159,38 @@ function boletimClassificarLinhaAtraso(?string $nucleo, ?string $fases, ?string 
 }
 
 /**
- * As células reais de produção da Distribuição rastreáveis via prefixo de sub-OF, na
- * ORDEM do fluxo fabril (campo 'delta' = QtdDeltaDiasProgProd de dbo.CelulaProducao,
- * id_Empresa=1 — dias de offset da célula em relação à Programação de Produção Final
- * da OF). Fonte única pra classificar o gargalo real de uma OF pendente.
+ * As células reais de produção da Distribuição rastreáveis via prefixo de sub-OF. Ordem
+ * do array = ordem de prioridade em boletimClassificarBloqueioReal() — segue o mesmo
+ * fluxo oficial CH/BT/AT/CNC/SOL/MN/PIN/ME/MF/LAB já usado em fluxo-setor.js (`celulas`,
+ * decisão de 2026-09-04), não o campo 'delta' (QtdDeltaDiasProgProd de dbo.CelulaProducao,
+ * id_Empresa=1 — mantido só como referência histórica do offset em dias, não reflete mais
+ * a ordem real). Fonte única pra classificar o gargalo real de uma OF pendente.
  *
- * Caldeiraria (delta -8 em dbo.CelulaProducao) foi desmembrada em 4 sub-itens pra dar
- * granularidade real ao gráfico de gargalo — confirmado em dbo.Materiais (2026-09-03):
- * MDA = "ARMADURA", MFU = "FUNDO", MTQ = "TANQUE", MTP = "TAMPA". A dupla MTP/MTQ estava
- * trocada aqui e em avaliarStatusCelulaFluxo() (boletim-fluxo-pedidos.php) — rotuladas
- * como "Solda"/"Pintura", que na real são nomes de partes (Tampa/Tanque), não de etapa.
+ * Caldeiraria (delta -8 em dbo.CelulaProducao; "CH" no fluxo oficial) foi desmembrada em
+ * 4 sub-itens pra dar granularidade real ao gráfico de gargalo — confirmado em
+ * dbo.Materiais (2026-09-03): MDA = "ARMADURA", MFU = "FUNDO", MTQ = "TANQUE",
+ * MTP = "TAMPA". A dupla MTP/MTQ estava trocada aqui e em avaliarStatusCelulaFluxo()
+ * (boletim-fluxo-pedidos.php) — rotuladas como "Solda"/"Pintura", que na real são nomes
+ * de partes (Tampa/Tanque), não de etapa.
  *
  * Solda, Pintura e Laboratório SÃO etapas reais do fluxo (com delta próprio em
  * dbo.CelulaProducao), mas não têm sub-OF/material dedicado rastreável neste ERP — não
  * participam da detecção de gargalo (ver skip em boletimClassificarBloqueioReal()).
  */
 const ATRASO_CELULAS_REAIS_DISTRIB = [
-    ['sigla' => 'ARM', 'nome' => 'Armadura',           'delta' => -8],
-    ['sigla' => 'FUN', 'nome' => 'Fundo',              'delta' => -8],
-    ['sigla' => 'TQ',  'nome' => 'Tanque',             'delta' => -8],
-    ['sigla' => 'TP',  'nome' => 'Tampa',              'delta' => -8],
-    ['sigla' => 'CNC', 'nome' => 'Corte de Núcleo',    'delta' => -6],
-    ['sigla' => 'BT',  'nome' => 'Enrolamento BT',     'delta' => -5],
-    ['sigla' => 'SOL', 'nome' => 'Solda',              'delta' => -4], // sem sub-OF própria
-    ['sigla' => 'MN',  'nome' => 'Montagem de Núcleo', 'delta' => -4],
-    ['sigla' => 'AT',  'nome' => 'Enrolamento AT',     'delta' => -4],
-    ['sigla' => 'ME',  'nome' => 'Montagem Elétrica',  'delta' => -3],
-    ['sigla' => 'PIN', 'nome' => 'Pintura',            'delta' => -2], // sem sub-OF própria
-    ['sigla' => 'MF',  'nome' => 'Montagem Final',     'delta' => -1],
-    ['sigla' => 'LAB', 'nome' => 'Laboratório',        'delta' => 1],  // sem sub-OF própria
+    ['sigla' => 'ARM', 'nome' => 'Chassis',             'delta' => -8], // ignorada na prioridade, ver ATRASO_CELULAS_IGNORADAS_PRIORIDADE_GARGALO
+    ['sigla' => 'FUN', 'nome' => 'Laser',               'delta' => -8], // parte de "CH" no fluxo oficial
+    ['sigla' => 'BT',  'nome' => 'BT',                  'delta' => -5],
+    ['sigla' => 'AT',  'nome' => 'AT',                  'delta' => -4],
+    ['sigla' => 'CNC', 'nome' => 'Corte de Núcleo',     'delta' => -6],
+    ['sigla' => 'TP',  'nome' => 'Solda',               'delta' => -8], // "SOL" no fluxo oficial
+    ['sigla' => 'MN',  'nome' => 'Montagem de Núcleo',  'delta' => -4],
+    ['sigla' => 'TQ',  'nome' => 'Pintura',             'delta' => -8], // "PIN" no fluxo oficial
+    ['sigla' => 'ME',  'nome' => 'Montagem Elétrica',   'delta' => -3],
+    ['sigla' => 'MF',  'nome' => 'Montagem Final',      'delta' => -1],
+    ['sigla' => 'LAB', 'nome' => 'Laboratório',         'delta' => 1],  // sem sub-OF própria
+    ['sigla' => 'SOL', 'nome' => 'Solda (Bobinagem)',   'delta' => -4], // sem sub-OF própria
+    ['sigla' => 'PIN', 'nome' => 'Pintura (Bobinagem)', 'delta' => -2], // sem sub-OF própria
 ];
 
 /**
@@ -154,12 +200,36 @@ const ATRASO_CELULAS_REAIS_DISTRIB = [
 const ATRASO_CELULAS_SEM_SUBOF = ['SOL', 'PIN', 'LAB'];
 
 /**
+ * Siglas de ATRASO_CELULAS_REAIS_DISTRIB desconsideradas como candidatas a gargalo em
+ * boletimClassificarBloqueioReal() — mesmo com sub-OF própria ainda pendente, a OF não é
+ * atribuída a elas; a busca segue pra próxima célula do fluxo. Diferente de
+ * ATRASO_CELULAS_SEM_SUBOF (que não tem sub-OF rastreável nenhuma): Chassis (ARM) tem
+ * sub-OF própria (MDA) e continua avaliada normalmente, só não pode "vencer" a prioridade
+ * — decisão de 2026-09-04 porque, sendo a 1ª da Caldeiraria (mesmo delta de Laser/Solda/
+ * Pintura), absorvia sozinha o volume das outras três.
+ */
+const ATRASO_CELULAS_IGNORADAS_PRIORIDADE_GARGALO = ['ARM'];
+
+/**
+ * Siglas de ATRASO_CELULAS_REAIS_DISTRIB ocultadas por escolha no gráfico "Gargalo Real
+ * por Célula de Produção" (boletimGargaloRealPorCelula() em boletim-painel-producao.php).
+ * Rede de segurança pra snapshots antigos: com ARM em
+ * ATRASO_CELULAS_IGNORADAS_PRIORIDADE_GARGALO, nenhuma sincronização nova volta a marcar
+ * setor_real = 'Chassis', mas linhas já gravadas antes dessa mudança continuam com esse
+ * valor até a próxima sincronização.
+ */
+const ATRASO_CELULAS_OCULTAS_GRAFICO_GARGALO = ['ARM'];
+
+/**
  * Avalia se uma célula real está concluída ('OK') ou pendente ('PEND') a partir dos
  * sub-nós (sub-OFs de componentes) decompostos via dbo.RlcProgramacao. Prefixos
  * confirmados em dbo.Materiais (ds_Prod) em 2026-09-03.
  */
 function boletimAvaliarCelulaReal(array $subNos, string $sigla): string
 {
+    $temComponente = false;
+    $todasConcluidas = true;
+
     foreach ($subNos as $n) {
         $ref = strtoupper(trim((string) ($n['RefSub'] ?? '')));
         $st = strtoupper(trim((string) ($n['StatusSub'] ?? '')));
@@ -168,9 +238,9 @@ function boletimAvaliarCelulaReal(array $subNos, string $sigla): string
 
         $match = match ($sigla) {
             'ARM' => str_starts_with($ref, 'MDA'),
-            'FUN' => str_starts_with($ref, 'MFU'),
-            'TQ' => str_starts_with($ref, 'MTQ'),
-            'TP' => str_starts_with($ref, 'MTP'),
+            'FUN' => str_starts_with($ref, 'MFU') || str_starts_with($ref, 'MDA'),
+            'TP' => str_starts_with($ref, 'MTP'), // Solda (Tampa)
+            'TQ' => str_starts_with($ref, 'MTQ'), // Pintura (Tanque)
             'CNC' => str_starts_with($ref, 'CNC'),
             'BT' => str_starts_with($ref, 'BT-') || str_starts_with($ref, 'BT_') || $ref === 'BT',
             'MN' => str_starts_with($ref, 'MN-') || str_starts_with($ref, 'MNC'),
@@ -180,39 +250,81 @@ function boletimAvaliarCelulaReal(array $subNos, string $sigla): string
             default => false,
         };
 
-        if ($match && ($st === 'ENC' || ($qtdTot > 0 && $qtdProd >= $qtdTot))) {
-            return 'OK';
+        if ($match) {
+            $temComponente = true;
+            // Uma sub-OF só conta como concluída se produziu tudo, ou se foi encerrada (ENC) tendo produzido algo (> 0)
+            $isConcluida = ($qtdTot > 0 && $qtdProd >= $qtdTot) || ($st === 'ENC' && $qtdProd > 0);
+            if (!$isConcluida) {
+                $todasConcluidas = false;
+            }
         }
     }
-    return 'PEND';
+
+    if (!$temComponente) {
+        return 'NA'; // Célula não existe na árvore deste trafo
+    }
+
+    return $todasConcluidas ? 'OK' : 'PEND';
 }
 
 /**
- * Classifica o gargalo real de uma OF-mãe pendente a partir dos sub-nós decompostos:
- * - 'CELULA'   -> ainda existe célula de produção real pendente (a mais cedo no fluxo).
- * - 'MATERIAL' -> todas as 10 células já estão OK; falta só item comprado/semiacabado
- *                 pra fechar a OF-mãe (gargalo de PCP/Compras, não de chão de fábrica).
+ * Classifica todas as células reais pendentes de uma OF-mãe a partir dos sub-nós decompostos:
+ * - 'celulas_pendentes': lista de todas as células do chão de fábrica onde há trabalho pendente
+ *   (visão multissetorial real — uma OF pode estar pendente em Solda e Laser ao mesmo tempo).
+ * - 'setor_real': primeiro setor pendente (para retrocompatibilidade com relatórios unitários).
+ * - 'tipo_bloqueio': 'CELULA' ou 'MATERIAL' (Averiguar, caso todas as células reais estejam OK).
  */
 function boletimClassificarBloqueioReal(array $subNos): array
 {
     if (empty($subNos)) {
-        return ['setor_real' => null, 'tipo_bloqueio' => null];
+        return [
+            'setor_real'            => null,
+            'tipo_bloqueio'         => null,
+            'celulas_pendentes'     => [],
+            'setores_pendentes_str' => null,
+        ];
     }
 
+    $celulasPendentes = [];
+
     foreach (ATRASO_CELULAS_REAIS_DISTRIB as $cel) {
-        // Solda, Pintura e Laboratório não têm sub-OF/material dedicado rastreável
-        // neste ERP (ver ATRASO_CELULAS_SEM_SUBOF) — contá-las como "célula pendente"
-        // faria toda OF 100% pronta no chão de fábrica aparecer como travada nelas,
-        // quando na real só falta fechamento/compra. Por isso não entram na detecção.
+        // Ignora células sem sub-OF própria no ERP
         if (in_array($cel['sigla'], ATRASO_CELULAS_SEM_SUBOF, true)) {
             continue;
         }
-        if (boletimAvaliarCelulaReal($subNos, $cel['sigla']) === 'PEND') {
-            return ['setor_real' => $cel['nome'], 'tipo_bloqueio' => 'CELULA'];
+        // Chassis (ARM) é avaliado junto com Laser (FUN/MFU/MDA)
+        if ($cel['sigla'] === 'ARM') {
+            continue;
+        }
+
+        $st = boletimAvaliarCelulaReal($subNos, $cel['sigla']);
+        if ($st === 'PEND') {
+            $celulasPendentes[] = [
+                'sigla' => $cel['sigla'],
+                'nome'  => $cel['nome'],
+            ];
         }
     }
 
-    return ['setor_real' => 'Aguardando Material/Compra', 'tipo_bloqueio' => 'MATERIAL'];
+    if (empty($celulasPendentes)) {
+        return [
+            'setor_real'            => 'Averiguar',
+            'tipo_bloqueio'         => 'MATERIAL',
+            'celulas_pendentes'     => [
+                ['sigla' => 'AVE', 'nome' => 'Averiguar']
+            ],
+            'setores_pendentes_str' => 'Averiguar',
+        ];
+    }
+
+    $nomesPendentes = array_column($celulasPendentes, 'nome');
+
+    return [
+        'setor_real'            => $nomesPendentes[0], // primeiro gargalo para retrocompatibilidade
+        'tipo_bloqueio'         => 'CELULA',
+        'celulas_pendentes'     => $celulasPendentes,
+        'setores_pendentes_str' => implode(', ', $nomesPendentes),
+    ];
 }
 
 /**
@@ -422,11 +534,15 @@ function boletimAutoImportarSnapshotsLegados(PDO $pdo): void
 
 /**
  * Extrai diretamente do SQL Server corporativo (vsat.trael.local) e grava no MySQL.
- * Se a foto de hoje já existir no banco, mantém congelada/travada sem sobrescrever,
- * garantindo a estabilidade diária dos indicadores do PCP.
+ * Sem $forcarSobrescrita, se a foto de hoje já existir no banco, mantém congelada/travada
+ * sem sobrescrever (comportamento do sincronizador antigo para o Railway).
+ * Com $forcarSobrescrita (scripts/atualizar_atraso.php, a cada 15 min), a foto de hoje é
+ * substituída no lugar — dias anteriores nunca são tocados, então a última atualização de
+ * cada dia fica como o fechamento dele.
  */
 function boletimSincronizarAtrasoSqlServer(?string $dataExtracao = null, bool $forcarSobrescrita = false): array
 {
+    $inicioSync = microtime(true);
     $dataHoje = $dataExtracao ?: date('Y-m-d');
     $pdoLocal = getDB();
     boletimGarantirTabelasAtraso($pdoLocal);
@@ -452,9 +568,19 @@ function boletimSincronizarAtrasoSqlServer(?string $dataExtracao = null, bool $f
         return ['sucesso' => false, 'erro' => 'Não foi possível conectar ao SQL Server local (vsat.trael.local).'];
     }
 
+    // Uma linha por Número de Série (cns.NumSerie), sem agrupar por lote — cada
+    // id_ProgProdPCP/OF já corresponde 1:1 a um NS físico (confirmado: Quantidade=1 e
+    // QtdProduzida binário em cada linha de ProgramacaoProducao/OrdemFabricacao), então o
+    // agrupamento por lote que existia aqui era só uma escolha de exibição da extração, não
+    // refletia nenhum agrupamento real do ERP. Some NS que estejam em estágios diferentes
+    // do mesmo "lote" (mesma referência/pedido/prazo) agora saem em linhas — e portanto
+    // células de gargalo — separadas, igual ao Painel por Setor (carregarPlanilhaProducaoFluxo
+    // em boletim-fluxo-pedidos.php), que já é por NS. Exige cns.NumSerie > 0 pelo mesmo
+    // motivo que lá: só itens já serializados.
     $sql = "
-    SELECT CAST(Sum(PP.Quantidade) AS INT) AS Quantidade
-    , MIN(PP.id_ProgProdPCP) AS IdProgProdPCP
+    SELECT cns.NumSerie AS NumSerie
+    , CAST(PP.Quantidade AS INT) AS Quantidade
+    , PP.id_ProgProdPCP AS IdProgProdPCP
     , PP.DATAHORAPRODUCAOAUX AS DataHoraProducaoAux
     , M.cd_Referencia AS cd_Referencia
     , M.ds_Prod AS ds_Prod
@@ -480,11 +606,12 @@ function boletimSincronizarAtrasoSqlServer(?string $dataExtracao = null, bool $f
     , TCT.Ds_tpConstrTrafo AS Ds_tpConstrTrafo
     , TEN.cd_TpEnrolamentoNucleo AS cd_TpEnrolamentoNucleo
     , TensoesTrafoDespacho.ds_TensaoTrafo AS ds_TensaoTrafoDesp
-    , CAST(Sum(ORDF.QtdProduzida) AS INT) AS QtdProduzida
+    , CAST(ORDF.QtdProduzida AS INT) AS QtdProduzida
     , EmpDestino.cdEnt AS cdEntEmpDesti
     , CtrlItemPedidoPCP.SeqPlano AS SeqPlano
-    , CAST(Sum(PP.Quantidade) - Sum(ORDF.QtdProduzida) AS INT) AS QtdAproduzir
-     FROM ProgramacaoProducao AS PP WITH(NOLOCK) 
+    , CAST(PP.Quantidade - ORDF.QtdProduzida AS INT) AS QtdAproduzir
+     FROM CtrlNumSerie AS cns WITH(NOLOCK)
+    INNER JOIN ProgramacaoProducao AS PP WITH(NOLOCK) ON (PP.id_ProgProdPCP = cns.id_ProgProdPCP)
     INNER JOIN Materiais AS M WITH(NOLOCK) ON (M.id_Produto = PP.id_Produto)
     INNER JOIN SubGrupoProduto AS SG WITH(NOLOCK) ON (SG.id_SubGrupoPrd = M.id_SubGrupoPrd)
     INNER JOIN GrupoProduto AS G WITH(NOLOCK) ON (G.id_grpProd = SG.id_grpProd)
@@ -509,41 +636,66 @@ function boletimSincronizarAtrasoSqlServer(?string $dataExtracao = null, bool $f
     LEFT JOIN Entidade AS EmpDestino WITH(NOLOCK) ON (EmpDestino.Id_Ent = PP.id_Empresa AND EmpDestino.PierSitReg = 'ATV')
     LEFT JOIN RlcCtrlItemPedidoPCPProgProd AS RlcCtrlItemPedidoPCPProgProd WITH(NOLOCK) ON (RlcCtrlItemPedidoPCPProgProd.id_ProgProdPCP = PP.id_ProgProdPCP AND RlcCtrlItemPedidoPCPProgProd.PierSitReg = 'ATV')
     LEFT JOIN CtrlItemPedidoPCP AS CtrlItemPedidoPCP WITH(NOLOCK) ON (CtrlItemPedidoPCP.IDCtrlItPedidoPCP = RlcCtrlItemPedidoPCPProgProd.IDCtrlItPedidoPCP AND CtrlItemPedidoPCP.PierSitReg = 'ATV')
-    WHERE (((PP.id_of > 0)) OR (PP.id_of = 0))
+    WHERE cns.NumSerie > 0
+     AND (((PP.id_of > 0)) OR (PP.id_of = 0))
      AND (PP.PierSitReg = 'ATV')
      AND (CG.cd_CatGrupo = 40)
      AND (PP.DataHoraProducaoAux BETWEEN dateadd(month,-12, getdate()) AND DATEADD(day, -1, GETDATE()) )
      AND (PCP.statusProjeto = 'PRD' OR (PCP.statusProjeto = 'DES' AND NOT EXISTS (SELECT 1 FROM ControleProjetoPCP AS PCP2 WHERE PCP2.id_Produto = M.id_Produto AND PCP2.PierSitReg = 'ATV' AND PCP2.statusProjeto = 'PRD')))
      AND EmpDestino.cdEnt = '1'
      AND ORDF.StatusOF IN ('AGU', 'RES')
-    GROUP BY (PP.DATAHORAPRODUCAOAUX)
-    , M.cd_Referencia, M.ds_Prod, IPE.qtdItem, IPE.dt_LimiteEntrega, Cli.cdEnt, Cli.Nome, Cli.Apelido, Ped.dt_Pedido, Ped.cdPedido, PT.ds_potencia, PT.PotenciaKVA, ET.nrofasesTrafo, CTT.ds_classeTensaoTrafo, PCP.dt_criacao, PCP.NroRevisao, PCP.dt_Revisao, TP.ds_TensaoTrafo, TS.ds_TensaoTrafo, TT.ds_TapsTrafo, UF.cd_SglEstado, PP.DataHoraProducaoAux, TEN.ds_TpEnrolamentoNucleo, TCT.Ds_tpConstrTrafo, TEN.cd_TpEnrolamentoNucleo, TensoesTrafoDespacho.ds_TensaoTrafo, EmpDestino.cdEnt, CtrlItemPedidoPCP.SeqPlano
-    HAVING (CAST(Sum(PP.Quantidade) - Sum(ORDF.QtdProduzida) AS INT) > 0)
+     AND (CAST(PP.Quantidade - ORDF.QtdProduzida AS INT) > 0)
     ORDER BY PP.DataHoraProducaoAux
     ";
 
     try {
         $stmt = $pdoSrv->query($sql);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $tempoErp = microtime(true) - $inicioSync;
 
         // Classificação do gargalo REAL de cada linha pendente (célula de produção ainda
         // travada, ou só material/compra faltando) — um único lote de consulta, sem N+1.
         // IdProgProdPCP acima é MIN() da amostra (a linha pode agrupar várias unidades
-        // idênticas do mesmo lote/data/cliente) — aproximação: assume que as unidades de
-        // um mesmo lote estão no mesmo estágio. Se falhar (ex.: instabilidade do SQL
-        // Server), segue sem classificar (setor_real/tipo_bloqueio ficam nulos).
+        // idênticas do mesmo lote/data/cliente) — agora IdProgProdPCP é o do próprio NS (uma
+        // linha por Número de Série, sem aproximação de lote). Se falhar (ex.: instabilidade
+        // do SQL Server), segue sem classificar (setor_real/tipo_bloqueio ficam nulos).
         $bloqueioPorProgId = [];
+        $classificacaoOk = true;
         try {
             $bloqueioPorProgId = boletimClassificarBloqueioRealEmLote(
                 $pdoSrv,
                 array_column($rows, 'IdProgProdPCP')
             );
         } catch (\Throwable $eBloqueio) {
-            // Silencioso — setor_real/tipo_bloqueio ficam nulos nesta sincronização.
+            // Sem classificação, setor_real/tipo_bloqueio ficam nulos nesta sincronização.
+            $classificacaoOk = false;
         }
+        $tempoGargalo = microtime(true) - $inicioSync - $tempoErp;
 
         $pdoLocal = getDB();
         boletimGarantirTabelasAtraso($pdoLocal);
+
+        // Atualização automática (forcarSobrescrita): nunca troca uma foto boa do dia por uma
+        // extração vazia ou sem a classificação de gargalo (instabilidade momentânea do SQL Server).
+        if ($forcarSobrescrita) {
+            $stmtAtual = $pdoLocal->prepare("SELECT COUNT(*) FROM atraso_distribuicao_registros WHERE data_extracao = ?");
+            $stmtAtual->execute([$dataHoje]);
+            $qtdAtual = (int) $stmtAtual->fetchColumn();
+            if ($qtdAtual > 0 && (empty($rows) || !$classificacaoOk)) {
+                return [
+                    'sucesso'   => false,
+                    'preservado' => true,
+                    'erro'      => empty($rows)
+                        ? "Extração veio vazia; foto de $dataHoje ($qtdAtual ordens) mantida."
+                        : "Falha ao classificar o gargalo; foto de $dataHoje ($qtdAtual ordens) mantida.",
+                ];
+            }
+        }
+
+        // DELETE + INSERT na mesma transação: com atualização frequente, a tela nunca abre
+        // no meio da troca e vê a foto do dia vazia.
+        $pdoLocal->beginTransaction();
+        $pdoLocal->prepare("DELETE FROM atraso_distribuicao_celulas WHERE data_extracao = ?")->execute([$dataHoje]);
         $pdoLocal->prepare("DELETE FROM atraso_distribuicao_registros WHERE data_extracao = ?")->execute([$dataHoje]);
 
         $stmtIns = $pdoLocal->prepare("
@@ -551,14 +703,22 @@ function boletimSincronizarAtrasoSqlServer(?string $dataExtracao = null, bool $f
                 data_extracao, data_programada, cd_referencia, ds_produto, qtd_item,
                 quantidade, qtd_produzida, qtd_a_produzir, cliente_nome, cliente_apelido,
                 cd_pedido, dt_pedido, dt_limite_entrega, potencia_kva, fases,
-                classe_tensao, tipo_nucleo, tipo_construtivo, setor_real, tipo_bloqueio,
-                linha, seq_plano, uf
+                classe_tensao, tipo_nucleo, tipo_construtivo, setor_real, setores_pendentes, tipo_bloqueio,
+                linha, seq_plano, uf, num_serie
             ) VALUES (
                 :data_extracao, :data_programada, :cd_referencia, :ds_produto, :qtd_item,
                 :quantidade, :qtd_produzida, :qtd_a_produzir, :cliente_nome, :cliente_apelido,
                 :cd_pedido, :dt_pedido, :dt_limite_entrega, :potencia_kva, :fases,
-                :classe_tensao, :tipo_nucleo, :tipo_construtivo, :setor_real, :tipo_bloqueio,
-                :linha, :seq_plano, :uf
+                :classe_tensao, :tipo_nucleo, :tipo_construtivo, :setor_real, :setores_pendentes, :tipo_bloqueio,
+                :linha, :seq_plano, :uf, :num_serie
+            )
+        ");
+
+        $stmtInsCel = $pdoLocal->prepare("
+            INSERT INTO atraso_distribuicao_celulas (
+                registro_id, data_extracao, celula_sigla, celula_nome
+            ) VALUES (
+                :registro_id, :data_extracao, :celula_sigla, :celula_nome
             )
         ");
 
@@ -570,7 +730,6 @@ function boletimSincronizarAtrasoSqlServer(?string $dataExtracao = null, bool $f
             return $str;
         };
 
-        $pdoLocal->beginTransaction();
         $count = 0;
         foreach ($rows as $r) {
             $dtProgRaw = trim($toUtf8((string)($r['DataHoraProducaoAux'] ?? '')));
@@ -587,7 +746,12 @@ function boletimSincronizarAtrasoSqlServer(?string $dataExtracao = null, bool $f
             $dtLimite = trim($toUtf8((string)($r['dt_LimiteEntrega'] ?? ''))) ?: null;
             if ($dtLimite && !strtotime($dtLimite)) $dtLimite = null;
 
-            $bloqueio = $bloqueioPorProgId[(int)($r['IdProgProdPCP'] ?? 0)] ?? ['setor_real' => null, 'tipo_bloqueio' => null];
+            $bloqueio = $bloqueioPorProgId[(int)($r['IdProgProdPCP'] ?? 0)] ?? [
+                'setor_real'            => null,
+                'tipo_bloqueio'         => null,
+                'celulas_pendentes'     => [],
+                'setores_pendentes_str' => null,
+            ];
 
             $stmtIns->execute([
                 'data_extracao'     => $dataHoje,
@@ -609,11 +773,26 @@ function boletimSincronizarAtrasoSqlServer(?string $dataExtracao = null, bool $f
                 'tipo_nucleo'       => $nuc,
                 'tipo_construtivo'  => trim($toUtf8((string)($r['Ds_tpConstrTrafo'] ?? ''))),
                 'setor_real'        => $bloqueio['setor_real'],
+                'setores_pendentes' => $bloqueio['setores_pendentes_str'] ?? $bloqueio['setor_real'],
                 'tipo_bloqueio'     => $bloqueio['tipo_bloqueio'],
                 'linha'             => $linha,
                 'seq_plano'         => (int)($r['SeqPlano'] ?? 0),
-                'uf'                => trim($toUtf8((string)($r['cd_SglEstado'] ?? '')))
+                'uf'                => trim($toUtf8((string)($r['cd_SglEstado'] ?? ''))),
+                'num_serie'         => (int)($r['NumSerie'] ?? 0) ?: null,
             ]);
+
+            $registroId = (int) $pdoLocal->lastInsertId();
+            if (!empty($bloqueio['celulas_pendentes'])) {
+                foreach ($bloqueio['celulas_pendentes'] as $c) {
+                    $stmtInsCel->execute([
+                        'registro_id'   => $registroId,
+                        'data_extracao' => $dataHoje,
+                        'celula_sigla'  => $c['sigla'],
+                        'celula_nome'   => $c['nome'],
+                    ]);
+                }
+            }
+
             $count++;
         }
         $pdoLocal->commit();
@@ -621,11 +800,118 @@ function boletimSincronizarAtrasoSqlServer(?string $dataExtracao = null, bool $f
         return [
             'sucesso' => true,
             'total_importado' => $count,
-            'data_extracao' => $dataHoje
+            'data_extracao' => $dataHoje,
+            'classificacao_ok' => $classificacaoOk,
+            'duracao_s' => round(microtime(true) - $inicioSync, 1),
+            'tempos_s' => [
+                'erp'      => round($tempoErp, 1),
+                'gargalo'  => round($tempoGargalo, 1),
+                'gravacao' => round(microtime(true) - $inicioSync - $tempoErp - $tempoGargalo, 1),
+            ],
         ];
     } catch (\Throwable $e) {
+        if (isset($pdoLocal) && $pdoLocal->inTransaction()) {
+            $pdoLocal->rollBack();
+        }
         return ['sucesso' => false, 'erro' => 'Erro ao extrair do SQL Server: ' . $e->getMessage()];
     }
+}
+
+/**
+ * Quando a foto de atraso da Distribuição foi gravada pela última vez (created_at das linhas
+ * da extração). Base do "Atualizado em HH:MM" da tela e do alerta de dados desatualizados.
+ *
+ * @return array{data_extracao:string, atualizado_em:string, idade_s:int, ultima:bool}|null
+ */
+function boletimUltimaAtualizacaoAtraso(?string $dataExtracao = null): ?array
+{
+    try {
+        $pdo = getDB();
+        $maxData = (string) $pdo->query("SELECT MAX(data_extracao) FROM atraso_distribuicao_registros")->fetchColumn();
+        if ($dataExtracao === null || $dataExtracao === '') {
+            $dataExtracao = $maxData;
+        }
+        if ($dataExtracao === '') {
+            return null;
+        }
+        $stmt = $pdo->prepare("SELECT MAX(created_at) FROM atraso_distribuicao_registros WHERE data_extracao = ?");
+        $stmt->execute([$dataExtracao]);
+        $quando = (string) $stmt->fetchColumn();
+        if ($quando === '') {
+            return null;
+        }
+        return [
+            'data_extracao' => $dataExtracao,
+            'atualizado_em' => $quando,
+            'idade_s'       => max(0, time() - (int) strtotime($quando)),
+            'ultima'        => $dataExtracao === $maxData,
+        ];
+    } catch (\Throwable $e) {
+        return null;
+    }
+}
+
+/**
+ * Intervalo (s) da tarefa agendada "SGT - Atualizar Atraso" (scripts/atualizar_atraso.php).
+ * Precisa ser igual ao gatilho no Agendador de Tarefas: é a base do contador da tela.
+ */
+const ATRASO_INTERVALO_ATUALIZACAO_S = 900;
+
+/**
+ * Segundos além do horário esperado até o contador acusar "atualização atrasada" (uma
+ * execução normal leva ~30 s; a 1ª a frio chegou a ~110 s).
+ */
+const ATRASO_TOLERANCIA_ATUALIZACAO_S = 300;
+
+/**
+ * Contador "Próxima atualização em mm:ss m" sob a data de referência das telas de atraso
+ * (Distribuição e Média Força). O servidor manda o tempo restante e assets/js/atraso-atualizacao.js
+ * faz a contagem: ao zerar mostra "Atualizando…", consulta api/atraso-atualizacao.php e recarrega a
+ * tela quando a foto nova chega. Se passar de ATRASO_TOLERANCIA_ATUALIZACAO_S sem foto nova (tarefa
+ * agendada parada), vira o alerta vermelho "Atualização atrasada". Ao abrir uma foto antiga escolhida
+ * de propósito, mostra só quando ela foi gravada, sem contador.
+ *
+ * @param array{data_extracao:string, atualizado_em:string, idade_s:int, ultima:bool}|null $atualizacao
+ * @param string $modulo 'distribuicao' ou 'forca' (qual foto a API consulta)
+ */
+function boletimHtmlAtualizacaoAtraso(?array $atualizacao, string $modulo = 'distribuicao'): string
+{
+    if ($atualizacao === null) {
+        return '';
+    }
+
+    $quandoFmt = date('d/m H:i', strtotime($atualizacao['atualizado_em']));
+
+    if (!$atualizacao['ultima']) {
+        return '<div class="mt-1 text-[0.68rem] font-semibold text-[#64748b]">Foto gravada em '
+            . htmlspecialchars($quandoFmt, ENT_QUOTES, 'UTF-8') . '</div>';
+    }
+
+    // Estado inicial idêntico ao que o JS calcula a cada segundo (sem "piscar" ao carregar a página).
+    $restante = ATRASO_INTERVALO_ATUALIZACAO_S - $atualizacao['idade_s'];
+    if ($restante > 0) {
+        $texto = sprintf('Próxima atualização em %02d:%02d m', intdiv($restante, 60), $restante % 60);
+        $cor = '#64748b';
+    } elseif (-$restante <= ATRASO_TOLERANCIA_ATUALIZACAO_S) {
+        $texto = 'Atualizando…';
+        $cor = '#fbbf24';
+    } else {
+        $texto = "⚠ Atualização atrasada — última em {$quandoFmt}";
+        $cor = '#ff6b6b';
+    }
+
+    $base = defined('APP_URL') ? APP_URL : '';
+    $versaoJs = @filemtime(__DIR__ . '/../assets/js/atraso-atualizacao.js') ?: (defined('APP_VERSION') ? APP_VERSION : '1');
+    $h = fn(string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
+
+    return '<style>@media print{.atraso-proxima-atualizacao{display:none}}</style>'
+        . '<div class="atraso-proxima-atualizacao mt-1 text-[0.68rem] font-semibold" style="color:' . $cor . ';" '
+        . 'data-modulo="' . $h($modulo) . '" data-restante="' . $restante . '" '
+        . 'data-tolerancia="' . ATRASO_TOLERANCIA_ATUALIZACAO_S . '" '
+        . 'data-ultima="' . $h($atualizacao['atualizado_em']) . '" data-atualizado-fmt="' . $h($quandoFmt) . '" '
+        . 'title="Foto do atraso extraída do ERP (VSAT) e atualizada automaticamente a cada 15 minutos. Última atualização: ' . $h($quandoFmt) . '.">'
+        . '<span class="atraso-proxima-texto">' . $h($texto) . '</span></div>'
+        . '<script src="' . $h($base) . '/assets/js/atraso-atualizacao.js?v=' . $versaoJs . '" defer></script>';
 }
 
 /**
@@ -780,7 +1066,7 @@ function boletimCalcularMetricasAtraso(string $dataCorte, array $mesesFiltro = [
             id, data_extracao, data_programada, cd_referencia, ds_produto, qtd_item,
             quantidade, qtd_produzida, qtd_a_produzir, cliente_nome, cliente_apelido,
             cd_pedido, dt_pedido, dt_limite_entrega, potencia_kva, fases,
-            classe_tensao, tipo_nucleo, tipo_construtivo, linha, seq_plano, uf
+            classe_tensao, tipo_nucleo, tipo_construtivo, linha, seq_plano, uf, num_serie
         FROM atraso_distribuicao_registros
         WHERE data_extracao = :data_extracao
         ORDER BY data_programada ASC, id ASC
@@ -791,11 +1077,23 @@ function boletimCalcularMetricasAtraso(string $dataCorte, array $mesesFiltro = [
     // Carrega a esteira de produção para cruzar com as ordens em atraso (Número de Série e 10 Células)
     require_once __DIR__ . '/boletim-fluxo-pedidos.php';
     $planilhaFluxo = carregarPlanilhaProducaoFluxo();
+    // Índice direto por NS (O(1), casamento exato) — desde que atraso_distribuicao_registros
+    // passou a ter uma linha por Número de Série (ver boletimSincronizarAtrasoSqlServer()),
+    // é o caminho principal abaixo. Os índices por pedido/projeto continuam só como
+    // fallback pra linhas antigas sem num_serie ainda gravado (snapshot anterior à
+    // mudança) — usá-los como caminho principal explodia memória/tempo aqui: um pedido
+    // pode casar dezenas de itens do fluxo, e agora há 1 linha por NS (~12x mais linhas
+    // que no snapshot por lote), então cada uma reconstruía essa lista grande à toa.
+    $fluxoPorNS = [];
     $fluxoPorPedProj = [];
     $fluxoPorPed = [];
     $fluxoPorProj = [];
     if (!empty($planilhaFluxo['itens'])) {
         foreach ($planilhaFluxo['itens'] as $fl) {
+            $nsFl = trim((string)($fl['nr_serie'] ?? ''));
+            if ($nsFl !== '') {
+                $fluxoPorNS[$nsFl] = $fl;
+            }
             $pedFl = trim((string)($fl['pedido'] ?? ''));
             $projFl = trim((string)($fl['projeto'] ?? ''));
             if ($pedFl && $projFl) {
@@ -916,9 +1214,14 @@ function boletimCalcularMetricasAtraso(string $dataCorte, array $mesesFiltro = [
         $ped = trim((string)($r['cd_pedido'] ?? ''));
         $proj = trim((string)($r['cd_referencia'] ?? ''));
         $kPedProj = "{$ped}_{$proj}";
-        
-        // Mapeamento em 3 níveis no fluxo
-        $matchedFluxo = $fluxoPorPedProj[$kPedProj] ?? ($fluxoPorPed[$ped] ?? ($fluxoPorProj[$proj] ?? []));
+        $nsRow = trim((string)($r['num_serie'] ?? ''));
+
+        // Casamento direto por NS quando a linha já tem num_serie (caminho principal —
+        // ver comentário acima de $fluxoPorNS). Só cai no fallback por pedido/projeto
+        // (que pode trazer muitos itens de uma vez) pra linhas antigas sem NS gravado.
+        $matchedFluxo = ($nsRow !== '' && isset($fluxoPorNS[$nsRow]))
+            ? [$fluxoPorNS[$nsRow]]
+            : ($fluxoPorPedProj[$kPedProj] ?? ($fluxoPorPed[$ped] ?? ($fluxoPorProj[$proj] ?? [])));
 
         $nsList = [];
         $setoresConsolidado = [

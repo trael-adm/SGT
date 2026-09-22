@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Diretório de trabalho oficial (desde 2026-09-21)
+
+O **único** diretório de trabalho local é `C:\laragon\www\SGT-dev` — é o que o Apache/Laragon serve (vhost `SGT-dev.test`) e o que o ngrok expõe. O antigo clone `M:\Luiz Felipe\SGT-dev` foi mesclado aqui e apagado; **não recriar**. Inicie o Claude Code com cwd neste diretório. Produção real = este ambiente local + ngrok (`ngrok http 80 --host-header=SGT-dev.test`), **não Railway** — as menções a Railway/GFT/SGE mais abaixo estão desatualizadas para o SGT. Cópias em compartilhamentos de rede (`\\tra-cba-srv-doc\...`) não são diretório de trabalho.
+
+O índice do git aqui costuma ter muitos arquivos pré-staged: commite sempre com pathspec (`git commit -m "..." -- <arquivos>`), nunca `git commit` puro.
+
 ## Documento de referência (leia sempre primeiro)
 
 `_inicial/PROJETO-GFT.md` é a **referência viva** e a fonte de verdade sobre stack, convenções, schema e decisões técnicas — muito mais detalhado que este arquivo. Consulte-o antes de qualquer tarefa e **atualize-o** a cada mudança de código (doc viva, junto com o changelog). Este CLAUDE.md é só o cartão de regras rápidas: cada item aponta "o quê"; o "porquê/como/versão" mora no PROJETO-GFT.md.

@@ -59,6 +59,53 @@ function boletimObterLinhasFabris(): array
 }
 
 /**
+ * Retorna os feriados nacionais, de Mato Grosso e municipais de Cuiabá para um determinado ano.
+ */
+function boletimObterFeriadosAno(int $ano, ?PDO $pdo = null): array
+{
+    $feriados = [
+        sprintf('%04d-01-01', $ano) => 'Confraternização Universal',
+        sprintf('%04d-04-08', $ano) => 'Aniversário de Cuiabá',
+        sprintf('%04d-04-21', $ano) => 'Tiradentes',
+        sprintf('%04d-05-01', $ano) => 'Dia do Trabalho',
+        sprintf('%04d-09-07', $ano) => 'Independência do Brasil',
+        sprintf('%04d-10-12', $ano) => 'Nossa Senhora Aparecida',
+        sprintf('%04d-11-02', $ano) => 'Finados',
+        sprintf('%04d-11-15', $ano) => 'Proclamação da República',
+        sprintf('%04d-11-20', $ano) => 'Dia da Consciência Negra',
+        sprintf('%04d-12-08', $ano) => 'Dia de N. Sra. da Conceição',
+        sprintf('%04d-12-25', $ano) => 'Natal',
+    ];
+
+    // Feriados móveis (Páscoa, Carnaval, Sexta-feira Santa, Corpus Christi)
+    $diasPascoa = easter_days($ano);
+    $dataPascoa = new DateTime("{$ano}-03-21 +{$diasPascoa} days");
+
+    $sextaSanta = (clone $dataPascoa)->modify('-2 days');
+    $feriados[$sextaSanta->format('Y-m-d')] = 'Sexta-feira Santa';
+
+    $carnaval = (clone $dataPascoa)->modify('-47 days');
+    $feriados[$carnaval->format('Y-m-d')] = 'Carnaval';
+
+    $corpusChristi = (clone $dataPascoa)->modify('+60 days');
+    $feriados[$corpusChristi->format('Y-m-d')] = 'Corpus Christi';
+
+    // Se houver tabela de feriados customizados no banco
+    if ($pdo) {
+        try {
+            $stmt = $pdo->prepare("SELECT data_feriado, descricao FROM boletim_feriados WHERE YEAR(data_feriado) = ? AND deleted_at IS NULL");
+            $stmt->execute([$ano]);
+            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                $feriados[$row['data_feriado']] = $row['descricao'];
+            }
+        } catch (\Throwable $e) {}
+    }
+
+    ksort($feriados);
+    return $feriados;
+}
+
+/**
  * 1. Calcula os dados do Dashboard de Aderência Mensal (9 KPIs + Gráfico Diário).
  * Conecta a relação real do Plano Mestre por dia e os apontamentos do Kardex setor por setor,
  * com suporte à Empresa 1 (Distribuição) e Empresa 4 (Média Força) e seus tipos de núcleo.
@@ -196,10 +243,17 @@ function boletimCalcularAderenciaMensal(int $ano, int $mesNum, int $empresa = 1,
         }
     }
 
-    // Carrega dados diários da planilha PLANO MESTRE.xlsx (DataHoraProducaoAux / Laboratório)
+    // Carrega dados diários da programação (DataHoraProducaoAux / Laboratório ou Bobinas para BT/AT)
     $diasComProgNoPlano = 0;
+    $setorUpper = strtoupper(trim($setorChave));
+    $isSetorBobinagem = ($empresa === 1 && ($setorUpper === 'BT' || $setorUpper === 'AT'));
+
     foreach ($diasUteis as $du) {
-        $qtdPlano = (int) round(planoMestreObterProgramadoDia($du, $empresa, $linhaSel));
+        if ($isSetorBobinagem) {
+            $qtdPlano = (int) round(planoMestreObterBobinasProgramadasDia($du, $empresa, $linhaSel));
+        } else {
+            $qtdPlano = (int) round(planoMestreObterProgramadoDia($du, $empresa, $linhaSel));
+        }
         if ($qtdPlano > 0) {
             $progDiario[$du] = $qtdPlano;
             $diasComProgNoPlano++;
@@ -209,34 +263,26 @@ function boletimCalcularAderenciaMensal(int $ano, int $mesNum, int $empresa = 1,
     // Se o mês estiver incompleto na planilha (dias futuros sem ordens exportadas ainda),
     // complementa os dias vazios com a meta diária configurada de boletim_config_metas
     if ($metaDiariaConfig > 0) {
+        $metaDiariaEfetiva = $isSetorBobinagem ? (int) round($metaDiariaConfig * 2.2) : (int) round($metaDiariaConfig);
         foreach ($diasUteis as $du) {
             if ($progDiario[$du] === 0 && ($du > $hojeAtual || $diasComProgNoPlano === 0)) {
-                $progDiario[$du] = (int) round($metaDiariaConfig);
+                $progDiario[$du] = $metaDiariaEfetiva;
             }
         }
     } elseif (array_sum($progDiario) === 0) {
         // Fallback proporcional se nem a planilha nem a tabela de metas tiverem dados
         $metaFallback = ($empresa === 4) ? 350 : 4840;
+        if ($isSetorBobinagem) {
+            $metaFallback = (int) round($metaFallback * 2.2);
+        }
         $diariaFallback = (int) round($metaFallback / $totalDiasUteis);
         foreach ($diasUteis as $du) {
             $progDiario[$du] = $diariaFallback;
         }
     }
 
-    // Fatores de avanço de etapa por setor em relação ao Laboratório (LAB / CONSOLIDADO = 1.00)
-    $fatorSetor = 1.0;
-    $setorUpper = strtoupper(trim($setorChave));
-    if ($setorUpper === 'BT' || $setorUpper === 'CNC')
-        $fatorSetor = 1.05;
-    elseif ($setorUpper === 'AT')
-        $fatorSetor = 1.04;
-    elseif ($setorUpper === 'SOL' || $setorUpper === 'PIN')
-        $fatorSetor = 1.03;
-    elseif ($setorUpper === 'MN')
-        $fatorSetor = 1.02;
-    elseif ($setorUpper === 'PA')
-        $fatorSetor = 1.01;
-
+    // Fator de avanço de etapa por setor (1.00 para todas as células conforme regras da fábrica)
+    $fatorSetor = boletimFatorAvancoSetor($setorUpper);
     if ($fatorSetor != 1.0) {
         foreach ($diasUteis as $du) {
             $progDiario[$du] = (int) round($progDiario[$du] * $fatorSetor);
@@ -399,6 +445,81 @@ function boletimCalcularAderenciaMensal(int $ano, int $mesNum, int $empresa = 1,
 }
 
 /**
+ * Retorna a produção real (ENR/EMP/JC/TPD/TPM/TPS/TOTAL) de um mês/ano para a empresa
+ * informada: prioriza o cache apurado do Kardex (kardex_mes_YYYY-MM.cache) e usa o
+ * histórico consolidado (historico_anual_detalhado.json) como fallback para meses sem cache.
+ */
+function boletimProducaoRealMes(array $dadosDetalhados, int $ano, int $m, int $empresa): array
+{
+    $mesStr = sprintf('%04d-%02d', $ano, $m);
+
+    $itemMes = [];
+    if ($empresa === 0) {
+        // Todas: soma Empresa 1 e Empresa 4
+        $d1 = $dadosDetalhados[1][$ano][$m] ?? [];
+        $d4 = $dadosDetalhados[4][$ano][$m] ?? [];
+        $itemMes['ENR']   = (int) ($d1['ENR'] ?? 0);
+        $itemMes['EMP']   = (int) ($d1['EMP'] ?? 0);
+        $itemMes['JC']    = (int) ($d1['JC'] ?? 0);
+        $itemMes['TPD']   = (int) ($d4['TPD'] ?? 0);
+        $itemMes['TPM']   = (int) ($d4['TPM'] ?? 0);
+        $itemMes['TPS']   = (int) ($d4['TPS'] ?? 0);
+        $itemMes['TOTAL'] = ($d1['TOTAL'] ?? 0) + ($d4['TOTAL'] ?? 0);
+    } elseif (isset($dadosDetalhados[$empresa][$ano][$m])) {
+        $itemMes = $dadosDetalhados[$empresa][$ano][$m];
+    }
+
+    // Se houver cache real do Kardex (kardex_mes_YYYY-MM.cache) para este mês, utiliza sempre os dados apurados
+    $cacheFile = BOLETIM_KARDEX_CACHE_DIR . '/kardex_mes_' . $mesStr . '.cache';
+    if (is_file($cacheFile)) {
+        static $cacheKardexMemo = [];
+        if (!isset($cacheKardexMemo[$mesStr])) {
+            $raw = @file_get_contents($cacheFile);
+            $c = $raw ? @unserialize($raw) : null;
+            $cacheKardexMemo[$mesStr] = $c['dados'] ?? [];
+        }
+        $dadosMesCache = $cacheKardexMemo[$mesStr];
+
+        if (!empty($dadosMesCache['nucleoPorDia']) || !empty($dadosMesCache['forcaPorDia'])) {
+            $enrReal = 0; $empReal = 0; $jcReal = 0;
+            foreach ($dadosMesCache['nucleoPorDia'] ?? [] as $v) {
+                $enrReal += (int)($v['ENR'] ?? 0);
+                $empReal += (int)($v['EMP'] ?? 0);
+                $jcReal  += (int)($v['JC'] ?? 0);
+            }
+            $tpdReal = 0; $tpmReal = 0; $tpsReal = 0;
+            foreach ($dadosMesCache['forcaPorDia'] ?? [] as $v) {
+                $tpdReal += (int)($v['TPD'] ?? 0);
+                $tpmReal += (int)($v['TPM'] ?? 0);
+                $tpsReal += (int)($v['TPS'] ?? 0);
+            }
+
+            if ($empresa === 1) {
+                $itemMes['ENR']   = $enrReal;
+                $itemMes['EMP']   = $empReal;
+                $itemMes['JC']    = $jcReal;
+                $itemMes['TOTAL'] = $enrReal + $empReal + $jcReal;
+            } elseif ($empresa === 4) {
+                $itemMes['TPD']   = $tpdReal;
+                $itemMes['TPM']   = $tpmReal;
+                $itemMes['TPS']   = $tpsReal;
+                $itemMes['TOTAL'] = $tpdReal + $tpmReal + $tpsReal;
+            } elseif ($empresa === 0) {
+                $itemMes['ENR']   = $enrReal;
+                $itemMes['EMP']   = $empReal;
+                $itemMes['JC']    = $jcReal;
+                $itemMes['TPD']   = $tpdReal;
+                $itemMes['TPM']   = $tpmReal;
+                $itemMes['TPS']   = $tpsReal;
+                $itemMes['TOTAL'] = ($enrReal + $empReal + $jcReal) + ($tpdReal + $tpmReal + $tpsReal);
+            }
+        }
+    }
+
+    return $itemMes;
+}
+
+/**
  * 2. Calcula os dados do Dashboard de Aderência Anual (Comparativo Multi-Ano).
  * Volume produzido mês a mês vem dos apontamentos reais do Kardex (nucleoPorDia
  * de boletimObterDadosMes), a mesma fonte usada pelo Indicador Distribuição —
@@ -469,41 +590,8 @@ function boletimCalcularAderenciaAnual(array $anos = [2024, 2025, 2026], int $em
                 continue;
             }
 
-            // Lê dados da fábrica correspondente
-            $itemMes = [];
-            if ($empresa === 0) {
-                // Todas: soma Empresa 1 e Empresa 4
-                $d1 = $dadosDetalhados[1][$ano][$m] ?? [];
-                $d4 = $dadosDetalhados[4][$ano][$m] ?? [];
-                $itemMes['TOTAL'] = ($d1['TOTAL'] ?? 0) + ($d4['TOTAL'] ?? 0);
-            } elseif (isset($dadosDetalhados[$empresa][$ano][$m])) {
-                $itemMes = $dadosDetalhados[$empresa][$ano][$m];
-            }
-
-            // Para o mês corrente (2026-09), atualiza com o Kardex real se houver cache
-            if ($mesStr === $mesAtualStr) {
-                $cacheFile = BOLETIM_KARDEX_CACHE_DIR . '/kardex_mes_' . $mesStr . '.cache';
-                if (is_file($cacheFile)) {
-                    static $cacheCorrenteMemo = null;
-                    if ($cacheCorrenteMemo === null) {
-                        $raw = @file_get_contents($cacheFile);
-                        $c = $raw ? @unserialize($raw) : null;
-                        $cacheCorrenteMemo = $c['dados']['nucleoPorDia'] ?? [];
-                    }
-                    if ($empresa === 1 || $empresa === 0) {
-                        $enrReal = 0; $empReal = 0; $jcReal = 0;
-                        foreach ($cacheCorrenteMemo as $v) {
-                            $enrReal += (int)($v['ENR'] ?? 0);
-                            $empReal += (int)($v['EMP'] ?? 0);
-                            $jcReal  += (int)($v['JC'] ?? 0);
-                        }
-                        $itemMes['ENR'] = $enrReal;
-                        $itemMes['EMP'] = $empReal;
-                        $itemMes['JC']  = $jcReal;
-                        $itemMes['TOTAL'] = $enrReal + $empReal + $jcReal;
-                    }
-                }
-            }
+            // Lê dados reais da fábrica correspondente (Kardex apurado, com fallback ao histórico)
+            $itemMes = boletimProducaoRealMes($dadosDetalhados, $ano, $m, $empresa);
 
             // Valor para o gráfico principal
             $val = 0;
@@ -549,6 +637,49 @@ function boletimCalcularAderenciaAnual(array $anos = [2024, 2025, 2026], int $em
     }
     $mediaDiasUteis = round(array_sum($diasUteisMeses) / 12, 2);
 
+    // Aderência Anual = Produção Real ÷ Programado do Plano Mestre, SEMPRE restrita aos anos
+    // vigentes (>= 2025): o Plano Mestre só tem programação a partir de set/2024 (Empresa 1) e
+    // out/2025 (Empresa 4), então anos anteriores não têm base de comparação real. Dentro do
+    // recorte 2025+, respeita os anos escolhidos no filtro da tela (interseção com >= 2025);
+    // meses sem programado (fora da cobertura do Plano Mestre) são ignorados na soma, para não
+    // inflar o índice com produção sem meta correspondente.
+    $anoAtualInt = (int) date('Y');
+    $anosAderencia = array_values(array_filter($anos, fn($a) => $a >= 2025 && $a <= $anoAtualInt));
+    if (empty($anosAderencia)) {
+        $anosAderencia = [max(2025, min($anoAtualInt, max($anos)))];
+    }
+
+    $empresasSomaAderencia = ($empresa === 0) ? [1, 4] : [$empresa];
+    $progAderenciaTotal = 0.0;
+    $realAderenciaTotal = 0;
+    foreach ($anosAderencia as $anoAd) {
+        for ($m = 1; $m <= 12; $m++) {
+            $mesStrAd = sprintf('%04d-%02d', $anoAd, $m);
+            if ($mesStrAd > $mesAtualStr) {
+                continue;
+            }
+
+            $progMes = 0.0;
+            foreach ($empresasSomaAderencia as $empAd) {
+                $progMes += array_sum(planoMestreObterProgramadoMes($anoAd, $m, $empAd, $linhaSel));
+            }
+            if ($progMes <= 0) {
+                continue; // sem programação do Plano Mestre nesse mês — fora do recorte
+            }
+
+            $itemMesAd = boletimProducaoRealMes($dadosDetalhados, $anoAd, $m, $empresa);
+            $realMes = ($linhaSel !== 'TODOS' && isset($itemMesAd[$linhaSel]))
+                ? (int) $itemMesAd[$linhaSel]
+                : (int) ($itemMesAd['TOTAL'] ?? 0);
+
+            $progAderenciaTotal += $progMes;
+            $realAderenciaTotal += $realMes;
+        }
+    }
+    $aderenciaAnual = $progAderenciaTotal > 0
+        ? round(($realAderenciaTotal / $progAderenciaTotal) * 100, 2)
+        : 0.0;
+
     return [
         'anos_selecionados' => $anos,
         'meses_labels'      => $mesesNomes,
@@ -556,7 +687,8 @@ function boletimCalcularAderenciaAnual(array $anos = [2024, 2025, 2026], int $em
         'empresa'           => $empresa,
         'kpis' => [
             'media_dias_uteis' => $mediaDiasUteis > 0 ? $mediaDiasUteis : 21.42,
-            'aderencia_anual'  => 102.76,
+            'aderencia_anual'  => $aderenciaAnual,
+            'aderencia_anual_anos' => $anosAderencia,
             'total_produzido'  => $totalGeralProduzido,
         ],
         'modal_composicao' => [
@@ -677,6 +809,7 @@ function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linha
                 SELECT 
                     id,
                     cd_referencia as op,
+                    num_serie,
                     seq_plano,
                     cd_pedido as pedido,
                     potencia_kva as potencia,
@@ -698,7 +831,7 @@ function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linha
                     END as status_of
                 FROM atraso_distribuicao_registros
                 WHERE $whereStr
-                ORDER BY data_programada ASC, seq_plano ASC
+                ORDER BY data_programada ASC, seq_plano ASC, num_serie ASC, id ASC
                 LIMIT 200
             ";
             $stmt = $pdo->prepare($sql);
@@ -716,19 +849,24 @@ function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linha
                 $op = trim((string) ($it['op'] ?? ''));
                 $kPedProj = "{$ped}_{$op}";
 
-                // 1. Números de Série
-                $seriesEncontradas = $suplementarNS[$kPedProj] ?? ($suplementarNS[$op] ?? []);
-                if (!empty($seriesEncontradas)) {
-                    $uSeries = array_values(array_unique(array_map('strval', $seriesEncontradas)));
-                    $it['numeros_serie'] = $uSeries;
-                    if (count($uSeries) > 1) {
-                        $it['nr_serie_formatado'] = min($uSeries) . ' – ' . max($uSeries);
-                    } else {
-                        $it['nr_serie_formatado'] = $uSeries[0];
-                    }
+                // 1. Números de Série (prioriza o número de série unitário da peça)
+                if (!empty($it['num_serie'])) {
+                    $it['nr_serie_formatado'] = (string) $it['num_serie'];
+                    $it['numeros_serie'] = [(string) $it['num_serie']];
                 } else {
-                    $it['numeros_serie'] = [];
-                    $it['nr_serie_formatado'] = '—';
+                    $seriesEncontradas = $suplementarNS[$kPedProj] ?? ($suplementarNS[$op] ?? []);
+                    if (!empty($seriesEncontradas)) {
+                        $uSeries = array_values(array_unique(array_map('strval', $seriesEncontradas)));
+                        $it['numeros_serie'] = $uSeries;
+                        if (count($uSeries) > 1) {
+                            $it['nr_serie_formatado'] = min($uSeries) . ' – ' . max($uSeries);
+                        } else {
+                            $it['nr_serie_formatado'] = $uSeries[0];
+                        }
+                    } else {
+                        $it['numeros_serie'] = [];
+                        $it['nr_serie_formatado'] = '—';
+                    }
                 }
 
                 // 2. Gargalo real da OF (calculado na sincronização via decomposição de
@@ -773,6 +911,12 @@ function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linha
         if (in_array($cel['sigla'], ATRASO_CELULAS_SEM_SUBOF, true)) {
             continue;
         }
+        if (defined('ATRASO_CELULAS_OCULTAS_GRAFICO_GARGALO') && in_array($cel['sigla'], ATRASO_CELULAS_OCULTAS_GRAFICO_GARGALO, true)) {
+            continue;
+        }
+        if ($cel['nome'] === 'Chassis' || $cel['sigla'] === 'ARM') {
+            continue;
+        }
         $rankingSetores[$cel['nome']] = 0;
     }
 
@@ -782,50 +926,118 @@ function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linha
 
     if ($pdo) {
         try {
-            $whereRanking = ["data_extracao = :data_extracao", "data_programada < :data_corte_rank", "qtd_a_produzir > 0"];
-            $paramsRanking = ['data_extracao' => $maxData, 'data_corte_rank' => $dataCorte];
+            // Verifica se a tabela atraso_distribuicao_celulas possui dados para este snapshot
+            $temCelulasTable = (int) $pdo->query("
+                SELECT COUNT(*) FROM information_schema.TABLES
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'atraso_distribuicao_celulas'
+            ")->fetchColumn();
 
-            if ($linhaSel !== 'TODOS' && !empty($linhaSel)) {
-                if ($linhaSel === 'MON') {
-                    $whereRanking[] = "(fases = 'MON' OR linha LIKE '%Mono%')";
-                } elseif ($linhaSel === 'TRI') {
-                    $whereRanking[] = "(fases = 'TRI' OR linha LIKE '%Convencional%' OR linha LIKE '%JC%')";
-                } elseif ($linhaSel === 'EPO') {
-                    $whereRanking[] = "(tipo_construtivo LIKE '%Seco%' OR linha LIKE '%EPO%')";
-                } elseif ($linhaSel === 'POT') {
-                    $whereRanking[] = "(potencia_kva >= 150 OR linha LIKE '%POT%')";
-                } else {
-                    $whereRanking[] = "(linha LIKE :linha_rank OR fases LIKE :linha_rank)";
-                    $paramsRanking['linha_rank'] = '%' . $linhaSel . '%';
-                }
+            $temDadosCelulas = 0;
+            if ($temCelulasTable > 0) {
+                $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM atraso_distribuicao_celulas WHERE data_extracao = ?");
+                $stmtCheck->execute([$maxData]);
+                $temDadosCelulas = (int) $stmtCheck->fetchColumn();
             }
 
-            $stmtRank = $pdo->prepare("
-                SELECT tipo_bloqueio, setor_real, COUNT(*) AS n_ofs, SUM(qtd_a_produzir) AS pecas
-                FROM atraso_distribuicao_registros
-                WHERE " . implode(' AND ', $whereRanking) . "
-                GROUP BY tipo_bloqueio, setor_real
-            ");
-            $stmtRank->execute($paramsRanking);
-            while ($rowAtraso = $stmtRank->fetch(PDO::FETCH_ASSOC)) {
-                $pecas = (int) $rowAtraso['pecas'];
-                if ($rowAtraso['tipo_bloqueio'] === 'CELULA') {
-                    $nome = (string) $rowAtraso['setor_real'];
-                    if (!isset($rankingSetores[$nome])) {
-                        $rankingSetores[$nome] = 0;
+            if ($temDadosCelulas > 0) {
+                // Modelo multissetorial real: soma peças por célula a partir de atraso_distribuicao_celulas
+                $whereRanking = ["c.data_extracao = :data_extracao", "r.data_programada < :data_corte_rank", "r.qtd_a_produzir > 0"];
+                $paramsRanking = ['data_extracao' => $maxData, 'data_corte_rank' => $dataCorte];
+
+                if ($linhaSel !== 'TODOS' && !empty($linhaSel)) {
+                    if ($linhaSel === 'MON') {
+                        $whereRanking[] = "(r.fases = 'MON' OR r.linha LIKE '%Mono%')";
+                    } elseif ($linhaSel === 'TRI') {
+                        $whereRanking[] = "(r.fases = 'TRI' OR r.linha LIKE '%Convencional%' OR r.linha LIKE '%JC%')";
+                    } elseif ($linhaSel === 'EPO') {
+                        $whereRanking[] = "(r.tipo_construtivo LIKE '%Seco%' OR r.linha LIKE '%EPO%')";
+                    } elseif ($linhaSel === 'POT') {
+                        $whereRanking[] = "(r.potencia_kva >= 150 OR r.linha LIKE '%POT%')";
+                    } else {
+                        $whereRanking[] = "(r.linha LIKE :linha_rank OR r.fases LIKE :linha_rank)";
+                        $paramsRanking['linha_rank'] = '%' . $linhaSel . '%';
                     }
-                    $rankingSetores[$nome] += $pecas;
-                } elseif ($rowAtraso['tipo_bloqueio'] === 'MATERIAL') {
-                    $pecasAguardandoMaterial += $pecas;
-                    $ofsAguardandoMaterial += (int) $rowAtraso['n_ofs'];
-                } else {
-                    $pecasNaoClassificadas += $pecas;
+                }
+
+                $stmtRank = $pdo->prepare("
+                    SELECT c.celula_nome, COUNT(DISTINCT r.id) AS n_ofs, SUM(r.qtd_a_produzir) AS pecas
+                    FROM atraso_distribuicao_celulas c
+                    JOIN atraso_distribuicao_registros r ON r.id = c.registro_id
+                    WHERE " . implode(' AND ', $whereRanking) . "
+                    GROUP BY c.celula_nome
+                ");
+                $stmtRank->execute($paramsRanking);
+                while ($rowAtraso = $stmtRank->fetch(PDO::FETCH_ASSOC)) {
+                    $pecas = (int) $rowAtraso['pecas'];
+                    $nome = (string) $rowAtraso['celula_nome'];
+                    if ($nome === 'Chassis' || $nome === 'Armadura') {
+                        continue;
+                    }
+                    if ($nome === 'Averiguar') {
+                        $pecasAguardandoMaterial += $pecas;
+                        $ofsAguardandoMaterial += (int) $rowAtraso['n_ofs'];
+                    } else {
+                        if (!isset($rankingSetores[$nome])) {
+                            $rankingSetores[$nome] = 0;
+                        }
+                        $rankingSetores[$nome] += $pecas;
+                    }
+                }
+            } else {
+                // Fallback para snapshots antigos (modelo funil com setor_real)
+                $whereRanking = ["data_extracao = :data_extracao", "data_programada < :data_corte_rank", "qtd_a_produzir > 0"];
+                $paramsRanking = ['data_extracao' => $maxData, 'data_corte_rank' => $dataCorte];
+
+                if ($linhaSel !== 'TODOS' && !empty($linhaSel)) {
+                    if ($linhaSel === 'MON') {
+                        $whereRanking[] = "(fases = 'MON' OR linha LIKE '%Mono%')";
+                    } elseif ($linhaSel === 'TRI') {
+                        $whereRanking[] = "(fases = 'TRI' OR linha LIKE '%Convencional%' OR linha LIKE '%JC%')";
+                    } elseif ($linhaSel === 'EPO') {
+                        $whereRanking[] = "(tipo_construtivo LIKE '%Seco%' OR linha LIKE '%EPO%')";
+                    } elseif ($linhaSel === 'POT') {
+                        $whereRanking[] = "(potencia_kva >= 150 OR linha LIKE '%POT%')";
+                    } else {
+                        $whereRanking[] = "(linha LIKE :linha_rank OR fases LIKE :linha_rank)";
+                        $paramsRanking['linha_rank'] = '%' . $linhaSel . '%';
+                    }
+                }
+
+                $stmtRank = $pdo->prepare("
+                    SELECT tipo_bloqueio, setor_real, COUNT(*) AS n_ofs, SUM(qtd_a_produzir) AS pecas
+                    FROM atraso_distribuicao_registros
+                    WHERE " . implode(' AND ', $whereRanking) . "
+                    GROUP BY tipo_bloqueio, setor_real
+                ");
+                $stmtRank->execute($paramsRanking);
+                while ($rowAtraso = $stmtRank->fetch(PDO::FETCH_ASSOC)) {
+                    $pecas = (int) $rowAtraso['pecas'];
+                    if ($rowAtraso['tipo_bloqueio'] === 'CELULA') {
+                        $nome = (string) $rowAtraso['setor_real'];
+                        if ($nome === 'Chassis' || $nome === 'Armadura') {
+                            continue;
+                        }
+                        if (!isset($rankingSetores[$nome])) {
+                            $rankingSetores[$nome] = 0;
+                        }
+                        $rankingSetores[$nome] += $pecas;
+                    } elseif ($rowAtraso['tipo_bloqueio'] === 'MATERIAL') {
+                        $pecasAguardandoMaterial += $pecas;
+                        $ofsAguardandoMaterial += (int) $rowAtraso['n_ofs'];
+                    } else {
+                        $pecasNaoClassificadas += $pecas;
+                    }
                 }
             }
         } catch (Throwable $e) {
             // Silencioso — mantém ranking zerado
         }
     }
+
+    // "Averiguar" (bloqueio 'MATERIAL' — ver boletimClassificarBloqueioReal()) entra como
+    // última barra do funil: não é célula do fluxo fabril, é a fábrica já ter terminado
+    // tudo e a OF ainda depender de PCP/Compras.
+    $rankingSetores['Averiguar'] = $pecasAguardandoMaterial;
 
     $labels = array_keys($rankingSetores);
     $valores = array_values($rankingSetores);
@@ -858,21 +1070,16 @@ function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linha
 }
 
 /**
- * Fator de avanço de etapa por setor em relação ao Laboratório (LAB / CONSOLIDADO = 1.00) —
- * mesmo mapeamento usado em boletimCalcularAderenciaMensal() (compensa perdas/retrabalho
- * entre etapas: uma célula anterior no fluxo processa um pouco mais de peças do que o
- * Laboratório efetivamente aprova no fim da linha).
+ * Fator de avanço de etapa por setor em relação ao Laboratório (LAB / CONSOLIDADO = 1.00).
+ * Conforme especificações da fábrica:
+ * - Solda (SOL) = 1.00 (meta igual ao Laboratório)
+ * - Corte de Núcleo (CNC) = 1.00 (meta igual ao Laboratório)
+ * - Setores de Acabamento & Final (MN, PIN, PA, MF, LAB) = 1.00
+ * - Bobinagem BT e AT calculam bobinas programadas pelas fases dos projetos (2x mono/bifásico, 3x trifásico).
  */
 function boletimFatorAvancoSetor(string $setorUpper): float
 {
-    return match (true) {
-        $setorUpper === 'BT' || $setorUpper === 'CNC' => 1.05,
-        $setorUpper === 'AT' => 1.04,
-        $setorUpper === 'SOL' || $setorUpper === 'PIN' => 1.03,
-        $setorUpper === 'MN' => 1.02,
-        $setorUpper === 'PA' => 1.01,
-        default => 1.00,
-    };
+    return 1.00;
 }
 
 /**
@@ -1022,7 +1229,11 @@ function boletimCalcularResumoDiario(string $dataInicio = '', string $dataFim = 
         $real = 0;
         $curDt = $dataInicio;
         while ($curDt <= $dataFim) {
-            $prog += (int) round(planoMestreObterProgramadoDia($curDt, 1, $linhaSel) * $fatorSetor);
+            if ($empresa === 1 && ($setorUpper === 'BT' || $setorUpper === 'AT')) {
+                $prog += (int) round(planoMestreObterBobinasProgramadasDia($curDt, 1, $linhaSel));
+            } else {
+                $prog += (int) round(planoMestreObterProgramadoDia($curDt, 1, $linhaSel) * $fatorSetor);
+            }
             $real += boletimRealizadoDiaPorSetor($setorUpper, $linhaSel, $nucleoPorDia[$curDt] ?? [], $porDia[$curDt] ?? []);
             $curDt = date('Y-m-d', strtotime($curDt . ' +1 day'));
         }
