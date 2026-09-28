@@ -206,28 +206,69 @@ function carregarEsteiraPedidos(): array
     }
 
     // 2. Programação do PCP (quantidade programada com OFs ativas)
+    // Mesmo shape UNION ALL + NOT EXISTS(id_Pk) da query principal de
+    // carregarPlanilhaProducaoFluxo (ver nota grande lá) — não usar COALESCE
+    // no JOIN nem ROW_NUMBER por cima do resultado, os dois já testados como
+    // lentos aqui também.
     $sqlProg = "
-        SELECT
-            p.cdPedido,
-            COUNT(DISTINCT cns.NumSerie) AS TotalNS_Gerados,
-            SUM(prog.Quantidade) AS QtdProgramada,
-            COUNT(DISTINCT prog.id_ProgProdPCP) AS TotalOFs
-        FROM dbo.CtrlNumSerie cns WITH(NOLOCK)
-        JOIN dbo.ProgramacaoProducao prog WITH(NOLOCK) ON cns.id_ProgProdPCP = prog.id_ProgProdPCP
-        JOIN dbo.It_Pedido it WITH(NOLOCK) ON cns.id_it_pedido = it.id_it_pedido
-        JOIN dbo.Pedidos p WITH(NOLOCK) ON it.id_Ped = p.id_Ped
-        JOIN dbo.Materiais m WITH(NOLOCK) ON it.id_Produto = m.id_Produto
-        JOIN dbo.SubGrupoProduto sg WITH(NOLOCK) ON m.id_SubGrupoPrd = sg.id_SubGrupoPrd
-        JOIN dbo.GrupoProduto gp WITH(NOLOCK) ON sg.id_grpProd = gp.id_grpProd
-        JOIN dbo.CatGrupo cg WITH(NOLOCK) ON gp.id_catGrupo = cg.id_catGrupo
-        WHERE p.id_Empresa = 1
-          AND p.PierSitReg = 'ATV'
-          AND it.PierSitReg = 'ATV'
-          AND p.dt_Pedido >= '$anoBase'
-          AND p.StatusPedido NOT IN ('CAN', 'ENT')
-          AND prog.PierSitReg = 'ATV'
-          AND cg.cd_CatGrupo BETWEEN 40 AND 44
-        GROUP BY p.cdPedido
+        SELECT cdPedido,
+            COUNT(DISTINCT NumSerie) AS TotalNS_Gerados,
+            SUM(Quantidade) AS QtdProgramada,
+            COUNT(DISTINCT id_ProgProdPCP) AS TotalOFs
+        FROM (
+            SELECT p.cdPedido, cns.NumSerie, prog.Quantidade, prog.id_ProgProdPCP
+            FROM dbo.CtrlNumSerie cns WITH(NOLOCK)
+            JOIN dbo.ProgramacaoProducao prog WITH(NOLOCK) ON cns.id_ProgProdPCP = prog.id_ProgProdPCP
+            JOIN dbo.It_Pedido it WITH(NOLOCK) ON cns.id_it_pedido = it.id_it_pedido
+            JOIN dbo.Pedidos p WITH(NOLOCK) ON it.id_Ped = p.id_Ped
+            JOIN dbo.Materiais m WITH(NOLOCK) ON it.id_Produto = m.id_Produto
+            JOIN dbo.SubGrupoProduto sg WITH(NOLOCK) ON m.id_SubGrupoPrd = sg.id_SubGrupoPrd
+            JOIN dbo.GrupoProduto gp WITH(NOLOCK) ON sg.id_grpProd = gp.id_grpProd
+            JOIN dbo.CatGrupo cg WITH(NOLOCK) ON gp.id_catGrupo = cg.id_catGrupo
+            WHERE cns.id_it_pedido <> 0
+              AND NOT EXISTS (
+                  SELECT 1 FROM dbo.CtrlNumSerie cns2 WITH(NOLOCK)
+                  WHERE cns2.NumSerie = cns.NumSerie AND cns2.id_it_pedido <> 0 AND cns2.id_Pk < cns.id_Pk
+              )
+              AND p.id_Empresa = 1
+              AND p.PierSitReg = 'ATV'
+              AND it.PierSitReg = 'ATV'
+              AND p.dt_Pedido >= '$anoBase'
+              AND p.StatusPedido NOT IN ('CAN', 'ENT')
+              AND prog.PierSitReg = 'ATV'
+              AND cg.cd_CatGrupo BETWEEN 40 AND 44
+
+            UNION ALL
+
+            SELECT p.cdPedido, cns.NumSerie, prog.Quantidade, prog.id_ProgProdPCP
+            FROM dbo.CtrlNumSerie cns WITH(NOLOCK)
+            JOIN dbo.ProgramacaoProducao prog WITH(NOLOCK) ON cns.id_ProgProdPCP = prog.id_ProgProdPCP
+            JOIN dbo.RlcCtrlItemPedidoPCPProgProd rlc_cip WITH(NOLOCK) ON rlc_cip.id_ProgProdPCP = prog.id_ProgProdPCP AND rlc_cip.PierSitReg = 'ATV'
+            JOIN dbo.CtrlItemPedidoPCP cip WITH(NOLOCK) ON cip.IDCtrlItPedidoPCP = rlc_cip.IDCtrlItPedidoPCP AND cip.PierSitReg = 'ATV'
+            JOIN dbo.It_Pedido it WITH(NOLOCK) ON cip.id_it_pedido = it.id_it_pedido
+            JOIN dbo.Pedidos p WITH(NOLOCK) ON it.id_Ped = p.id_Ped
+            JOIN dbo.Materiais m WITH(NOLOCK) ON it.id_Produto = m.id_Produto
+            JOIN dbo.SubGrupoProduto sg WITH(NOLOCK) ON m.id_SubGrupoPrd = sg.id_SubGrupoPrd
+            JOIN dbo.GrupoProduto gp WITH(NOLOCK) ON sg.id_grpProd = gp.id_grpProd
+            JOIN dbo.CatGrupo cg WITH(NOLOCK) ON gp.id_catGrupo = cg.id_catGrupo
+            WHERE cns.id_it_pedido = 0
+              AND NOT EXISTS (
+                  SELECT 1 FROM dbo.CtrlNumSerie cns2 WITH(NOLOCK)
+                  WHERE cns2.NumSerie = cns.NumSerie AND cns2.id_it_pedido <> 0
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM dbo.CtrlNumSerie cns3 WITH(NOLOCK)
+                  WHERE cns3.NumSerie = cns.NumSerie AND cns3.id_it_pedido = 0 AND cns3.id_Pk < cns.id_Pk
+              )
+              AND p.id_Empresa = 1
+              AND p.PierSitReg = 'ATV'
+              AND it.PierSitReg = 'ATV'
+              AND p.dt_Pedido >= '$anoBase'
+              AND p.StatusPedido NOT IN ('CAN', 'ENT')
+              AND prog.PierSitReg = 'ATV'
+              AND cg.cd_CatGrupo BETWEEN 40 AND 44
+        ) x
+        GROUP BY cdPedido
     ";
     $programadosMap = [];
     try {
@@ -470,6 +511,53 @@ function obterDadosSetorEspecifico(string $setor): array
 }
 
 // ─── Motor 2: Planilha de Produção (10 células do chão de fábrica) ─────────
+
+/**
+ * Célula fabril (CH BT AT CNC SOL MN PIN ME MF LAB) de uma sub-OF pela referência
+ * do produto, ou null se a referência não pertence a nenhuma célula rastreada.
+ */
+function fluxoCelulaDaReferencia(string $referencia): ?string
+{
+    $ref = strtoupper(trim($referencia));
+
+    if (str_starts_with($ref, 'MDA') || str_starts_with($ref, 'MFU')) return 'CH';
+    if (str_starts_with($ref, 'BT-') || str_starts_with($ref, 'BT_') || $ref === 'BT') return 'BT';
+    if (str_starts_with($ref, 'AT-') || str_starts_with($ref, 'AT_') || $ref === 'AT') return 'AT';
+    if (str_starts_with($ref, 'CNC')) return 'CNC';
+    if (str_starts_with($ref, 'MTP')) return 'SOL';
+    if (str_starts_with($ref, 'MN-') || str_starts_with($ref, 'MNC')) return 'MN';
+    if (str_starts_with($ref, 'MTQ')) return 'PIN';
+    if (str_starts_with($ref, 'ME-') || str_starts_with($ref, 'ME_') || $ref === 'ME'
+        || str_starts_with($ref, 'PA-') || str_starts_with($ref, 'PA_') || $ref === 'PA') return 'ME';
+    if (str_starts_with($ref, 'MFL')) return 'MF';
+    if (str_starts_with($ref, 'LAB')) return 'LAB';
+
+    return null;
+}
+
+/**
+ * Núcleo (taps) do transformador e multiplicador de bobinas, pela regra da fábrica:
+ * EMP; JC trifásico = JC-TRIF; JC mono/bifásico = JC; o resto = ENR.
+ *
+ * @return array{0:string,1:int} [taps, mult_bobinas]
+ */
+function fluxoClassificarTaps(?string $tipoNucleo, ?string $fases): array
+{
+    $tapsRaw = strtoupper(trim((string) $tipoNucleo));
+    $fasesRaw = strtoupper(trim((string) $fases));
+
+    if (strpos($tapsRaw, 'EMP') !== false) {
+        return ['EMP', 3];
+    }
+    if (strpos($tapsRaw, 'JC') !== false) {
+        if ($fasesRaw === 'TRI' || strpos($fasesRaw, '3F') !== false) {
+            return ['JC-TRIF', 3];
+        }
+        return ['JC', 2];
+    }
+    return ['ENR', 2];
+}
+
 function avaliarStatusCelulaFluxo(array $subNos, string $tipo, bool $isMaeEnc): string
 {
     if ($isMaeEnc) return 'OK';
@@ -478,47 +566,11 @@ function avaliarStatusCelulaFluxo(array $subNos, string $tipo, bool $isMaeEnc): 
     if (empty($subNos)) return 'DESCONHECIDO';
 
     foreach ($subNos as $n) {
-        $ref = strtoupper(trim((string) ($n['cd_Referencia'] ?? '')));
         $st = strtoupper(trim((string) ($n['StatusOF'] ?? '')));
         $qtdProd = (float) ($n['QtdProduzida'] ?? 0);
         $qtdTot = (float) ($n['Quantidade'] ?? 0);
 
-        $match = false;
-        switch ($tipo) {
-            case 'CH':
-                if (str_starts_with($ref, 'MDA') || str_starts_with($ref, 'MFU')) $match = true;
-                break;
-            case 'BT':
-                if (str_starts_with($ref, 'BT-') || str_starts_with($ref, 'BT_') || $ref === 'BT') $match = true;
-                break;
-            case 'AT':
-                if (str_starts_with($ref, 'AT-') || str_starts_with($ref, 'AT_') || $ref === 'AT') $match = true;
-                break;
-            case 'CNC':
-                if (str_starts_with($ref, 'CNC')) $match = true;
-                break;
-            case 'SOL':
-                if (str_starts_with($ref, 'MTP')) $match = true;
-                break;
-            case 'MN':
-                if (str_starts_with($ref, 'MN-') || str_starts_with($ref, 'MNC')) $match = true;
-                break;
-            case 'PIN':
-                if (str_starts_with($ref, 'MTQ')) $match = true;
-                break;
-            case 'ME':
-                if (str_starts_with($ref, 'ME-') || str_starts_with($ref, 'ME_') || $ref === 'ME'
-                    || str_starts_with($ref, 'PA-') || str_starts_with($ref, 'PA_') || $ref === 'PA') $match = true;
-                break;
-            case 'MF':
-                if (str_starts_with($ref, 'MFL')) $match = true;
-                break;
-            case 'LAB':
-                if (str_starts_with($ref, 'LAB')) $match = true;
-                break;
-        }
-
-        if ($match) {
+        if (fluxoCelulaDaReferencia((string) ($n['cd_Referencia'] ?? '')) === $tipo) {
             if ($st === 'ENC' || ($qtdTot > 0 && $qtdProd >= $qtdTot)) {
                 return 'OK';
             }
@@ -527,6 +579,13 @@ function avaliarStatusCelulaFluxo(array $subNos, string $tipo, bool $isMaeEnc): 
     return 'PEND';
 }
 
+// Serve sempre do snapshot em cache: a consulta ao vivo no VSAT (ver
+// carregarPlanilhaProducaoFluxoAoVivo) é pesada demais pra rodar a cada
+// carregamento de tela (~15 joins; passou de 4min30s mesmo com filtro de 25
+// dias — testado ao vivo em 25/09/2026). O cache é atualizado por
+// scripts/atualizar_fluxo_planilha.php, agendado no Windows (mesmo padrão do
+// scripts/atualizar_atraso.php) — não fazer essa função voltar a consultar o
+// SQL Server direto.
 function carregarPlanilhaProducaoFluxo(
     ?int $limite = null,
     ?string $dtInicio = null,
@@ -541,89 +600,114 @@ function carregarPlanilhaProducaoFluxo(
     ?string $filtroEmpresa = null // '1', '4' ou null (ambas)
 ): array {
     $cacheFile = __DIR__ . '/../storage/cache/fluxo_planilha.json';
+
+    if (!is_file($cacheFile)) {
+        return ['sucesso' => false, 'erro' => 'Cache da planilha de produção ainda não foi gerado. Rode scripts/atualizar_fluxo_planilha.php.'];
+    }
+
+    $raw = @file_get_contents($cacheFile);
+    if ($raw === false) {
+        return ['sucesso' => false, 'erro' => 'Não foi possível ler o cache da planilha de produção.'];
+    }
+
+    $dados = @json_decode($raw, true);
+    if (!is_array($dados) || !isset($dados['sucesso']) || $dados['sucesso'] !== true) {
+        return ['sucesso' => false, 'erro' => 'Cache da planilha de produção está corrompido. Rode scripts/atualizar_fluxo_planilha.php.'];
+    }
+
+    $itens = $dados['itens'] ?? [];
+
+    if ($filtroEmpresa !== null && $filtroEmpresa !== '') {
+        $itens = array_values(array_filter($itens, function ($it) use ($filtroEmpresa) {
+            return (string) ($it['empresa'] ?? '1') === (string) $filtroEmpresa;
+        }));
+    }
+    if ($statusFila === 'em_aberto') {
+        $itens = array_values(array_filter($itens, function ($it) {
+            return empty($it['is_concluido']);
+        }));
+    } elseif ($statusFila === 'concluidos') {
+        $itens = array_values(array_filter($itens, function ($it) {
+            return !empty($it['is_concluido']);
+        }));
+    }
+    if (!empty($dtInicio)) {
+        $itens = array_values(array_filter($itens, function ($it) use ($dtInicio) {
+            return !empty($it['data_raw']) && substr($it['data_raw'], 0, 10) >= $dtInicio;
+        }));
+    }
+    if (!empty($dtFim)) {
+        $itens = array_values(array_filter($itens, function ($it) use ($dtFim) {
+            return !empty($it['data_raw']) && substr($it['data_raw'], 0, 10) <= $dtFim;
+        }));
+    }
+    if (!empty($mes) && $mes > 0) {
+        $itens = array_values(array_filter($itens, function ($it) use ($mes) {
+            if (empty($it['data_raw'])) return false;
+            return (int) date('m', strtotime($it['data_raw'])) === $mes;
+        }));
+    }
+    if (!empty($ano) && $ano > 0) {
+        $itens = array_values(array_filter($itens, function ($it) use ($ano) {
+            if (empty($it['data_raw'])) return false;
+            return (int) date('Y', strtotime($it['data_raw'])) === $ano;
+        }));
+    }
+    if (!empty($semana) && $semana > 0) {
+        $itens = array_values(array_filter($itens, function ($it) use ($semana) {
+            return (int) ($it['sem'] ?? 0) === $semana;
+        }));
+    }
+    if (!empty($filtroPedido)) {
+        $itens = array_values(array_filter($itens, function ($it) use ($filtroPedido) {
+            return stripos((string) ($it['pedido'] ?? ''), $filtroPedido) !== false;
+        }));
+    }
+    if (!empty($filtroProjeto)) {
+        $itens = array_values(array_filter($itens, function ($it) use ($filtroProjeto) {
+            return stripos((string) ($it['projeto'] ?? ''), $filtroProjeto) !== false || stripos((string) ($it['desc_projeto'] ?? ''), $filtroProjeto) !== false;
+        }));
+    }
+    if (!empty($filtroNS)) {
+        $itens = array_values(array_filter($itens, function ($it) use ($filtroNS) {
+            return stripos((string) ($it['nr_serie'] ?? ''), $filtroNS) !== false;
+        }));
+    }
+    if ($limite !== null && $limite > 0) {
+        $itens = array_slice($itens, 0, $limite);
+    }
+
+    $totalConcluidos = count(array_filter($itens, fn($x) => !empty($x['is_concluido'])));
+    $totalPendentes = count($itens) - $totalConcluidos;
+
+    return sanitizarUtf8Recursivo([
+        'sucesso'          => true,
+        'total'            => count($itens),
+        'total_concluidos' => $totalConcluidos,
+        'total_pendentes'  => $totalPendentes,
+        'itens'            => $itens,
+        'gerado_em'        => $dados['gerado_em'] ?? null,
+    ]);
+}
+
+// Consulta pesada direto no VSAT — usada só por scripts/atualizar_fluxo_planilha.php
+// pra regravar o cache; nunca chamar isso direto de uma requisição de tela
+// (ver carregarPlanilhaProducaoFluxo() acima, que serve do cache).
+function carregarPlanilhaProducaoFluxoAoVivo(
+    ?int $limite = null,
+    ?string $dtInicio = null,
+    ?string $dtFim = null,
+    ?int $semana = null,
+    ?int $mes = null,
+    ?int $ano = null,
+    ?string $filtroPedido = null,
+    ?string $filtroProjeto = null,
+    ?string $filtroNS = null,
+    ?string $statusFila = 'em_aberto', // 'todos', 'em_aberto', 'concluidos'
+    ?string $filtroEmpresa = null // '1', '4' ou null (ambas)
+): array {
     $pdo = getSqlServerDB();
     if (!$pdo) {
-        if (is_file($cacheFile)) {
-            $raw = @file_get_contents($cacheFile);
-            if ($raw !== false) {
-                $dados = @json_decode($raw, true);
-                if (is_array($dados) && isset($dados['sucesso']) && $dados['sucesso'] === true) {
-                    $itens = $dados['itens'] ?? [];
-
-                    // Filtrar em memória se estiver servindo do cache
-                    if ($filtroEmpresa !== null && $filtroEmpresa !== '') {
-                        $itens = array_values(array_filter($itens, function ($it) use ($filtroEmpresa) {
-                            return (string) ($it['empresa'] ?? '1') === (string) $filtroEmpresa;
-                        }));
-                    }
-                    if ($statusFila === 'em_aberto') {
-                        $itens = array_values(array_filter($itens, function ($it) {
-                            return empty($it['is_concluido']);
-                        }));
-                    } elseif ($statusFila === 'concluidos') {
-                        $itens = array_values(array_filter($itens, function ($it) {
-                            return !empty($it['is_concluido']);
-                        }));
-                    }
-                    if (!empty($dtInicio)) {
-                        $itens = array_values(array_filter($itens, function ($it) use ($dtInicio) {
-                            return !empty($it['data_raw']) && substr($it['data_raw'], 0, 10) >= $dtInicio;
-                        }));
-                    }
-                    if (!empty($dtFim)) {
-                        $itens = array_values(array_filter($itens, function ($it) use ($dtFim) {
-                            return !empty($it['data_raw']) && substr($it['data_raw'], 0, 10) <= $dtFim;
-                        }));
-                    }
-                    if (!empty($mes) && $mes > 0) {
-                        $itens = array_values(array_filter($itens, function ($it) use ($mes) {
-                            if (empty($it['data_raw'])) return false;
-                            return (int) date('m', strtotime($it['data_raw'])) === $mes;
-                        }));
-                    }
-                    if (!empty($ano) && $ano > 0) {
-                        $itens = array_values(array_filter($itens, function ($it) use ($ano) {
-                            if (empty($it['data_raw'])) return false;
-                            return (int) date('Y', strtotime($it['data_raw'])) === $ano;
-                        }));
-                    }
-                    if (!empty($semana) && $semana > 0) {
-                        $itens = array_values(array_filter($itens, function ($it) use ($semana) {
-                            return (int) ($it['sem'] ?? 0) === $semana;
-                        }));
-                    }
-                    if (!empty($filtroPedido)) {
-                        $itens = array_values(array_filter($itens, function ($it) use ($filtroPedido) {
-                            return stripos((string) ($it['pedido'] ?? ''), $filtroPedido) !== false;
-                        }));
-                    }
-                    if (!empty($filtroProjeto)) {
-                        $itens = array_values(array_filter($itens, function ($it) use ($filtroProjeto) {
-                            return stripos((string) ($it['projeto'] ?? ''), $filtroProjeto) !== false || stripos((string) ($it['desc_projeto'] ?? ''), $filtroProjeto) !== false;
-                        }));
-                    }
-                    if (!empty($filtroNS)) {
-                        $itens = array_values(array_filter($itens, function ($it) use ($filtroNS) {
-                            return stripos((string) ($it['nr_serie'] ?? ''), $filtroNS) !== false;
-                        }));
-                    }
-                    if ($limite !== null && $limite > 0) {
-                        $itens = array_slice($itens, 0, $limite);
-                    }
-
-                    $totalConcluidos = count(array_filter($itens, fn($x) => !empty($x['is_concluido'])));
-                    $totalPendentes = count($itens) - $totalConcluidos;
-
-                    return sanitizarUtf8Recursivo([
-                        'sucesso'          => true,
-                        'total'            => count($itens),
-                        'total_concluidos' => $totalConcluidos,
-                        'total_pendentes'  => $totalPendentes,
-                        'itens'            => $itens,
-                    ]);
-                }
-            }
-        }
         return ['sucesso' => false, 'erro' => 'Não foi possível conectar ao SQL Server Trael.'];
     }
 
@@ -690,60 +774,154 @@ function carregarPlanilhaProducaoFluxo(
     $whereStr = implode(' AND ', $where);
     $topClause = ($limite !== null && $limite > 0) ? "TOP $limite" : "";
 
+    // Vínculo cns->it_pedido em 2 ramos via UNION ALL (não COALESCE): testado ao
+    // vivo contra o VSAT (23/09/2026) — um único JOIN por
+    // it.id_it_pedido = COALESCE(NULLIF(cns.id_it_pedido,0), cip.id_it_pedido)
+    // no meio desses ~15 joins faz o otimizador escolher um plano ruim (40s a
+    // vários minutos, 10-100x mais lento) porque a condição deixa de ser uma
+    // igualdade simples sobre coluna indexada. Cada ramo abaixo usa um JOIN
+    // direto (cns.id_it_pedido = it.id_it_pedido, ou cip.id_it_pedido =
+    // it.id_it_pedido), igual ao shape da query original — tempo de volta a
+    // ~2-6s.
+    //
+    // Dedup por NumSerie via NOT EXISTS (não ROW_NUMBER: testado, um
+    // ROW_NUMBER() OVER (PARTITION BY NumSerie) por cima do UNION ALL também
+    // volta a ser lento — 80-180s — porque força materializar/ordenar as ~28
+    // colunas do resultado inteiro antes de filtrar; NOT EXISTS deixa o
+    // otimizador aplicar os filtros por linha, sem materializar nada):
+    // o VSAT às vezes tem 2+ linhas em CtrlNumSerie pro mesmo NumSerie —
+    // combinações já vistas: uma com id_it_pedido preenchido + uma "espelho"
+    // com 0 (ex.: pedido 70506/NS 868575 tinha SÓ as espelho, por isso sumia
+    // antes do fallback via cip), ou até 2 linhas ambas com id_it_pedido = 0
+    // pro mesmo id_ProgProdPCP (ex.: NS 860322). O desempate final usa
+    // cns.id_Pk (PK real da tabela, única mesmo quando todo o resto empata):
+    //   - ramo 1 (id_it_pedido<>0): só a linha de MENOR id_Pk entre as que têm
+    //     link direto pro mesmo NumSerie;
+    //   - ramo 2 (id_it_pedido=0, via cip): só entra se NENHUMA linha do mesmo
+    //     NumSerie tiver link direto, e só a de MENOR id_Pk entre as "zeradas".
     $sql = "
-        SELECT $topClause
-            cns.NumSerie,
-            cns.id_ProgProdPCP,
-            COALESCE(emp_prog.cdEnt, emp_ped.cdEnt, '1') AS EmpDestino,
-            p.cdPedido AS Pedido,
-            cli.Nome AS Cliente,
-            cli.Apelido AS ClienteApelido,
-            m.cd_Referencia AS Projeto,
-            m.ds_Prod AS DescricaoProjeto,
-            ISNULL(cip.SeqPlano, 0) AS SeqPlano,
-            pot.PotenciaKVA,
-            cl.ds_classeTensaoTrafo AS ClasseTensao,
-            tp.ds_TpEnrolamentoNucleo AS TipoNucleo,
-            esp.nrofasesTrafo AS Fases,
-            norm.ds_normaTrafo AS DescrNormaTrafo,
-            tc.ds_tpConstrTrafo AS DsTipoConstrTrafo,
-            prog.DataHoraProducaoAux,
-            DATEPART(WEEK, prog.DataHoraProducaoAux) AS SEM,
-            ofp.id_of,
-            ofp.cd_of AS OF_Mae,
-            ofp.dt_OF AS DataOF_Mae,
-            ofp.StatusOF,
-            ofp.Quantidade AS Qtd_OF_Mae,
-            ofp.QtdProduzida AS QtdProd_OF_Mae,
-            cg.cd_CatGrupo,
-            cg.ds_CatGrupo
-        FROM dbo.CtrlNumSerie cns WITH(NOLOCK)
-        JOIN dbo.ProgramacaoProducao prog WITH(NOLOCK) ON cns.id_ProgProdPCP = prog.id_ProgProdPCP
-        JOIN dbo.It_Pedido it WITH(NOLOCK) ON cns.id_it_pedido = it.id_it_pedido
-        JOIN dbo.Pedidos p WITH(NOLOCK) ON it.id_Ped = p.id_Ped
-        JOIN dbo.Entidade cli WITH(NOLOCK) ON p.id_Cliente = cli.Id_Ent
-        LEFT JOIN dbo.Entidade emp_ped WITH(NOLOCK) ON p.id_Empresa = emp_ped.Id_Ent
-        LEFT JOIN dbo.Entidade emp_prog WITH(NOLOCK) ON prog.id_Empresa = emp_prog.Id_Ent
-        JOIN dbo.Materiais m WITH(NOLOCK) ON cns.id_Produto = m.id_Produto
-        JOIN dbo.SubGrupoProduto sg WITH(NOLOCK) ON m.id_SubGrupoPrd = sg.id_SubGrupoPrd
-        JOIN dbo.GrupoProduto gp WITH(NOLOCK) ON sg.id_grpProd = gp.id_grpProd
-        JOIN dbo.CatGrupo cg WITH(NOLOCK) ON gp.id_catGrupo = cg.id_catGrupo
-        LEFT JOIN dbo.OrdemFabricacao ofp WITH(NOLOCK) ON cns.id_of = ofp.id_of
-        LEFT JOIN dbo.EspecTrafo esp WITH(NOLOCK) ON m.id_Produto = esp.id_Produto
-        LEFT JOIN dbo.Potencia pot WITH(NOLOCK) ON esp.id_potencia = pot.id_potencia
-        LEFT JOIN dbo.ClasseTensaoTrafo cl WITH(NOLOCK) ON esp.id_classeTensaoTrafo = cl.id_classeTensaoTrafo
-        LEFT JOIN dbo.TipoEnrolamentoNucleo tp WITH(NOLOCK) ON esp.id_TpEnrolamentoNucleo = tp.id_TpEnrolamentoNucleo
-        LEFT JOIN dbo.NormaTrafo norm WITH(NOLOCK) ON esp.id_normaTrafo = norm.id_normaTrafo
-        LEFT JOIN dbo.TipoConstrutivoTrafo tc WITH(NOLOCK) ON esp.id_tpConstrTrafo = tc.id_tpConstrTrafo
-        LEFT JOIN dbo.RlcCtrlItemPedidoPCPProgProd rlc_cip WITH(NOLOCK) ON rlc_cip.id_ProgProdPCP = prog.id_ProgProdPCP AND rlc_cip.PierSitReg = 'ATV'
-        LEFT JOIN dbo.CtrlItemPedidoPCP cip WITH(NOLOCK) ON cip.IDCtrlItPedidoPCP = rlc_cip.IDCtrlItPedidoPCP AND cip.PierSitReg = 'ATV'
-        WHERE $whereStr
-        ORDER BY prog.DataHoraProducaoAux ASC, ISNULL(cip.SeqPlano, 0) ASC, p.cdPedido ASC, cns.NumSerie ASC
+        SELECT $topClause * FROM (
+            SELECT
+                cns.NumSerie,
+                cns.id_ProgProdPCP,
+                COALESCE(emp_prog.cdEnt, emp_ped.cdEnt, '1') AS EmpDestino,
+                p.cdPedido AS Pedido,
+                cli.Nome AS Cliente,
+                cli.Apelido AS ClienteApelido,
+                m.cd_Referencia AS Projeto,
+                m.ds_Prod AS DescricaoProjeto,
+                ISNULL(cip.SeqPlano, 0) AS SeqPlano,
+                pot.PotenciaKVA,
+                cl.ds_classeTensaoTrafo AS ClasseTensao,
+                tp.ds_TpEnrolamentoNucleo AS TipoNucleo,
+                esp.nrofasesTrafo AS Fases,
+                norm.ds_normaTrafo AS DescrNormaTrafo,
+                tc.ds_tpConstrTrafo AS DsTipoConstrTrafo,
+                prog.DataHoraProducaoAux,
+                DATEPART(WEEK, prog.DataHoraProducaoAux) AS SEM,
+                ofp.id_of,
+                ofp.cd_of AS OF_Mae,
+                ofp.dt_OF AS DataOF_Mae,
+                ofp.StatusOF,
+                ofp.Quantidade AS Qtd_OF_Mae,
+                ofp.QtdProduzida AS QtdProd_OF_Mae,
+                cg.cd_CatGrupo,
+                cg.ds_CatGrupo
+            FROM dbo.CtrlNumSerie cns WITH(NOLOCK)
+            JOIN dbo.ProgramacaoProducao prog WITH(NOLOCK) ON cns.id_ProgProdPCP = prog.id_ProgProdPCP
+            LEFT JOIN dbo.RlcCtrlItemPedidoPCPProgProd rlc_cip WITH(NOLOCK) ON rlc_cip.id_ProgProdPCP = prog.id_ProgProdPCP AND rlc_cip.PierSitReg = 'ATV'
+            LEFT JOIN dbo.CtrlItemPedidoPCP cip WITH(NOLOCK) ON cip.IDCtrlItPedidoPCP = rlc_cip.IDCtrlItPedidoPCP AND cip.PierSitReg = 'ATV'
+            JOIN dbo.It_Pedido it WITH(NOLOCK) ON cns.id_it_pedido = it.id_it_pedido
+            JOIN dbo.Pedidos p WITH(NOLOCK) ON it.id_Ped = p.id_Ped
+            JOIN dbo.Entidade cli WITH(NOLOCK) ON p.id_Cliente = cli.Id_Ent
+            LEFT JOIN dbo.Entidade emp_ped WITH(NOLOCK) ON p.id_Empresa = emp_ped.Id_Ent
+            LEFT JOIN dbo.Entidade emp_prog WITH(NOLOCK) ON prog.id_Empresa = emp_prog.Id_Ent
+            JOIN dbo.Materiais m WITH(NOLOCK) ON cns.id_Produto = m.id_Produto
+            JOIN dbo.SubGrupoProduto sg WITH(NOLOCK) ON m.id_SubGrupoPrd = sg.id_SubGrupoPrd
+            JOIN dbo.GrupoProduto gp WITH(NOLOCK) ON sg.id_grpProd = gp.id_grpProd
+            JOIN dbo.CatGrupo cg WITH(NOLOCK) ON gp.id_catGrupo = cg.id_catGrupo
+            LEFT JOIN dbo.OrdemFabricacao ofp WITH(NOLOCK) ON cns.id_of = ofp.id_of
+            LEFT JOIN dbo.EspecTrafo esp WITH(NOLOCK) ON m.id_Produto = esp.id_Produto
+            LEFT JOIN dbo.Potencia pot WITH(NOLOCK) ON esp.id_potencia = pot.id_potencia
+            LEFT JOIN dbo.ClasseTensaoTrafo cl WITH(NOLOCK) ON esp.id_classeTensaoTrafo = cl.id_classeTensaoTrafo
+            LEFT JOIN dbo.TipoEnrolamentoNucleo tp WITH(NOLOCK) ON esp.id_TpEnrolamentoNucleo = tp.id_TpEnrolamentoNucleo
+            LEFT JOIN dbo.NormaTrafo norm WITH(NOLOCK) ON esp.id_normaTrafo = norm.id_normaTrafo
+            LEFT JOIN dbo.TipoConstrutivoTrafo tc WITH(NOLOCK) ON esp.id_tpConstrTrafo = tc.id_tpConstrTrafo
+            WHERE cns.id_it_pedido <> 0
+              AND NOT EXISTS (
+                  SELECT 1 FROM dbo.CtrlNumSerie cns2 WITH(NOLOCK)
+                  WHERE cns2.NumSerie = cns.NumSerie AND cns2.id_it_pedido <> 0 AND cns2.id_Pk < cns.id_Pk
+              )
+              AND $whereStr
+
+            UNION ALL
+
+            SELECT
+                cns.NumSerie,
+                cns.id_ProgProdPCP,
+                COALESCE(emp_prog.cdEnt, emp_ped.cdEnt, '1') AS EmpDestino,
+                p.cdPedido AS Pedido,
+                cli.Nome AS Cliente,
+                cli.Apelido AS ClienteApelido,
+                m.cd_Referencia AS Projeto,
+                m.ds_Prod AS DescricaoProjeto,
+                ISNULL(cip.SeqPlano, 0) AS SeqPlano,
+                pot.PotenciaKVA,
+                cl.ds_classeTensaoTrafo AS ClasseTensao,
+                tp.ds_TpEnrolamentoNucleo AS TipoNucleo,
+                esp.nrofasesTrafo AS Fases,
+                norm.ds_normaTrafo AS DescrNormaTrafo,
+                tc.ds_tpConstrTrafo AS DsTipoConstrTrafo,
+                prog.DataHoraProducaoAux,
+                DATEPART(WEEK, prog.DataHoraProducaoAux) AS SEM,
+                ofp.id_of,
+                ofp.cd_of AS OF_Mae,
+                ofp.dt_OF AS DataOF_Mae,
+                ofp.StatusOF,
+                ofp.Quantidade AS Qtd_OF_Mae,
+                ofp.QtdProduzida AS QtdProd_OF_Mae,
+                cg.cd_CatGrupo,
+                cg.ds_CatGrupo
+            FROM dbo.CtrlNumSerie cns WITH(NOLOCK)
+            JOIN dbo.ProgramacaoProducao prog WITH(NOLOCK) ON cns.id_ProgProdPCP = prog.id_ProgProdPCP
+            JOIN dbo.RlcCtrlItemPedidoPCPProgProd rlc_cip WITH(NOLOCK) ON rlc_cip.id_ProgProdPCP = prog.id_ProgProdPCP AND rlc_cip.PierSitReg = 'ATV'
+            JOIN dbo.CtrlItemPedidoPCP cip WITH(NOLOCK) ON cip.IDCtrlItPedidoPCP = rlc_cip.IDCtrlItPedidoPCP AND cip.PierSitReg = 'ATV'
+            JOIN dbo.It_Pedido it WITH(NOLOCK) ON cip.id_it_pedido = it.id_it_pedido
+            JOIN dbo.Pedidos p WITH(NOLOCK) ON it.id_Ped = p.id_Ped
+            JOIN dbo.Entidade cli WITH(NOLOCK) ON p.id_Cliente = cli.Id_Ent
+            LEFT JOIN dbo.Entidade emp_ped WITH(NOLOCK) ON p.id_Empresa = emp_ped.Id_Ent
+            LEFT JOIN dbo.Entidade emp_prog WITH(NOLOCK) ON prog.id_Empresa = emp_prog.Id_Ent
+            JOIN dbo.Materiais m WITH(NOLOCK) ON cns.id_Produto = m.id_Produto
+            JOIN dbo.SubGrupoProduto sg WITH(NOLOCK) ON m.id_SubGrupoPrd = sg.id_SubGrupoPrd
+            JOIN dbo.GrupoProduto gp WITH(NOLOCK) ON sg.id_grpProd = gp.id_grpProd
+            JOIN dbo.CatGrupo cg WITH(NOLOCK) ON gp.id_catGrupo = cg.id_catGrupo
+            LEFT JOIN dbo.OrdemFabricacao ofp WITH(NOLOCK) ON cns.id_of = ofp.id_of
+            LEFT JOIN dbo.EspecTrafo esp WITH(NOLOCK) ON m.id_Produto = esp.id_Produto
+            LEFT JOIN dbo.Potencia pot WITH(NOLOCK) ON esp.id_potencia = pot.id_potencia
+            LEFT JOIN dbo.ClasseTensaoTrafo cl WITH(NOLOCK) ON esp.id_classeTensaoTrafo = cl.id_classeTensaoTrafo
+            LEFT JOIN dbo.TipoEnrolamentoNucleo tp WITH(NOLOCK) ON esp.id_TpEnrolamentoNucleo = tp.id_TpEnrolamentoNucleo
+            LEFT JOIN dbo.NormaTrafo norm WITH(NOLOCK) ON esp.id_normaTrafo = norm.id_normaTrafo
+            LEFT JOIN dbo.TipoConstrutivoTrafo tc WITH(NOLOCK) ON esp.id_tpConstrTrafo = tc.id_tpConstrTrafo
+            WHERE cns.id_it_pedido = 0
+              AND NOT EXISTS (
+                  SELECT 1 FROM dbo.CtrlNumSerie cns2 WITH(NOLOCK)
+                  WHERE cns2.NumSerie = cns.NumSerie AND cns2.id_it_pedido <> 0
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM dbo.CtrlNumSerie cns3 WITH(NOLOCK)
+                  WHERE cns3.NumSerie = cns.NumSerie AND cns3.id_it_pedido = 0 AND cns3.id_Pk < cns.id_Pk
+              )
+              AND $whereStr
+        ) x
+        ORDER BY x.DataHoraProducaoAux ASC, x.SeqPlano ASC, x.Pedido ASC, x.NumSerie ASC
     ";
 
     try {
         $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
+        // $whereStr aparece 2x no SQL (um por ramo do UNION ALL) -- os mesmos
+        // placeholders (filtroPedido/filtroProjeto/filtroNS) se repetem, então
+        // os parâmetros também precisam se repetir na mesma ordem.
+        $stmt->execute(array_merge($params, $params));
         $registros = $stmt->fetchAll();
     } catch (Throwable $e) {
         return ['sucesso' => false, 'erro' => 'Erro ao consultar planilha: ' . $e->getMessage()];
@@ -758,7 +936,49 @@ function carregarPlanilhaProducaoFluxo(
     // histórico (pedido 69549 / NS 850297-850300, ver PROJETO-PCP.md) já foi
     // corrigido alargando de "só OF-mãe" pra essa cadeia — não simplificar de
     // volta pra um único join.
+    //
+    // Não precisa do ROW_NUMBER de dedup por NumSerie que a query principal usa:
+    // o SELECT DISTINCT abaixo não inclui cns.NumSerie no resultado, só
+    // cns.id_ProgProdPCP (igual nas 2 linhas-espelho que o CtrlNumSerie às vezes
+    // tem pro mesmo NumSerie — ver comentário na query principal) + colunas de
+    // m_sub/ofp_sub (também idênticas, pois dependem só de id_ProgProdPCP) — o
+    // DISTINCT já colapsa a duplicata sozinho.
     $componentesPorProgId = [];
+    $refsSub = "(
+            m_sub.cd_Referencia LIKE 'MDA%' OR
+            m_sub.cd_Referencia LIKE 'MFU%' OR
+            m_sub.cd_Referencia LIKE 'BT%' OR
+            m_sub.cd_Referencia LIKE 'AT%' OR
+            m_sub.cd_Referencia LIKE 'CNC%' OR
+            m_sub.cd_Referencia LIKE 'MTP%' OR
+            m_sub.cd_Referencia LIKE 'MN%' OR
+            m_sub.cd_Referencia LIKE 'MNC%' OR
+            m_sub.cd_Referencia LIKE 'MTQ%' OR
+            m_sub.cd_Referencia LIKE 'PA%' OR
+            m_sub.cd_Referencia LIKE 'ME%' OR
+            m_sub.cd_Referencia LIKE 'MFL%' OR
+            m_sub.cd_Referencia LIKE 'LAB%'
+        )";
+    $cadeiaSubOfs = "
+        JOIN dbo.RlcProgramacao r1 WITH(NOLOCK) ON cns.id_ProgProdPCP = r1.id_ProgProdPCP AND r1.PierSitReg = 'ATV'
+        LEFT JOIN dbo.RlcProgramacao r2 WITH(NOLOCK) ON r1.IDProgProdPCPAnt = r2.id_ProgProdPCP AND r2.PierSitReg = 'ATV'
+        LEFT JOIN dbo.RlcProgramacao r3 WITH(NOLOCK) ON r2.IDProgProdPCPAnt = r3.id_ProgProdPCP AND r3.PierSitReg = 'ATV'
+        LEFT JOIN dbo.RlcProgramacao r4 WITH(NOLOCK) ON r3.IDProgProdPCPAnt = r4.id_ProgProdPCP AND r4.PierSitReg = 'ATV'
+        LEFT JOIN dbo.RlcProgramacao r5 WITH(NOLOCK) ON r4.IDProgProdPCPAnt = r5.id_ProgProdPCP AND r5.PierSitReg = 'ATV'
+        CROSS APPLY (
+            SELECT r1.IDProgProdPCPAnt AS id_Filho
+            UNION SELECT r2.IDProgProdPCPAnt WHERE r2.IDProgProdPCPAnt IS NOT NULL
+            UNION SELECT r3.IDProgProdPCPAnt WHERE r3.IDProgProdPCPAnt IS NOT NULL
+            UNION SELECT r4.IDProgProdPCPAnt WHERE r4.IDProgProdPCPAnt IS NOT NULL
+            UNION SELECT r5.IDProgProdPCPAnt WHERE r5.IDProgProdPCPAnt IS NOT NULL
+        ) AS sub
+        JOIN dbo.ProgramacaoProducao pp WITH(NOLOCK) ON sub.id_Filho = pp.id_ProgProdPCP
+        JOIN dbo.Materiais m_sub WITH(NOLOCK) ON pp.id_Produto = m_sub.id_Produto
+        LEFT JOIN dbo.OrdemFabricacao ofp_sub WITH(NOLOCK) ON pp.id_of = ofp_sub.id_of
+    ";
+    // Mesmo motivo da query principal: JOIN via COALESCE fica lento demais
+    // quando combinado com o resto dos joins (aqui ainda mais, com a cadeia de
+    // 5 níveis de RlcProgramacao) — 2 ramos com JOIN direto em vez disso.
     $sqlSub = "
         SELECT DISTINCT
             cns.id_ProgProdPCP AS id_Raiz,
@@ -783,41 +1003,43 @@ function carregarPlanilhaProducaoFluxo(
         LEFT JOIN dbo.ClasseTensaoTrafo cl WITH(NOLOCK) ON esp.id_classeTensaoTrafo = cl.id_classeTensaoTrafo
         LEFT JOIN dbo.TipoEnrolamentoNucleo tp WITH(NOLOCK) ON esp.id_TpEnrolamentoNucleo = tp.id_TpEnrolamentoNucleo
         LEFT JOIN dbo.NormaTrafo norm WITH(NOLOCK) ON esp.id_normaTrafo = norm.id_normaTrafo
-        JOIN dbo.RlcProgramacao r1 WITH(NOLOCK) ON cns.id_ProgProdPCP = r1.id_ProgProdPCP AND r1.PierSitReg = 'ATV'
-        LEFT JOIN dbo.RlcProgramacao r2 WITH(NOLOCK) ON r1.IDProgProdPCPAnt = r2.id_ProgProdPCP AND r2.PierSitReg = 'ATV'
-        LEFT JOIN dbo.RlcProgramacao r3 WITH(NOLOCK) ON r2.IDProgProdPCPAnt = r3.id_ProgProdPCP AND r3.PierSitReg = 'ATV'
-        LEFT JOIN dbo.RlcProgramacao r4 WITH(NOLOCK) ON r3.IDProgProdPCPAnt = r4.id_ProgProdPCP AND r4.PierSitReg = 'ATV'
-        LEFT JOIN dbo.RlcProgramacao r5 WITH(NOLOCK) ON r4.IDProgProdPCPAnt = r5.id_ProgProdPCP AND r5.PierSitReg = 'ATV'
-        CROSS APPLY (
-            SELECT r1.IDProgProdPCPAnt AS id_Filho
-            UNION SELECT r2.IDProgProdPCPAnt WHERE r2.IDProgProdPCPAnt IS NOT NULL
-            UNION SELECT r3.IDProgProdPCPAnt WHERE r3.IDProgProdPCPAnt IS NOT NULL
-            UNION SELECT r4.IDProgProdPCPAnt WHERE r4.IDProgProdPCPAnt IS NOT NULL
-            UNION SELECT r5.IDProgProdPCPAnt WHERE r5.IDProgProdPCPAnt IS NOT NULL
-        ) AS sub
-        JOIN dbo.ProgramacaoProducao pp WITH(NOLOCK) ON sub.id_Filho = pp.id_ProgProdPCP
-        JOIN dbo.Materiais m_sub WITH(NOLOCK) ON pp.id_Produto = m_sub.id_Produto
-        LEFT JOIN dbo.OrdemFabricacao ofp_sub WITH(NOLOCK) ON pp.id_of = ofp_sub.id_of
-        WHERE $whereStr
-          AND (
-            m_sub.cd_Referencia LIKE 'MDA%' OR
-            m_sub.cd_Referencia LIKE 'MFU%' OR
-            m_sub.cd_Referencia LIKE 'BT%' OR
-            m_sub.cd_Referencia LIKE 'AT%' OR
-            m_sub.cd_Referencia LIKE 'CNC%' OR
-            m_sub.cd_Referencia LIKE 'MTP%' OR
-            m_sub.cd_Referencia LIKE 'MN%' OR
-            m_sub.cd_Referencia LIKE 'MNC%' OR
-            m_sub.cd_Referencia LIKE 'MTQ%' OR
-            m_sub.cd_Referencia LIKE 'PA%' OR
-            m_sub.cd_Referencia LIKE 'ME%' OR
-            m_sub.cd_Referencia LIKE 'MFL%' OR
-            m_sub.cd_Referencia LIKE 'LAB%'
-          )
+        $cadeiaSubOfs
+        WHERE cns.id_it_pedido <> 0 AND $whereStr AND $refsSub
+
+        UNION
+
+        SELECT DISTINCT
+            cns.id_ProgProdPCP AS id_Raiz,
+            m_sub.cd_Referencia,
+            ofp_sub.StatusOF,
+            ofp_sub.Quantidade,
+            ofp_sub.QtdProduzida
+        FROM dbo.CtrlNumSerie cns WITH(NOLOCK)
+        JOIN dbo.ProgramacaoProducao prog WITH(NOLOCK) ON cns.id_ProgProdPCP = prog.id_ProgProdPCP
+        JOIN dbo.RlcCtrlItemPedidoPCPProgProd rlc_cip WITH(NOLOCK) ON rlc_cip.id_ProgProdPCP = prog.id_ProgProdPCP AND rlc_cip.PierSitReg = 'ATV'
+        JOIN dbo.CtrlItemPedidoPCP cip WITH(NOLOCK) ON cip.IDCtrlItPedidoPCP = rlc_cip.IDCtrlItPedidoPCP AND cip.PierSitReg = 'ATV'
+        JOIN dbo.It_Pedido it WITH(NOLOCK) ON cip.id_it_pedido = it.id_it_pedido
+        JOIN dbo.Pedidos p WITH(NOLOCK) ON it.id_Ped = p.id_Ped
+        JOIN dbo.Entidade cli WITH(NOLOCK) ON p.id_Cliente = cli.Id_Ent
+        LEFT JOIN dbo.Entidade emp_ped WITH(NOLOCK) ON p.id_Empresa = emp_ped.Id_Ent
+        LEFT JOIN dbo.Entidade emp_prog WITH(NOLOCK) ON prog.id_Empresa = emp_prog.Id_Ent
+        JOIN dbo.Materiais m WITH(NOLOCK) ON cns.id_Produto = m.id_Produto
+        JOIN dbo.SubGrupoProduto sg WITH(NOLOCK) ON m.id_SubGrupoPrd = sg.id_SubGrupoPrd
+        JOIN dbo.GrupoProduto gp WITH(NOLOCK) ON sg.id_grpProd = gp.id_grpProd
+        JOIN dbo.CatGrupo cg WITH(NOLOCK) ON gp.id_catGrupo = cg.id_catGrupo
+        LEFT JOIN dbo.OrdemFabricacao ofp WITH(NOLOCK) ON cns.id_of = ofp.id_of
+        LEFT JOIN dbo.EspecTrafo esp WITH(NOLOCK) ON m.id_Produto = esp.id_Produto
+        LEFT JOIN dbo.Potencia pot WITH(NOLOCK) ON esp.id_potencia = pot.id_potencia
+        LEFT JOIN dbo.ClasseTensaoTrafo cl WITH(NOLOCK) ON esp.id_classeTensaoTrafo = cl.id_classeTensaoTrafo
+        LEFT JOIN dbo.TipoEnrolamentoNucleo tp WITH(NOLOCK) ON esp.id_TpEnrolamentoNucleo = tp.id_TpEnrolamentoNucleo
+        LEFT JOIN dbo.NormaTrafo norm WITH(NOLOCK) ON esp.id_normaTrafo = norm.id_normaTrafo
+        $cadeiaSubOfs
+        WHERE cns.id_it_pedido = 0 AND $whereStr AND $refsSub
     ";
     try {
         $stmtSub = $pdo->prepare($sqlSub);
-        $stmtSub->execute($params);
+        // $whereStr (com seus placeholders) aparece 2x, um por ramo do UNION.
+        $stmtSub->execute(array_merge($params, $params));
         while ($row = $stmtSub->fetch()) {
             $componentesPorProgId[$row['id_Raiz']][] = $row;
         }
@@ -840,22 +1062,7 @@ function carregarPlanilhaProducaoFluxo(
             $classe = (string) round((float) str_replace(',', '.', $mCl[1]));
         }
 
-        $tapsRaw = strtoupper(trim((string) ($r['TipoNucleo'] ?? '')));
-        $fasesRaw = strtoupper(trim((string) ($r['Fases'] ?? '')));
-        $taps = 'ENR';
-        $multBobinas = 2;
-        if (strpos($tapsRaw, 'EMP') !== false) {
-            $taps = 'EMP';
-            $multBobinas = 3;
-        } elseif (strpos($tapsRaw, 'JC') !== false) {
-            if ($fasesRaw === 'TRI' || strpos($fasesRaw, '3F') !== false) {
-                $taps = 'JC-TRIF';
-                $multBobinas = 3;
-            } else {
-                $taps = 'JC';
-                $multBobinas = 2;
-            }
-        }
+        [$taps, $multBobinas] = fluxoClassificarTaps($r['TipoNucleo'] ?? null, $r['Fases'] ?? null);
 
         $setores = [
             'CH'  => avaliarStatusCelulaFluxo($subNos, 'CH', $isMaeEnc),
@@ -913,4 +1120,275 @@ function carregarPlanilhaProducaoFluxo(
         'total_pendentes'  => $totalPendentes,
         'itens'            => $trafosFinais,
     ]);
+}
+
+// ─── Motor 3: Encerramentos de sub-OF por célula (produção real por data) ───
+//
+// O Motor 2 só sabe o status ATUAL de cada célula (OrdemFabricacao não tem data
+// de conclusão), então não responde "quanto a célula produziu no dia X". A data
+// real vem da auditoria do ERP (piAudit): o momento em que o StatusOF da sub-OF
+// virou ENC. Cada sub-OF é ligada ao transformador (NS) subindo a mesma cadeia
+// de 5 níveis de RlcProgramacao que o Motor 2 desce.
+
+// OIDTable da dbo.OrdemFabricacao na piAudit — conferido ao vivo em 25/09/2026:
+// das 2 tabelas com auditoria de StatusOF (12660 e 13062), só esta casa com id_of.
+const FLUXO_PIAUDIT_OID_ORDEM_FABRICACAO = 12660;
+
+const FLUXO_ENCERRAMENTOS_CACHE = __DIR__ . '/../storage/cache/fluxo_encerramentos.json';
+
+/**
+ * Executa um SELECT com "IN ({IN})" em lotes (o SQL Server aceita até ~2100
+ * parâmetros por comando).
+ */
+function fluxoConsultarEmLotes(PDO $pdo, string $sqlComIn, array $ids): array
+{
+    $linhas = [];
+    foreach (array_chunk(array_values(array_unique($ids)), 900) as $lote) {
+        $placeholders = implode(',', array_fill(0, count($lote), '?'));
+        $stmt = $pdo->prepare(str_replace('{IN}', $placeholders, $sqlComIn));
+        $stmt->execute($lote);
+        foreach ($stmt->fetchAll() as $linha) {
+            $linhas[] = $linha;
+        }
+    }
+    return $linhas;
+}
+
+/**
+ * Transformadores que concluíram Montagem Final (MF), Pintura (PIN), Montagem
+ * Elétrica (ME) e Bobinagem (BOB) desde $dtInicio, com o dia de turno em que a
+ * célula foi concluída. Um item por (célula, NS).
+ *
+ * - MF / PIN / ME: encerramento da sub-OF da célula (a última, se houver mais de uma).
+ * - BOB: o NS só conta com sub-OF de BT E de AT encerradas na janela; vale a data da última.
+ * - Turno: começa às 07:30 e fim de semana compõe a sexta — mesma regra do Kardex
+ *   (boletim-planilha.php), pra bater com o Laboratório.
+ * - Escopo: NS de categoria 40–44, igual ao Motor 2.
+ *
+ * Consulta pesada (~2 min, quase tudo na piAudit, com custo parecido pra 1 dia ou
+ * 1 mês) — só scripts/atualizar_fluxo_planilha.php deve chamar; as telas leem o
+ * cache via carregarEncerramentosCelulasFluxo().
+ */
+function carregarEncerramentosCelulasFluxoAoVivo(string $dtInicio): array
+{
+    require_once __DIR__ . '/boletim-planilha.php';
+
+    $pdo = getSqlServerDB();
+    if (!$pdo) {
+        return ['sucesso' => false, 'erro' => 'Não foi possível conectar ao SQL Server Trael.'];
+    }
+
+    try {
+        // OldValor é o status ANTERIOR à troca: numa OF hoje em ENC, a última troca
+        // vinda de outro status é o encerramento (reaberturas têm OldValor = 'ENC').
+        $stmt = $pdo->prepare("
+            SELECT a.Id_pk AS id_of, CONVERT(VARCHAR(19), MAX(a.Data), 120) AS data_hora
+            FROM piAudit a WITH(NOLOCK)
+            WHERE a.OIDTable = ?
+              AND a.Coluna = 'StatusOF'
+              AND a.Data >= ?
+              AND ISNULL(a.OldValor, '') <> 'ENC'
+            GROUP BY a.Id_pk
+        ");
+        $stmt->execute([FLUXO_PIAUDIT_OID_ORDEM_FABRICACAO, $dtInicio . ' 00:00:00']);
+        $dataHoraPorOf = [];
+        foreach ($stmt->fetchAll() as $r) {
+            $dataHoraPorOf[(int) $r['id_of']] = $r['data_hora'];
+        }
+
+        $subOfs = fluxoConsultarEmLotes($pdo, "
+            SELECT o.id_of, m.cd_Referencia, pp.id_ProgProdPCP
+            FROM dbo.OrdemFabricacao o WITH(NOLOCK)
+            JOIN dbo.Materiais m WITH(NOLOCK) ON m.id_Produto = o.id_Produto
+            JOIN dbo.ProgramacaoProducao pp WITH(NOLOCK) ON pp.id_of = o.id_of
+            WHERE o.id_of IN ({IN})
+              AND o.StatusOF = 'ENC'
+              AND (m.cd_Referencia LIKE 'MFL%' OR m.cd_Referencia LIKE 'MTQ%'
+                   OR m.cd_Referencia LIKE 'ME%' OR m.cd_Referencia LIKE 'PA%'
+                   OR m.cd_Referencia LIKE 'BT%' OR m.cd_Referencia LIKE 'AT%')
+        ", array_keys($dataHoraPorOf));
+
+        $celulasAlvo = ['MF' => true, 'PIN' => true, 'ME' => true, 'BT' => true, 'AT' => true];
+        $encerramentos = [];
+        foreach ($subOfs as $s) {
+            $celula = fluxoCelulaDaReferencia((string) $s['cd_Referencia']);
+            if ($celula === null || !isset($celulasAlvo[$celula])) {
+                continue;
+            }
+            $encerramentos[] = [
+                'celula'    => $celula,
+                'pp'        => (int) $s['id_ProgProdPCP'],
+                'data_hora' => $dataHoraPorOf[(int) $s['id_of']],
+            ];
+        }
+
+        // Sobe a cadeia filho -> pai (RlcProgramacao.IDProgProdPCPAnt é o filho).
+        $paisDe = [];
+        $visitados = [];
+        $nivel = [];
+        foreach ($encerramentos as $e) {
+            if (!isset($visitados[$e['pp']])) {
+                $visitados[$e['pp']] = true;
+                $nivel[] = $e['pp'];
+            }
+        }
+        for ($profundidade = 0; $profundidade < 5 && $nivel; $profundidade++) {
+            $arestas = fluxoConsultarEmLotes($pdo, "
+                SELECT r.IDProgProdPCPAnt AS filho, r.id_ProgProdPCP AS pai
+                FROM dbo.RlcProgramacao r WITH(NOLOCK)
+                WHERE r.IDProgProdPCPAnt IN ({IN}) AND r.PierSitReg = 'ATV'
+            ", $nivel);
+            $nivel = [];
+            foreach ($arestas as $a) {
+                $pai = (int) $a['pai'];
+                $paisDe[(int) $a['filho']][] = $pai;
+                if (!isset($visitados[$pai])) {
+                    $visitados[$pai] = true;
+                    $nivel[] = $pai;
+                }
+            }
+        }
+
+        // COALESCE no JOIN do It_Pedido é aceitável aqui (IN com poucos ids), ao
+        // contrário da query principal do Motor 2 — ver comentário lá.
+        $linhasNs = fluxoConsultarEmLotes($pdo, "
+            SELECT
+                cns.id_ProgProdPCP,
+                cns.NumSerie,
+                p.cdPedido AS Pedido,
+                cli.Nome AS Cliente,
+                cli.Apelido AS ClienteApelido,
+                m.cd_Referencia AS Projeto,
+                ISNULL(cip.SeqPlano, 0) AS SeqPlano,
+                tp.ds_TpEnrolamentoNucleo AS TipoNucleo,
+                esp.nrofasesTrafo AS Fases,
+                COALESCE(emp_prog.cdEnt, emp_ped.cdEnt, '1') AS EmpDestino
+            FROM dbo.CtrlNumSerie cns WITH(NOLOCK)
+            JOIN dbo.ProgramacaoProducao prog WITH(NOLOCK) ON prog.id_ProgProdPCP = cns.id_ProgProdPCP
+            LEFT JOIN dbo.RlcCtrlItemPedidoPCPProgProd rlc_cip WITH(NOLOCK) ON rlc_cip.id_ProgProdPCP = prog.id_ProgProdPCP AND rlc_cip.PierSitReg = 'ATV'
+            LEFT JOIN dbo.CtrlItemPedidoPCP cip WITH(NOLOCK) ON cip.IDCtrlItPedidoPCP = rlc_cip.IDCtrlItPedidoPCP AND cip.PierSitReg = 'ATV'
+            LEFT JOIN dbo.It_Pedido it WITH(NOLOCK) ON it.id_it_pedido = COALESCE(NULLIF(cns.id_it_pedido, 0), cip.id_it_pedido)
+            LEFT JOIN dbo.Pedidos p WITH(NOLOCK) ON p.id_Ped = it.id_Ped
+            LEFT JOIN dbo.Entidade cli WITH(NOLOCK) ON cli.Id_Ent = p.id_Cliente
+            LEFT JOIN dbo.Entidade emp_ped WITH(NOLOCK) ON emp_ped.Id_Ent = p.id_Empresa
+            LEFT JOIN dbo.Entidade emp_prog WITH(NOLOCK) ON emp_prog.Id_Ent = prog.id_Empresa
+            JOIN dbo.Materiais m WITH(NOLOCK) ON m.id_Produto = cns.id_Produto
+            JOIN dbo.SubGrupoProduto sg WITH(NOLOCK) ON sg.id_SubGrupoPrd = m.id_SubGrupoPrd
+            JOIN dbo.GrupoProduto gp WITH(NOLOCK) ON gp.id_grpProd = sg.id_grpProd
+            JOIN dbo.CatGrupo cg WITH(NOLOCK) ON cg.id_catGrupo = gp.id_catGrupo
+            LEFT JOIN dbo.EspecTrafo esp WITH(NOLOCK) ON esp.id_Produto = m.id_Produto
+            LEFT JOIN dbo.TipoEnrolamentoNucleo tp WITH(NOLOCK) ON tp.id_TpEnrolamentoNucleo = esp.id_TpEnrolamentoNucleo
+            WHERE cns.id_ProgProdPCP IN ({IN})
+              AND cns.NumSerie > 0
+              AND cg.cd_CatGrupo BETWEEN 40 AND 44
+        ", array_keys($visitados));
+    } catch (Throwable $e) {
+        return ['sucesso' => false, 'erro' => 'Erro ao consultar encerramentos: ' . $e->getMessage()];
+    }
+
+    // CtrlNumSerie pode ter linhas-espelho do mesmo NS (ver Motor 2) e o LEFT JOIN
+    // do cip pode duplicar: fica a primeira linha com pedido, senão a primeira.
+    $trafoPorNs = [];
+    $nsPorPp = [];
+    foreach ($linhasNs as $r) {
+        $ns = (int) $r['NumSerie'];
+        $nsPorPp[(int) $r['id_ProgProdPCP']][$ns] = true;
+        if (!isset($trafoPorNs[$ns]) || ($trafoPorNs[$ns]['Pedido'] === null && $r['Pedido'] !== null)) {
+            $trafoPorNs[$ns] = $r;
+        }
+    }
+
+    $nsDoPp = function (int $pp) use ($paisDe, $nsPorPp): array {
+        $encontrados = [];
+        $fila = [[$pp, 0]];
+        $vistos = [];
+        while ($fila) {
+            [$id, $prof] = array_shift($fila);
+            if (isset($vistos[$id])) {
+                continue;
+            }
+            $vistos[$id] = true;
+            $encontrados += $nsPorPp[$id] ?? [];
+            if ($prof < 5) {
+                foreach ($paisDe[$id] ?? [] as $pai) {
+                    $fila[] = [$pai, $prof + 1];
+                }
+            }
+        }
+        return array_keys($encontrados);
+    };
+
+    $dataPorCelulaNs = [];
+    $nsPorEncerramento = [];
+    foreach ($encerramentos as $e) {
+        $nsPorEncerramento[$e['pp']] ??= $nsDoPp($e['pp']);
+        foreach ($nsPorEncerramento[$e['pp']] as $ns) {
+            if ($e['data_hora'] > ($dataPorCelulaNs[$e['celula']][$ns] ?? '')) {
+                $dataPorCelulaNs[$e['celula']][$ns] = $e['data_hora'];
+            }
+        }
+    }
+
+    foreach ($dataPorCelulaNs['BT'] ?? [] as $ns => $dataBt) {
+        if (isset($dataPorCelulaNs['AT'][$ns])) {
+            $dataPorCelulaNs['BOB'][$ns] = max($dataBt, $dataPorCelulaNs['AT'][$ns]);
+        }
+    }
+
+    $itens = [];
+    foreach (['MF', 'PIN', 'ME', 'BOB'] as $celula) {
+        foreach ($dataPorCelulaNs[$celula] ?? [] as $ns => $dataHora) {
+            $t = $trafoPorNs[$ns];
+            [$taps] = fluxoClassificarTaps($t['TipoNucleo'] ?? null, $t['Fases'] ?? null);
+            $dataTurno = date('Y-m-d', strtotime($dataHora) - 450 * 60);
+
+            $itens[] = [
+                'celula'     => $celula,
+                'data_hora'  => $dataHora,
+                'data_turno' => boletimAjustarDataFimDeSemanaParaSexta($dataTurno),
+                'ns'         => $ns,
+                'pedido'     => trim((string) ($t['Pedido'] ?? '')),
+                'cliente'    => trim((string) (($t['ClienteApelido'] ?? '') ?: ($t['Cliente'] ?? ''))),
+                'projeto'    => trim((string) ($t['Projeto'] ?? '')),
+                'seq'        => (int) ($t['SeqPlano'] ?? 0),
+                'nucleo'     => in_array($taps, ['EMP', 'JC-TRIF'], true) ? $taps : 'ENR',
+                'empresa'    => trim((string) ($t['EmpDestino'] ?? '1')) ?: '1',
+            ];
+        }
+    }
+    usort($itens, fn($a, $b) => strcmp($b['data_hora'], $a['data_hora']));
+
+    return sanitizarUtf8Recursivo([
+        'sucesso'       => true,
+        'janela_inicio' => $dtInicio,
+        'total'         => count($itens),
+        'itens'         => $itens,
+    ]);
+}
+
+/**
+ * Encerramentos por célula (ver carregarEncerramentosCelulasFluxoAoVivo) cujo dia
+ * de turno está em $dias, lidos do cache gravado pelo script agendado. Falha se o
+ * cache não existe ou se algum dia é anterior à janela gravada — nesses casos a
+ * falta de itens não significa "zero produzido".
+ *
+ * @param string[] $dias Datas Y-m-d
+ */
+function carregarEncerramentosCelulasFluxo(array $dias): array
+{
+    $raw = is_file(FLUXO_ENCERRAMENTOS_CACHE) ? @file_get_contents(FLUXO_ENCERRAMENTOS_CACHE) : false;
+    $dados = $raw !== false ? json_decode($raw, true) : null;
+    if (!is_array($dados) || empty($dados['sucesso'])) {
+        return ['sucesso' => false, 'erro' => 'Cache de encerramentos ainda não foi gerado. Rode scripts/atualizar_fluxo_planilha.php.'];
+    }
+    if (!$dias || min($dias) < ($dados['janela_inicio'] ?? '9999-12-31')) {
+        return ['sucesso' => false, 'erro' => 'Período anterior à janela do cache de encerramentos.'];
+    }
+
+    $diasSet = array_flip($dias);
+    return [
+        'sucesso'   => true,
+        'itens'     => array_values(array_filter($dados['itens'] ?? [], fn($it) => isset($diasSet[$it['data_turno'] ?? '']))),
+        'gerado_em' => $dados['gerado_em'] ?? null,
+    ];
 }

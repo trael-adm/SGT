@@ -43,10 +43,10 @@ O **SGT (Sistema de Gestão Trael)** é a plataforma integrada de inteligência 
 - **Conexão Dual de Banco de Dados:**
   - **MySQL (Aplicação Principal):** Conexão singleton gerenciada exclusivamente por `getDB()` em `config/conexao.php` (autenticação, sessões, retrabalho, metas mensais, catálogo, cronoanálise, módulo papel, pintura, regras de concessionárias e validações).
   - **SQL Server (ERP Trael / PierServer / Kardex / piAudit):** Conexão singleton segura `getSqlServerDB(): ?PDO` via PDO ODBC (`vsat.trael.local` / `vsattrael`) em `config/conexao.php`, com timeout curto e tolerância a falhas de rede interna.
-- **Resiliência de Dados & Deploy Híbrido no Railway:**
-  - **Sessões Persistidas em Banco:** Classe `TraelDbSessionHandler` implementando `SessionHandlerInterface` gravando na tabela `php_sessions`, garantindo persistência de logins em ambientes de containers efêmeros.
-  - **Caches Universais em JSON UTF-8 (`storage/cache/`):** Arquivos consolidados e sanitizados (`kardex_mes_*.json`, `atraso_ns_suplementar.json`, caches de fluxo de pedidos e acompanhamento) que permitem à aplicação em produção no Railway renderizar dashboards completos mesmo sem conexão direta via VPN ao SQL Server da fábrica.
-  - **Script e Endpoint de Sincronização Segura:** Script `scripts/sincronizar_producao_railway.php` que lê dados consolidados do SQL Server local e realiza push autenticado para o endpoint `api/sync-boletim.php` na nuvem através de token seguro `BOLETIM_SYNC_TOKEN`.
+- **Resiliência de Dados (cache local):**
+  - **Sessões Persistidas em Banco:** Classe `TraelDbSessionHandler` implementando `SessionHandlerInterface` gravando na tabela `php_sessions`.
+  - **Caches Universais (`storage/cache/`):** Arquivos consolidados e sanitizados (`kardex_mes_*.cache`, `atraso_ns_suplementar.json`, caches de fluxo de pedidos e acompanhamento) que evitam reconsultar o SQL Server da fábrica a cada requisição e servem de fallback quando a conexão VSAT está momentaneamente indisponível.
+  - Desde 2026-09-21 a produção real é **só local + ngrok** (ver CLAUDE.md) — não existe mais deploy nem sincronização para o Railway; os scripts `scripts/sincronizar_producao_railway.php`, o endpoint `api/sync-boletim.php` e o `Dockerfile`/`.dockerignore` foram removidos por não terem mais uso.
 - **Planilhas-Ponte & Leitura Server-Side via `PharData`:**
   - `PLANILHA QUE ATUALIZA/NS.OF.xlsx`: Índice de Ordens de Fabricação (~4,8 MB, atualizado por Power Query, lido por `includes/planilha-ns-of.php`).
   - `PLANILHA Q ATUALIZA/Relação Kardex.xlsx`: Histórico de movimentações de produção (~85 MB, 38 colunas, abas `dw vw_kardex_lotes` e `dw vw_ficha_espc_trafo`, lido por `includes/boletim-planilha.php`).
@@ -249,6 +249,7 @@ pages/
 ### 5.6. Resumo Diário & Status de Peças (`pages/producao/resumo-diario.php` & `status-pecas.php`)
 - **Resumo Diário:** Exibição simultânea lado a lado das 10 células fabris (Chassi, Bobinagem BT, Bobinagem AT, Corte Núcleo, Solda, Montagem Núcleo, Pintura, Parte Ativa, Montagem Final e Laboratório) com volumes apontados e status de cumprimento diário.
 - **Status de Peças:** Rastreabilidade consolidada de OFs apontadas e em aberto distribuídas por setor fabril, com busca rápida por número de série, projeto ou pedido comercial.
+- **Filtro de Fábrica (`?empresa=1|4|0`):** mesmo seletor de 3 pills da Aderência Anual (🏭 Fábrica 1 - Distribuição / ⚡ Fábrica 2 - Média Força / 🌐 Todas as Fábricas), implementado em `boletimCalcularStatusPecas()`. A Distribuição (`atraso_distribuicao_registros`) tem decomposição de sub-OFs e por isso mostra gargalo real por **célula** do fluxo fabril; a Média Força (`atraso_forca_registros`) não tem essa decomposição nesta base — sem célula real pra mostrar, e repetir a linha (TPD/TPM/TPS) no gráfico seria redundante com o filtro "Linha" que já existe em cima. Por isso as barras da Média Força usam o único progresso real que essa base tem: **Semi-Acabada** (`qtd_produzida > 0`, já com alguma peça produzida) vs. **Não Iniciada** (`qtd_produzida = 0`) — rotuladas `Média Força — Semi-Acabada` / `Média Força — Não Iniciada` quando as duas fábricas estão juntas. O filtro de Linha (EPO/MON/POT/TRI vs. TPD/TPM/TPS) muda de vocabulário conforme a fábrica escolhida e fica indisponível com "Todas as Fábricas" (os dois vocabulários não se combinam numa consulta só — a tela força `linha=TODOS` nesse modo). Com as duas fábricas juntas, a tabela ganha uma coluna extra "FÁBRICA" (badge 🏭 DIST / ⚡ MF) para diferenciar a origem de cada OF.
 
 ### 5.7. Painel por Setor (`pages/painel-setor/index.php`)
 - Visão operacional detalhada por célula fabril com ordenação lógica do fluxo produtivo: Laboratório ➔ Montagem Final ➔ Montagem Elétrica ➔ Pintura ➔ Solda ➔ Montagem Núcleo ➔ Corte CNC ➔ Bobinagens.
@@ -257,9 +258,24 @@ pages/
 - **Modal de Métricas e Metas Individualizadas:** Edição de metas personalizadas por setor para o mês vigente.
 - **Gráfico "Produção vs. Programado por Setor Fabril" — fonte do "Produzido" por barra:**
   - **Laboratório (LAB):** apontamento de chão de fábrica (`producao_etapas`, estação `LAB`); se vazio, entradas do Kardex.
-  - **Montagem Final (MFL), Montagem Elétrica (ME) e Bobinagem (BOB):** célula real do Fluxo de Pedidos (OK = finalizada), via `boletimObterProducaoRealFluxoCelulas()`.
-  - **Pintura/Tanque (MTQ):** apontamento próprio (`producao_etapas`, estação `PIN`) quando há registro no período; **senão** a célula `PIN` (sub-OF `MTQ` concluída) do Fluxo de Pedidos. Motivo: a Pintura é apontada no ERP e `producao_etapas` estava vazia no banco local, deixando a barra sem valor. A mesma precedência vale na visão por núcleo (ENR / JC-TRIF / EMP).
-  - Estimativa por fator (marcada com 🔶) só se o SQL Server do Fluxo estiver indisponível.
+  - **Montagem Final (MFL), Montagem Elétrica (ME) e Bobinagem (BOB):** transformadores cuja **sub-OF da célula foi encerrada no ERP** nos dias do período, via `boletimObterProducaoRealFluxoCelulas()` → `carregarEncerramentosCelulasFluxo()` (Motor 3 em `boletim-fluxo-pedidos.php`).
+    - **Por que não o status do Fluxo (Motor 2):** `dbo.OrdemFabricacao` não tem data de conclusão, só o status atual. Até 25/09/2026 a barra contava "das peças com **data programada** (`DataHoraProducaoAux`) no período, quantas já estão OK" — em "Hoje" dava MF 0 / ME 1 / PIN 0 contra 137 / 213 / 110 sub-OFs realmente encerradas no dia (conferido ao vivo no VSAT), porque as peças que passam pela célula hoje foram programadas dias antes.
+    - **Data real:** auditoria do ERP `piAudit` (`OIDTable = 12660` = `OrdemFabricacao`, `Coluna = 'StatusOF'`); a data de encerramento é a última troca vinda de status ≠ `ENC` numa OF hoje em `ENC`. Cada sub-OF (`MFL` → MF, `MTQ` → PIN, `ME-`/`PA-` → ME, `BT-`/`AT-`) é ligada ao NS subindo a cadeia de 5 níveis de `RlcProgramacao`; escopo categoria 40–44, igual ao Motor 2. Regra referência → célula centralizada em `fluxoCelulaDaReferencia()`.
+    - **Turno:** dia começa às 07:30 e fim de semana compõe a sexta — mesma regra do Kardex, pra bater com o Laboratório.
+    - **Bobinagem:** conta o transformador quando as sub-OFs de BT **e** de AT dele foram encerradas; vale a data da última das duas. Uma OF de bobina é um lote (ex.: 6 OFs = 438 bobinas), por isso a unidade é transformador, igual ao Programado.
+    - **Cache:** a consulta leva ~2 min (quase tudo na `piAudit`, custo parecido pra 1 dia ou 1 mês), então roda só em `scripts/atualizar_fluxo_planilha.php`, que grava `storage/cache/fluxo_encerramentos.json` com janela desde o dia 1º do mês anterior, independente do `fluxo_planilha.json` (falha de um não impede o outro).
+  - **Pintura/Tanque (MTQ):** apontamento próprio (`producao_etapas`, estação `PIN`) quando há registro no período; **senão** as sub-OFs `MTQ` encerradas (mesma fonte acima). Motivo: a Pintura é apontada no ERP e `producao_etapas` estava vazia no banco local, deixando a barra sem valor. A mesma precedência vale na visão por núcleo (ENR / JC-TRIF / EMP).
+  - O modal "Produção Real" lista só itens produzidos (NS, data/hora do encerramento, pedido, projeto); a fila em aberto não entra.
+  - Estimativa por fator (marcada com 🔶) só se o cache de encerramentos não existir ou não cobrir o período (ex.: intervalo anterior ao mês passado).
+- **Gráfico "Acompanhamento de Produção: Em Aberto no Setor × Programado PCP"** — 6 relações (etapas da esteira), na ordem do fluxo, com selo de filtro, barra, modal de NS/projeto e linhas na tabela de OFs. Fonte: `carregarAcompanhamentoProducao()` (`boletim-acompanhamento.php`, status atual das sub-OFs, Empresa 1); configuração única em `boletimCalcularAcompanhamentoVsProgramado()`.
+  - **Montar Núcleo (MN)** e **Montar Parte Ativa (PA)** (28/09/2026) seguem a árvore real do projeto no ERP, que muda com o tipo de núcleo:
+    - Núcleo empilhado (`MNC-`, projetos EMP / EMP-LM / JC): `PA ← AT (← BT) + MNC (← CNC)`.
+    - Núcleo `MN-` (ex.: ENR): `PA ← MN (← AT, CNC, MDA)`.
+    - **Montar Parte Ativa:** AT encerrada **e** núcleo (`MNC-` ou `MN-`) encerrado, Parte Ativa (`PA-`/`ME-`) em aberto. Vale pros dois tipos.
+    - **Montar Núcleo:** só projetos `MN-`; chassi `MDA` **e** `CNC` encerrados, núcleo `MN-` em aberto. Projetos `MNC-` ficam fora: não têm `MDA`, e o `MFU` (que o Fluxo chama de chassi) fica sob o tanque, não sob o núcleo.
+    - Ficam em `itens_montagem`, lista separada de `itens`: o mesmo NS pode estar numa relação de montagem e numa da esteira Tanque × Parte Ativa (ex.: Guardar na Estufa). A tela de Acompanhamento (`pages/acompanhamento/`) continua só com as 4 ações originais.
+  - Pintar Tanque / Guardar na Estufa / Descer Montagem Final / Verificar Apontamento: regras de `classificarAcompanhamento()` (ver 5.8).
+  - Sem o SQL Server as barras ficam zeradas (até 28/09/2026 mostravam contagens fixas inventadas: 152 / 52 / 70 / 4).
 
 ### 5.8. Acompanhamento Tanque / Parte Ativa → Montagem Final (`pages/acompanhamento/index.php`)
 - Rastreamento da convergência das 2 sub-montagens cruciais que alimentam a Montagem Final (restrito à **Empresa 1**):
@@ -487,7 +503,6 @@ SGT/
 │   ├── projetos-acao.php / qualidade-acao.php
 │   ├── retrabalho-acao.php / retrabalho-custos-salvar.php / retrabalho-relatorio-atualizar.php
 │   ├── soma-acao.php
-│   ├── sync-boletim.php             ← Endpoint de recebimento de cache para deploy Railway
 │   └── vsat-num-series-sincronizar.php
 ├── assets/
 │   ├── css/main.css                 ← Design System central, tokens e variáveis CSS
@@ -533,7 +548,7 @@ SGT/
 │   └── server.py                    ← Microsserviço Python de OCR e processamento de imagens
 ├── scripts/
 │   ├── run-tests.ps1                ← Execução de testes automatizados PHPUnit
-│   ├── sincronizar_producao_railway.php ← Push de caches para o deploy no Railway
+│   ├── atualizar_atraso.php         ← Atraso Distribuição+Força: SQL Server -> MySQL (agendado a cada 15 min)
 │   └── sincronizar_vsat_*.ps1       ← Scripts de extração do ERP
 ├── storage/cache/                   ← Caches JSON UTF-8 e snapshots do sistema (gitignored)
 ├── tests/                           ← Suíte de testes PHPUnit
@@ -541,7 +556,6 @@ SGT/
 │   ├── Includes/FeriadosTest.php
 │   ├── TestCase.php
 │   └── bootstrap.php
-├── Dockerfile                       ← Build de deploy para produção no Railway
 ├── index.php                        ← Hub principal de seleção de sistemas
 ├── login.php / logout.php           ← Fluxo de autenticação segura
 └── phpunit.xml                      ← Configuração oficial da suíte de testes

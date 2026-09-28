@@ -83,6 +83,67 @@ function classificarAcompanhamento(string $pintura, string $montagemEletrica, st
     return null;
 }
 
+/**
+ * Status de um componente na árvore de sub-OFs: 'OK' se alguma sub-OF que casa
+ * com $casaReferencia está encerrada (ou totalmente produzida), 'PEND' se existe
+ * mas nenhuma está, null se o projeto não tem esse componente.
+ */
+function statusComponenteAcompanhamento(array $subNos, callable $casaReferencia): ?string
+{
+    $encontrou = false;
+    foreach ($subNos as $n) {
+        $ref = strtoupper(trim((string) ($n['cd_Referencia'] ?? '')));
+        if (!$casaReferencia($ref)) {
+            continue;
+        }
+        $encontrou = true;
+        $st      = strtoupper(trim((string) ($n['StatusOF'] ?? '')));
+        $qtdProd = (float) ($n['QtdProduzida'] ?? 0);
+        $qtdTot  = (float) ($n['Quantidade'] ?? 0);
+        if ($st === 'ENC' || ($qtdTot > 0 && $qtdProd >= $qtdTot)) {
+            return 'OK';
+        }
+    }
+    return $encontrou ? 'PEND' : null;
+}
+
+/**
+ * Relações de montagem anteriores à Parte Ativa, pela árvore do projeto:
+ * - Núcleo empilhado (MNC-): PA ← AT (← BT) + MNC (← CNC)
+ * - Núcleo MN-:              PA ← MN (← AT, CNC, MDA)
+ *
+ * - "MONTAR PARTE ATIVA": AT e núcleo (MNC- ou MN-) prontos, Parte Ativa ainda não.
+ * - "MONTAR NUCLEO": só projetos MN-; chassi (MDA) e CNC prontos, núcleo ainda não.
+ *   Projetos MNC- não têm MDA e ficam fora (definido pelo usuário em 28/09/2026).
+ */
+function classificarMontagemAcompanhamento(array $subNos, bool $isMaeEnc): ?string
+{
+    if ($isMaeEnc) {
+        return null;
+    }
+
+    $parteAtiva = statusComponenteAcompanhamento($subNos, fn($r) => str_starts_with($r, 'PA-') || str_starts_with($r, 'PA_') || $r === 'PA'
+        || str_starts_with($r, 'ME-') || str_starts_with($r, 'ME_') || $r === 'ME');
+    $at  = statusComponenteAcompanhamento($subNos, fn($r) => str_starts_with($r, 'AT-') || str_starts_with($r, 'AT_') || $r === 'AT');
+    $mnc = statusComponenteAcompanhamento($subNos, fn($r) => str_starts_with($r, 'MNC'));
+    $mn  = statusComponenteAcompanhamento($subNos, fn($r) => str_starts_with($r, 'MN-'));
+    $nucleo = $mnc ?? $mn;
+
+    if ($parteAtiva === 'PEND' && $at === 'OK' && $nucleo === 'OK') {
+        return 'MONTAR PARTE ATIVA';
+    }
+
+    if ($mnc === null && $mn === 'PEND') {
+        $cnc = statusComponenteAcompanhamento($subNos, fn($r) => str_starts_with($r, 'CNC'));
+        $mda = statusComponenteAcompanhamento($subNos, fn($r) => str_starts_with($r, 'MDA'));
+        if ($cnc === 'OK' && $mda === 'OK') {
+            return 'MONTAR NUCLEO';
+        }
+    }
+
+    return null;
+}
+
 function carregarAcompanhamentoProducao(): array
 {
     $cacheFile = __DIR__ . '/../storage/cache/acompanhamento.json';
@@ -198,7 +259,11 @@ function carregarAcompanhamentoProducao(): array
             m_sub.cd_Referencia LIKE 'MTQ%' OR
             m_sub.cd_Referencia LIKE 'ME%' OR
             m_sub.cd_Referencia LIKE 'PA%' OR
-            m_sub.cd_Referencia LIKE 'MFL%'
+            m_sub.cd_Referencia LIKE 'MFL%' OR
+            m_sub.cd_Referencia LIKE 'AT%' OR
+            m_sub.cd_Referencia LIKE 'MN%' OR
+            m_sub.cd_Referencia LIKE 'CNC%' OR
+            m_sub.cd_Referencia LIKE 'MDA%'
           )
     ";
 
@@ -213,7 +278,11 @@ function carregarAcompanhamentoProducao(): array
         // Fallback gracioso
     }
 
+    // 'itens' = esteira Tanque × Parte Ativa → MF (uma ação por NS, tela de Acompanhamento);
+    // 'itens_montagem' = relações anteriores à Parte Ativa (Montar Núcleo / Montar Parte
+    // Ativa), numa lista à parte porque o mesmo NS pode estar nas duas esteiras.
     $itens = [];
+    $itensMontagem = [];
     foreach ($registros as $r) {
         $statusMae = strtoupper(trim((string) ($r['StatusOF'] ?? '')));
         $isMaeEnc  = ($statusMae === 'ENC');
@@ -224,7 +293,8 @@ function carregarAcompanhamentoProducao(): array
         $montagemFinal    = avaliarStatusCelulaAcompanhamento($subNos, 'MF', $isMaeEnc);
 
         $acao = classificarAcompanhamento($pintura, $montagemEletrica, $montagemFinal);
-        if ($acao === null) {
+        $acaoMontagem = classificarMontagemAcompanhamento($subNos, $isMaeEnc);
+        if ($acao === null && $acaoMontagem === null) {
             continue;
         }
 
@@ -232,7 +302,7 @@ function carregarAcompanhamentoProducao(): array
         $dtFormatada = $dtTimestamp > 0 ? date('d/m/Y', $dtTimestamp) : '—';
         $seq = (int) ($r['SeqPlano'] ?? 0);
 
-        $itens[] = [
+        $base = [
             'pedido'             => trim((string) $r['Pedido']),
             'data'               => $dtFormatada,
             'data_raw'           => $dtTimestamp,
@@ -245,9 +315,15 @@ function carregarAcompanhamentoProducao(): array
             'pintura'            => $pintura,
             'montagem_eletrica'  => $montagemEletrica,
             'montagem_final'     => $montagemFinal,
-            'acao'               => $acao,
         ];
+
+        if ($acao !== null) {
+            $itens[] = $base + ['acao' => $acao];
+        }
+        if ($acaoMontagem !== null) {
+            $itensMontagem[] = $base + ['acao' => $acaoMontagem];
+        }
     }
 
-    return ['sucesso' => true, 'itens' => $itens];
+    return ['sucesso' => true, 'itens' => $itens, 'itens_montagem' => $itensMontagem];
 }

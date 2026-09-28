@@ -5,7 +5,6 @@ require_once __DIR__ . '/../../config/conexao.php';
 require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../includes/layout.php';
 require_once __DIR__ . '/../../includes/boletim-painel-setor.php';
-require_once __DIR__ . '/../../includes/producao-tabs-nav.php';
 
 requireLogin();
 
@@ -39,6 +38,16 @@ $dadosPainel           = boletimCalcularPainelSetor($mes, $setorSel, $dataCorte,
 $setorInfo             = $dadosPainel['setor_info'];
 $analiseGargalos       = $dadosPainel['analise_gargalos'];
 $graficoAcompanhamento = $dadosPainel['grafico_acompanhamento'];
+
+// Cores dos selos das etapas da esteira (cabeçalho do gráfico e coluna Setor/Etapa da tabela).
+$estiloBadgeAcao = [
+    'MONTAR NUCLEO'              => 'background:#ede9fe;color:#5b21b6;border:1px solid #ddd6fe;',
+    'MONTAR PARTE ATIVA'         => 'background:#ccfbf1;color:#115e59;border:1px solid #99f6e4;',
+    'PINTAR TANQUE'              => 'background:#fef3c7;color:#92400e;border:1px solid #fde68a;',
+    'GUARDAR NA ESTUFA'          => 'background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;',
+    'DESCER PARA MONTAGEM FINAL' => 'background:#dcfce7;color:#15803d;border:1px solid #bbf7d0;',
+    'VERIFICAR APONTAMENTO'      => 'background:#fee2e2;color:#991b1b;border:1px solid #fecdd3;',
+];
 
 // Rótulo de período legível para o modal de Análise de Produção (mesma lógica
 // do chip "Filtro de Data" do topo do painel).
@@ -602,7 +611,7 @@ layoutHeader($pageTitle);
                 ?>
                 &bull; <span style="color:#16a34a;font-weight:600;">Clique na barra verde para ver a relação de transformadores produzidos</span> &bull; <span style="color:#2563eb;font-weight:600;">Barra azul: Meta programada em volume numérico</span>
             </p>
-            <p class="ps-card-subtitle" style="margin-top:2px;">📊 Laboratório usa apontamento real de chão de fábrica &bull; Montagem Final, Montagem Elétrica, Bobinagem e Pintura/Tanque usam célula real do Fluxo de Pedidos (OK = finalizada; Pintura só quando não há apontamento próprio) &bull; 🔶 vira estimativa só se o SQL Server do Fluxo estiver indisponível</p>
+            <p class="ps-card-subtitle" style="margin-top:2px;">📊 Laboratório usa apontamento real de chão de fábrica &bull; Montagem Final, Montagem Elétrica, Bobinagem e Pintura/Tanque contam os transformadores cuja sub-OF da célula foi encerrada no ERP no período (Bobinagem = BT e AT encerradas; Pintura só quando não há apontamento próprio) &bull; 🔶 vira estimativa só se o cache de encerramentos não cobrir o período</p>
         </div>
         <div style="display:flex;align-items:center;gap:14px;font-size:12px;font-weight:600;">
             <button type="button" class="btn btn-secondary btn-sm" onclick="abrirModalAnaliseProducaoSetor()" title="Abrir análise completa de produção deste gráfico" style="font-weight:700;">
@@ -665,18 +674,11 @@ layoutHeader($pageTitle);
             </div>
             <p class="ps-card-subtitle" style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:4px;">
                 <span>Rastreabilidade da esteira:</span>
-                <a href="javascript:void(0)" onclick="filtrarTabelaPorSetor('PINTAR TANQUE', 'Pintar Tanque (Pintura)')" class="badge" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;text-decoration:none;cursor:pointer;font-weight:700;" title="Filtrar tabela por Pintar Tanque (Pintura)">
-                    Pintar Tanque (Pintura) (<?= (int) ($graficoAcompanhamento['contagem']['PINTAR TANQUE'] ?? 0) ?>)
-                </a>
-                <a href="javascript:void(0)" onclick="filtrarTabelaPorSetor('GUARDAR NA ESTUFA', 'Guardar na Estufa (Estufa)')" class="badge" style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;text-decoration:none;cursor:pointer;font-weight:700;" title="Filtrar tabela por Guardar na Estufa (Estufa)">
-                    Guardar na Estufa (Estufa) (<?= (int) ($graficoAcompanhamento['contagem']['GUARDAR NA ESTUFA'] ?? 0) ?>)
-                </a>
-                <a href="javascript:void(0)" onclick="filtrarTabelaPorSetor('DESCER PARA MONTAGEM FINAL', 'Descer Montagem Final (MF)')" class="badge" style="background:#dcfce7;color:#15803d;border:1px solid #bbf7d0;text-decoration:none;cursor:pointer;font-weight:700;" title="Filtrar tabela por Descer Montagem Final (MF)">
-                    Descer Montagem Final (MF) (<?= (int) ($graficoAcompanhamento['contagem']['DESCER PARA MONTAGEM FINAL'] ?? 0) ?>)
-                </a>
-                <a href="javascript:void(0)" onclick="filtrarTabelaPorSetor('VERIFICAR APONTAMENTO', 'Verificar Apontamento (Lab)')" class="badge" style="background:#fee2e2;color:#991b1b;border:1px solid #fecdd3;text-decoration:none;cursor:pointer;font-weight:700;" title="Filtrar tabela por Verificar Apontamento (Lab)">
-                    Verificar Apontamento (Lab) (<?= (int) ($graficoAcompanhamento['contagem']['VERIFICAR APONTAMENTO'] ?? 0) ?>)
-                </a>
+                <?php foreach ($graficoAcompanhamento['etapas'] as $etapaAcomp): ?>
+                    <a href="javascript:void(0)" data-acao="<?= htmlspecialchars($etapaAcomp['acao']) ?>" data-nome="<?= htmlspecialchars($etapaAcomp['nome']) ?>" onclick="filtrarTabelaPorSetor(this.getAttribute('data-acao'), this.getAttribute('data-nome'))" class="badge" style="<?= $estiloBadgeAcao[$etapaAcomp['acao']] ?? '' ?>text-decoration:none;cursor:pointer;font-weight:700;" title="<?= htmlspecialchars($etapaAcomp['descricao']) ?> — filtrar tabela">
+                        <?= htmlspecialchars($etapaAcomp['nome']) ?> (<?= (int) $etapaAcomp['aberto'] ?>)
+                    </a>
+                <?php endforeach; ?>
             </p>
         </div>
         <div style="display:flex;align-items:center;gap:14px;font-size:12px;font-weight:600;">
@@ -806,10 +808,9 @@ layoutHeader($pageTitle);
             <select id="selectFiltroSetorTabela" onchange="filtrarTabelaPorSelectSetor(this.value)" style="border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:5px 8px;font-size:12px;outline:none;background:#fff;color:var(--color-text-primary);font-weight:600;">
                 <option value="">Todos os Setores / Etapas (Geral)</option>
                 <optgroup label="Etapas do Acompanhamento (Esteira)">
-                    <option value="PINTAR TANQUE">Pintar Tanque (Pintura)</option>
-                    <option value="GUARDAR NA ESTUFA">Guardar na Estufa (Estufa)</option>
-                    <option value="DESCER PARA MONTAGEM FINAL">Descer Montagem Final (MF)</option>
-                    <option value="VERIFICAR APONTAMENTO">Verificar Apontamento (Lab)</option>
+                    <?php foreach ($graficoAcompanhamento['etapas'] as $etapaAcomp): ?>
+                        <option value="<?= htmlspecialchars($etapaAcomp['acao']) ?>"><?= htmlspecialchars($etapaAcomp['nome']) ?></option>
+                    <?php endforeach; ?>
                 </optgroup>
                 <optgroup label="Setores Fabris (Células)">
                     <option value="LAB">Laboratório (LAB)</option>
@@ -897,13 +898,7 @@ layoutHeader($pageTitle);
                 <td class="font-mono" style="text-align:right;"><?= htmlspecialchars((string)($it['potencia_str'] ?? (!empty($it['potencia_kva']) ? $it['potencia_kva'] . ' kVA' : '-'))) ?></td>
                 <td style="text-align:center;">
                     <?php if (!empty($acaoItem)): ?>
-                        <span class="badge" style="font-size:10px;padding:3px 7px;border-radius:4px;font-weight:700;<?= match($acaoItem) {
-                            'PINTAR TANQUE'              => 'background:#fef3c7;color:#92400e;border:1px solid #fde68a;',
-                            'GUARDAR NA ESTUFA'          => 'background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;',
-                            'DESCER PARA MONTAGEM FINAL' => 'background:#dcfce7;color:#15803d;border:1px solid #bbf7d0;',
-                            'VERIFICAR APONTAMENTO'      => 'background:#fee2e2;color:#991b1b;border:1px solid #fecdd3;',
-                            default                      => 'background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;'
-                        } ?>" title="Ação da Esteira: <?= htmlspecialchars($etapaNome ?: $acaoItem) ?>">
+                        <span class="badge" style="font-size:10px;padding:3px 7px;border-radius:4px;font-weight:700;<?= $estiloBadgeAcao[$acaoItem] ?? 'background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;' ?>" title="Ação da Esteira: <?= htmlspecialchars($etapaNome ?: $acaoItem) ?>">
                             <?= htmlspecialchars($etapaNome ?: $acaoItem) ?>
                         </span>
                     <?php else: ?>
@@ -2046,16 +2041,13 @@ function abrirModalRelacaoAcompanhamento(indiceEtapa) {
     document.getElementById('modal-relacao-acompanhamento').style.display = 'flex';
 }
 
+const ACOES_ESTEIRA = <?= json_encode($graficoAcompanhamento['acoes'], JSON_UNESCAPED_UNICODE) ?>;
+const NOMES_ESTEIRA = <?= json_encode($graficoAcompanhamento['labels'], JSON_UNESCAPED_UNICODE) ?>;
+
 function filtrarEtapaAtualNaTabela() {
-    const mapaAcoes = [
-        { acao: 'PINTAR TANQUE', nome: 'Pintar Tanque (Pintura)' },
-        { acao: 'GUARDAR NA ESTUFA', nome: 'Guardar na Estufa (Estufa)' },
-        { acao: 'DESCER PARA MONTAGEM FINAL', nome: 'Descer Montagem Final (MF)' },
-        { acao: 'VERIFICAR APONTAMENTO', nome: 'Verificar Apontamento (Lab)' }
-    ];
-    const item = mapaAcoes[etapaAcompAtualIndice];
-    if (item) {
-        filtrarTabelaPorSetor(item.acao, item.nome);
+    const acao = ACOES_ESTEIRA[etapaAcompAtualIndice];
+    if (acao) {
+        filtrarTabelaPorSetor(acao, NOMES_ESTEIRA[etapaAcompAtualIndice]);
     }
     fecharModalRelacaoAcompanhamento();
 }
@@ -2220,13 +2212,13 @@ function aplicarFiltrosTabela() {
         let matchSetor = true;
         if (setorFiltroAtivo) {
             const f = setorFiltroAtivo.toUpperCase();
-            if (['PINTAR TANQUE', 'GUARDAR NA ESTUFA', 'DESCER PARA MONTAGEM FINAL', 'VERIFICAR APONTAMENTO'].includes(f)) {
+            if (ACOES_ESTEIRA.includes(f)) {
                 matchSetor = (acao === f);
             } else {
-                matchSetor = (setor === f) || 
+                matchSetor = (setor === f) ||
                              (f === 'MFL' && acao === 'DESCER PARA MONTAGEM FINAL') ||
                              (f === 'MTQ' && acao === 'PINTAR TANQUE') ||
-                             (f === 'ME'  && acao === 'GUARDAR NA ESTUFA') ||
+                             (f === 'ME'  && ['GUARDAR NA ESTUFA', 'MONTAR PARTE ATIVA', 'MONTAR NUCLEO'].includes(acao)) ||
                              (f === 'LAB' && acao === 'VERIFICAR APONTAMENTO');
             }
         }

@@ -393,15 +393,10 @@ function boletimCalcularPainelSetor(
     // existir apontamento real (ver limitação documentada no PROJETO-SGT.md).
     $producaoRealPorEstacao = boletimObterProducaoRealPorEstacao($diasTrabalhadosAteCorte);
 
-    // Montagem Final, Montagem Elétrica e Bobinagem não têm apontamento próprio,
-    // mas dá pra aproximar com dado real do Fluxo de Pedidos: OK = célula concluída
-    // (finalizado), PEND = ainda em aberto naquela célula, para as OFs programadas
-    // no período selecionado. A Pintura também usa o Fluxo (célula PIN) quando o
+    // Montagem Final, Montagem Elétrica e Bobinagem não têm apontamento próprio: usam
+    // as sub-OFs encerradas no ERP nos dias do período. A Pintura também, quando o
     // apontamento próprio dela (acima) está vazio.
-    $diasPeriodoLista = array_values($diasTrabalhadosAteCorte);
-    $dtIniPeriodo = $diasPeriodoLista[0] ?? $dataCorte;
-    $dtFimPeriodo = end($diasPeriodoLista) ?: $dataCorte;
-    $producaoRealFluxo = boletimObterProducaoRealFluxoCelulas($dtIniPeriodo, $dtFimPeriodo);
+    $producaoRealFluxo = boletimObterProducaoRealFluxoCelulas($diasTrabalhadosAteCorte);
 
     // Produção Real de Laboratório / Ensaios (Kardex / DW: cdEnt = 1, Distribuição, tipo = 'PRODUÇÃO')
     $itensLabTotal = [];
@@ -452,6 +447,13 @@ function boletimCalcularPainelSetor(
     $dadoRealSetores   = [];
     $relacaoSetores    = [];
 
+    $celulaFluxoPorSetor = [
+        'PINTURA'           => 'PIN',
+        'MONTAGEM_FINAL'    => 'MF',
+        'MONTAGEM_ELETRICA' => 'ME',
+        'BOBINAGEM'         => 'BOB',
+    ];
+
     foreach ($setoresGraficoConfig as $stChave => $stCfg) {
         $metaProg = (int) round(($metasPorSetor[$stChave]['diaria'] ?? $metaDiariaGlobal) * $countDiasTrabalhados);
 
@@ -468,24 +470,10 @@ function boletimCalcularPainelSetor(
             $prodSetor = $producaoRealPorEstacao['PIN'];
             $ehDadoReal = true;
             $relacaoItem = $producaoRealPorEstacao['itens']['PIN'];
-        } elseif ($stChave === 'PINTURA' && $producaoRealFluxo['disponivel']) {
-            // Sem apontamento de chão de fábrica no SGT (a Pintura é apontada no ERP):
-            // usa a célula PIN (sub-OF MTQ concluída) do Fluxo de Pedidos.
-            $prodSetor = $producaoRealFluxo['PIN']['ok'];
+        } elseif (isset($celulaFluxoPorSetor[$stChave]) && $producaoRealFluxo['disponivel']) {
+            $relacaoItem = $producaoRealFluxo['itens'][$celulaFluxoPorSetor[$stChave]];
+            $prodSetor = count($relacaoItem);
             $ehDadoReal = true;
-            $relacaoItem = $producaoRealFluxo['itens']['PIN'];
-        } elseif ($stChave === 'MONTAGEM_FINAL' && $producaoRealFluxo['disponivel']) {
-            $prodSetor = $producaoRealFluxo['MF']['ok'];
-            $ehDadoReal = true;
-            $relacaoItem = $producaoRealFluxo['itens']['MF'];
-        } elseif ($stChave === 'MONTAGEM_ELETRICA' && $producaoRealFluxo['disponivel']) {
-            $prodSetor = $producaoRealFluxo['ME']['ok'];
-            $ehDadoReal = true;
-            $relacaoItem = $producaoRealFluxo['itens']['ME'];
-        } elseif ($stChave === 'BOBINAGEM' && $producaoRealFluxo['disponivel']) {
-            $prodSetor = $producaoRealFluxo['BOB']['ok'];
-            $ehDadoReal = true;
-            $relacaoItem = $producaoRealFluxo['itens']['BOB'];
         } else {
             $prodSetor = (int) round($prodTotalPeriodo * $stCfg['fator']);
             $ehDadoReal = false;
@@ -527,11 +515,10 @@ function boletimCalcularPainelSetor(
 
             // "Produzido" por núcleo:
             // 1. Laboratório: possui apontamento real individual no Kardex/DW (itensLabPorNucleo)
-            // 2. Montagem Final/Elétrica/Bobinagem/Pintura: possuem dado real no Fluxo de Pedidos
+            // 2. Montagem Final/Elétrica/Bobinagem/Pintura: sub-OFs encerradas no ERP
             //    (Pintura só quando não há apontamento próprio em producao_etapas — mesma
             //    precedência do gráfico consolidado acima)
             // 3. Demais: rateiam pela proporção realizada na fábrica
-            $mapaCelulaFluxo = ['MFL' => 'MF', 'ME' => 'ME', 'BOB' => 'BOB', 'MTQ' => 'PIN'];
             $pinComApontamentoProprio = $codSetorAtual === 'MTQ' && $producaoRealPorEstacao['PIN'] > 0;
             if ($setorChaveUpper === 'LABORATORIO') {
                 $relacaoPorNucleo = $itensLabPorNucleo;
@@ -541,15 +528,9 @@ function boletimCalcularPainelSetor(
                     'EMP'     => count($relacaoPorNucleo['EMP']),
                 ];
                 $ehDadoRealNucleo = true;
-            } elseif (isset($mapaCelulaFluxo[$codSetorAtual]) && $producaoRealFluxo['disponivel'] && !$pinComApontamentoProprio) {
-                $chaveFluxo = $mapaCelulaFluxo[$codSetorAtual];
-                $itensProduzidos = array_values(array_filter(
-                    $producaoRealFluxo['itens'][$chaveFluxo] ?? [],
-                    fn($x) => ($x['status'] ?? '') === 'Produzido'
-                ));
-
+            } elseif (isset($celulaFluxoPorSetor[$setorChaveUpper]) && $producaoRealFluxo['disponivel'] && !$pinComApontamentoProprio) {
                 $relacaoPorNucleo = ['ENR' => [], 'JC-TRIF' => [], 'EMP' => []];
-                foreach ($itensProduzidos as $itProd) {
+                foreach ($producaoRealFluxo['itens'][$celulaFluxoPorSetor[$setorChaveUpper]] as $itProd) {
                     $nucItem = $itProd['nucleo'] ?? 'ENR';
                     if (isset($relacaoPorNucleo[$nucItem])) {
                         $relacaoPorNucleo[$nucItem][] = $itProd;
@@ -656,11 +637,10 @@ function boletimCalcularPainelSetor(
     // selecionado (ver aplicarFiltrosTabela em pages/painel-setor/index.php).
     $itensAcompTabela = $graficoAcompanhamento['todos_itens'] ?? [];
 
-    // Reserva espaço garantido para os itens da esteira (no máx. ~280) antes de
-    // cortar $ordensSetor — em CONSOLIDADO ou células com fila grande, um corte
-    // ingênuo no array já mesclado descartava a esteira inteira (ela vem depois).
-    $limiteTotalOrdens = 800;
-    $limiteOrdensSetor = max(0, $limiteTotalOrdens - count($itensAcompTabela));
+    // Os itens da esteira entram inteiros (~600 com Montar Núcleo / Parte Ativa) e o
+    // corte vale só pra $ordensSetor — em CONSOLIDADO ou células com fila grande, um
+    // corte no array já mesclado descartava a esteira inteira (ela vem depois).
+    $limiteOrdensSetor = 500;
     $todasOrdensTabela = sanitizarUtf8Recursivo(array_merge(array_slice($ordensSetor, 0, $limiteOrdensSetor), $itensAcompTabela));
 
     return [
@@ -770,143 +750,53 @@ function boletimObterProducaoRealPorEstacao(array $diasPeriodo): array
 }
 
 /**
- * Produção real (OK = finalizada) e fila em aberto (PEND) por célula, a partir
- * do Fluxo de Pedidos (`carregarPlanilhaProducaoFluxo()` em boletim-fluxo-pedidos.php,
- * Motor 2 / SQL Server) — usada para Montagem Final, Montagem Elétrica e Bobinagem
- * no gráfico "Produção vs. Programado por Setor Fabril", já que essas 3 células não
- * têm apontamento próprio (só Laboratório e Pintura têm, via `producao_etapas` —
- * ver boletimObterProducaoRealPorEstacao()).
+ * Produção real de Montagem Final (MF), Montagem Elétrica (ME), Bobinagem (BOB) e
+ * Pintura/Tanque (PIN) nos dias informados: transformadores cuja sub-OF da célula
+ * foi encerrada no ERP naquele dia de turno (carregarEncerramentosCelulasFluxo() em
+ * boletim-fluxo-pedidos.php, lido do cache do script agendado). Essas células não
+ * têm apontamento próprio no SGT — só Laboratório e Pintura têm, via
+ * `producao_etapas` (ver boletimObterProducaoRealPorEstacao()); a Pintura usa esta
+ * fonte quando o apontamento próprio está vazio.
  *
- * Pintura/Tanque (PIN = sub-OF MTQ) também é agregada aqui como plano B: o apontamento
- * de chão de fábrica do SGT (`producao_etapas`) pode estar vazio porque a Pintura é
- * apontada no ERP, então a barra passa a usar a célula PIN do Fluxo quando não há
- * apontamento próprio no período.
+ * Bobinagem: o transformador conta quando as sub-OFs de BT e de AT foram encerradas,
+ * no dia da última das duas.
  *
- * Bobinagem combina as células BT + AT (ver descrição do setor em
- * boletimObterListaSetores(): "Enrolamento de Bobinas BT e AT"): um item só conta
- * como finalizado na Bobinagem quando AMBAS as células rastreáveis (BT e/ou AT)
- * estão OK; itens sem nenhuma das duas rastreável são ignorados (não entram nem
- * como OK nem como PEND).
+ * 'disponivel' = false quando o cache não existe ou não cobre o período — o chamador
+ * cai na estimativa, em vez de mostrar zero.
  *
- * Igual ao Acompanhamento (boletimCalcularAcompanhamentoVsProgramado()), usa
- * cache de sessão de 120s — é uma consulta pesada no SQL Server (árvore de
- * sub-OFs em 5 níveis).
- *
- * Além das contagens, devolve a relação (NS / Data PCP / Sequência / Pedido /
- * Cliente / Projeto / Status) de cada item, usada no drill-down ao clicar na
- * barra do gráfico "Produção vs. Programado por Setor Fabril".
- *
- * @param string $dtIni Data inicial do período (Y-m-d)
- * @param string $dtFim Data final do período (Y-m-d)
- * @return array{MF: array{ok:int,pend:int}, ME: array{ok:int,pend:int}, BOB: array{ok:int,pend:int}, PIN: array{ok:int,pend:int}, disponivel: bool, itens: array{MF:array,ME:array,BOB:array,PIN:array}}
+ * @param string[] $diasPeriodo Datas Y-m-d do período em análise
+ * @return array{disponivel: bool, itens: array{MF:array,ME:array,BOB:array,PIN:array}}
  */
-function boletimObterProducaoRealFluxoCelulas(string $dtIni, string $dtFim): array
+function boletimObterProducaoRealFluxoCelulas(array $diasPeriodo): array
 {
-    $vazio = [
-        'MF'         => ['ok' => 0, 'pend' => 0],
-        'ME'         => ['ok' => 0, 'pend' => 0],
-        'BOB'        => ['ok' => 0, 'pend' => 0],
-        'PIN'        => ['ok' => 0, 'pend' => 0],
+    $resultado = [
         'disponivel' => false,
         'itens'      => ['MF' => [], 'ME' => [], 'BOB' => [], 'PIN' => []],
     ];
 
-    // v2: passou a incluir a célula PIN — entradas de sessão antigas (sem PIN) não são reaproveitadas.
-    $cacheKey     = 'cache_fluxo_celulas_v2_' . $dtIni . '_' . $dtFim;
-    $cacheTimeKey = $cacheKey . '_time';
-    $cacheValido  = isset($_SESSION[$cacheKey])
-        && is_array($_SESSION[$cacheKey])
-        && (time() - (int) ($_SESSION[$cacheTimeKey] ?? 0)) < 120;
-
-    if ($cacheValido) {
-        return $_SESSION[$cacheKey];
-    }
-
     require_once __DIR__ . '/boletim-fluxo-pedidos.php';
 
-    try {
-        $dados = carregarPlanilhaProducaoFluxo(null, $dtIni, $dtFim, null, null, null, null, null, null, 'todos', null);
-    } catch (Throwable $e) {
-        return $vazio;
+    $dados = carregarEncerramentosCelulasFluxo(array_values($diasPeriodo));
+    if (empty($dados['sucesso'])) {
+        return $resultado;
     }
 
-    if (empty($dados['sucesso']) || empty($dados['itens'])) {
-        return $vazio;
-    }
-
-    $resultado = [
-        'MF'         => ['ok' => 0, 'pend' => 0],
-        'ME'         => ['ok' => 0, 'pend' => 0],
-        'BOB'        => ['ok' => 0, 'pend' => 0],
-        'PIN'        => ['ok' => 0, 'pend' => 0],
-        'disponivel' => true,
-        'itens'      => ['MF' => [], 'ME' => [], 'BOB' => [], 'PIN' => []],
-    ];
-
+    $resultado['disponivel'] = true;
     foreach ($dados['itens'] as $it) {
-        $setoresIt = $it['setores'] ?? [];
-
-        // 'taps' vem do próprio carregarPlanilhaProducaoFluxo (ENR/EMP/JC-TRIF/JC).
-        // JC monofásico/bifásico ('JC') entra no balde ENR, mesma regra oficial da
-        // fábrica usada em boletimClassificarNucleoTrafo() — só JC trifásico é JC-TRIF.
-        $tapsItem = strtoupper(trim((string) ($it['taps'] ?? 'ENR')));
-        $nucleoItem = $tapsItem === 'EMP' ? 'EMP' : ($tapsItem === 'JC-TRIF' ? 'JC-TRIF' : 'ENR');
-
-        $base = [
-            'ns_serie' => $it['nr_serie'] ?? null,
-            'data'     => $it['data'] ?? '—',
+        $celula = $it['celula'] ?? '';
+        if (!isset($resultado['itens'][$celula])) {
+            continue;
+        }
+        $resultado['itens'][$celula][] = [
+            'ns_serie' => $it['ns'],
+            'data'     => date('d/m/Y H:i', strtotime($it['data_hora'])),
             'seq'      => $it['seq'] ?: '—',
-            'pedido'   => $it['pedido'] ?? '',
-            'cliente'  => $it['cliente'] ?? '',
-            'projeto'  => $it['projeto'] ?? '',
-            'nucleo'   => $nucleoItem,
+            'pedido'   => $it['pedido'],
+            'cliente'  => $it['cliente'],
+            'projeto'  => $it['projeto'],
+            'status'   => 'Produzido',
+            'nucleo'   => $it['nucleo'],
         ];
-
-        $mf = $setoresIt['MF'] ?? '';
-        if ($mf === 'OK') {
-            $resultado['MF']['ok']++;
-            $resultado['itens']['MF'][] = $base + ['status' => 'Produzido'];
-        } elseif ($mf === 'PEND') {
-            $resultado['MF']['pend']++;
-            $resultado['itens']['MF'][] = $base + ['status' => 'Em Aberto'];
-        }
-
-        $me = $setoresIt['ME'] ?? '';
-        if ($me === 'OK') {
-            $resultado['ME']['ok']++;
-            $resultado['itens']['ME'][] = $base + ['status' => 'Produzido'];
-        } elseif ($me === 'PEND') {
-            $resultado['ME']['pend']++;
-            $resultado['itens']['ME'][] = $base + ['status' => 'Em Aberto'];
-        }
-
-        $pin = $setoresIt['PIN'] ?? '';
-        if ($pin === 'OK') {
-            $resultado['PIN']['ok']++;
-            $resultado['itens']['PIN'][] = $base + ['status' => 'Produzido'];
-        } elseif ($pin === 'PEND') {
-            $resultado['PIN']['pend']++;
-            $resultado['itens']['PIN'][] = $base + ['status' => 'Em Aberto'];
-        }
-
-        $bt = $setoresIt['BT'] ?? 'DESCONHECIDO';
-        $at = $setoresIt['AT'] ?? 'DESCONHECIDO';
-        if ($bt !== 'DESCONHECIDO' || $at !== 'DESCONHECIDO') {
-            $btOk = ($bt === 'OK' || $bt === 'DESCONHECIDO');
-            $atOk = ($at === 'OK' || $at === 'DESCONHECIDO');
-            if ($btOk && $atOk) {
-                $resultado['BOB']['ok']++;
-                $resultado['itens']['BOB'][] = $base + ['status' => 'Produzido'];
-            } else {
-                $resultado['BOB']['pend']++;
-                $resultado['itens']['BOB'][] = $base + ['status' => 'Em Aberto'];
-            }
-        }
-    }
-
-    if (session_status() === PHP_SESSION_ACTIVE) {
-        $_SESSION[$cacheKey] = $resultado;
-        $_SESSION[$cacheTimeKey] = time();
     }
 
     return $resultado;
@@ -1089,175 +979,136 @@ function boletimCalcularGargalosSetores(string $dataCorte, array $itensSnapshot)
 /**
  * Calcula a relação de peças/componentes em aberto no setor versus o programado do PCP para o dia.
  *
- * Utiliza as contagens exatas do Acompanhamento de Produção (Empresa 1):
- * - Pintar Tanque (Pintura / Tanques)
- * - Guardar na Estufa (Estufa / Secagem)
- * - Descer para Montagem Final (Montagem Final)
- * - Verificar Apontamento (Laboratório / Ensaios)
+ * Etapas, na ordem do fluxo (ver boletim-acompanhamento.php):
+ * - Montar Núcleo / Montar Parte Ativa (componentes prontos, montagem seguinte em aberto)
+ * - Pintar Tanque / Guardar na Estufa / Descer para Montagem Final / Verificar Apontamento
  */
 function boletimCalcularAcompanhamentoVsProgramado(string $dataCorte, array $itensSnapshot, float $metaDiaria): array
 {
     require_once __DIR__ . '/boletim-acompanhamento.php';
 
-    $etapasVazias = [
-        'DESCER PARA MONTAGEM FINAL' => [],
-        'PINTAR TANQUE'              => [],
-        'GUARDAR NA ESTUFA'          => [],
-        'VERIFICAR APONTAMENTO'      => [],
-    ];
-
-    // 1. Cache em sessão de curta duração (120s) para carregamento instantâneo
-    $cacheValido = isset($_SESSION['cache_contagem_acomp'])
-        && is_array($_SESSION['cache_contagem_acomp'])
-        && (time() - (int) ($_SESSION['cache_contagem_acomp_time'] ?? 0)) < 120;
-
-    if ($cacheValido) {
-        $contagem = $_SESSION['cache_contagem_acomp'];
-        $itensPorEtapa = $_SESSION['cache_itens_acomp'] ?? $etapasVazias;
-    } else {
-        $contagem = [
-            'DESCER PARA MONTAGEM FINAL' => 152,
-            'PINTAR TANQUE'              => 52,
-            'GUARDAR NA ESTUFA'          => 70,
-            'VERIFICAR APONTAMENTO'      => 4,
-        ];
-        $itensPorEtapa = $etapasVazias;
-
-        try {
-            $dadosReal = carregarAcompanhamentoProducao();
-            $itensAcomp = $dadosReal['itens'] ?? [];
-            if (!empty($itensAcomp)) {
-                $tempContagem = [
-                    'DESCER PARA MONTAGEM FINAL' => 0,
-                    'PINTAR TANQUE'              => 0,
-                    'GUARDAR NA ESTUFA'          => 0,
-                    'VERIFICAR APONTAMENTO'      => 0,
-                ];
-                $tempItensPorEtapa = $etapasVazias;
-                foreach ($itensAcomp as $it) {
-                    $acao = $it['acao'] ?? '';
-                    if (isset($tempContagem[$acao])) {
-                        $tempContagem[$acao]++;
-                        $tempItensPorEtapa[$acao][] = [
-                            'nr_serie'     => $it['nr_serie'] ?? null,
-                            'data'         => $it['data'] ?? '—',
-                            'seq'          => $it['seq'] ?? '—',
-                            'pedido'       => $it['pedido'] ?? '',
-                            'cliente'      => $it['cliente'] ?? '',
-                            'projeto'      => $it['projeto'] ?? '',
-                            'desc_projeto' => $it['desc_projeto'] ?? '',
-                        ];
-                    }
-                }
-                if (array_sum($tempContagem) > 0) {
-                    $contagem = $tempContagem;
-                    $itensPorEtapa = $tempItensPorEtapa;
-                }
-            }
-        } catch (Throwable $e) {
-            // Mantém valores de fallback sem travar a requisição
-        }
-
-        if (session_status() === PHP_SESSION_ACTIVE) {
-            $_SESSION['cache_contagem_acomp'] = $contagem;
-            $_SESSION['cache_itens_acomp'] = $itensPorEtapa;
-            $_SESSION['cache_contagem_acomp_time'] = time();
-        }
-    }
-
-    $progDia = (int) round($metaDiaria > 0 ? $metaDiaria : 250);
-
-    // Mapeamento das 4 etapas reais do Acompanhamento
-    $etapas = [
-        [
-            'id'             => 'pintar_tanque',
-            'nome'           => 'Pintar Tanque (Pintura)',
-            'codigo'         => 'MTQ',
-            'descricao'      => 'Parte Ativa pronta, aguardando Tanque',
-            'aberto'         => (int) $contagem['PINTAR TANQUE'],
-            'programado_dia' => $progDia,
-            'icone'          => 'brush',
-            'cor_aberto'     => '#f59e0b', // Âmbar
-            'cor_prog'       => '#3b82f6', // Azul PCP
+    $etapasConfig = [
+        'MONTAR NUCLEO' => [
+            'id'         => 'montar_nucleo',
+            'nome'       => 'Montar Núcleo (MN)',
+            'codigo'     => 'MN',
+            'descricao'  => 'Chassi (MDA) e CNC prontos, núcleo em aberto',
+            'icone'      => 'layers',
+            'cor_aberto' => '#7c3aed', // Violeta
+            'nome_setor' => 'Montagem Núcleo',
+            'chave'      => 'MONTAGEM_ELETRICA',
         ],
-        [
-            'id'             => 'guardar_estufa',
-            'nome'           => 'Guardar na Estufa (Estufa)',
-            'codigo'         => 'EST',
-            'descricao'      => 'Tanque pintado, Parte Ativa na estufa',
-            'aberto'         => (int) $contagem['GUARDAR NA ESTUFA'],
-            'programado_dia' => $progDia,
-            'icone'          => 'sun',
-            'cor_aberto'     => '#0284c7', // Azul Céu
-            'cor_prog'       => '#3b82f6',
+        'MONTAR PARTE ATIVA' => [
+            'id'         => 'montar_parte_ativa',
+            'nome'       => 'Montar Parte Ativa (PA)',
+            'codigo'     => 'PA',
+            'descricao'  => 'Bobina AT e núcleo prontos, Parte Ativa em aberto',
+            'icone'      => 'zap',
+            'cor_aberto' => '#0d9488', // Verde-azulado
+            'nome_setor' => 'Parte Ativa / Mont. Elétrica',
+            'chave'      => 'MONTAGEM_ELETRICA',
         ],
-        [
-            'id'             => 'descer_montagem',
-            'nome'           => 'Descer Montagem Final (MF)',
-            'codigo'         => 'MFL',
-            'descricao'      => 'Tanque & Parte Ativa prontos para fechar',
-            'aberto'         => (int) $contagem['DESCER PARA MONTAGEM FINAL'],
-            'programado_dia' => $progDia,
-            'icone'          => 'box',
-            'cor_aberto'     => '#16a34a', // Verde
-            'cor_prog'       => '#3b82f6',
-        ],
-        [
-            'id'             => 'verif_apontamento',
-            'nome'           => 'Verificar Apontamento (Lab)',
-            'codigo'         => 'LAB',
-            'descricao'      => 'Inconsistência / sem etapa prévia',
-            'aberto'         => (int) $contagem['VERIFICAR APONTAMENTO'],
-            'programado_dia' => $progDia,
-            'icone'          => 'check-circle',
-            'cor_aberto'     => '#dc2626', // Vermelho
-            'cor_prog'       => '#3b82f6',
-        ],
-    ];
-
-    $labels = array_column($etapas, 'nome');
-    $dadosAberto = array_column($etapas, 'aberto');
-    $dadosProg = array_column($etapas, 'programado_dia');
-
-    // Relação de itens (NS, Data PCP, Sequência) por etapa, na mesma ordem das barras
-    $itensPorEtapaLista = [
-        $itensPorEtapa['PINTAR TANQUE'] ?? [],
-        $itensPorEtapa['GUARDAR NA ESTUFA'] ?? [],
-        $itensPorEtapa['DESCER PARA MONTAGEM FINAL'] ?? [],
-        $itensPorEtapa['VERIFICAR APONTAMENTO'] ?? [],
-    ];
-
-    // Lista consolidada de itens formatados para exibição na tabela de ordens/esteira
-    $todosItensAcomp = [];
-    $mapaAcaoConfig = [
         'PINTAR TANQUE' => [
+            'id'         => 'pintar_tanque',
             'nome'       => 'Pintar Tanque (Pintura)',
-            'setor'      => 'MTQ',
+            'codigo'     => 'MTQ',
+            'descricao'  => 'Parte Ativa pronta, aguardando Tanque',
+            'icone'      => 'brush',
+            'cor_aberto' => '#f59e0b', // Âmbar
             'nome_setor' => 'Pintura / Tanque',
             'chave'      => 'PINTURA',
         ],
         'GUARDAR NA ESTUFA' => [
+            'id'         => 'guardar_estufa',
             'nome'       => 'Guardar na Estufa (Estufa)',
-            'setor'      => 'EST',
+            'codigo'     => 'EST',
+            'descricao'  => 'Tanque pintado, Parte Ativa na estufa',
+            'icone'      => 'sun',
+            'cor_aberto' => '#0284c7', // Azul Céu
             'nome_setor' => 'Estufa / Mont. Elétrica',
             'chave'      => 'MONTAGEM_ELETRICA',
         ],
         'DESCER PARA MONTAGEM FINAL' => [
+            'id'         => 'descer_montagem',
             'nome'       => 'Descer Montagem Final (MF)',
-            'setor'      => 'MFL',
+            'codigo'     => 'MFL',
+            'descricao'  => 'Tanque & Parte Ativa prontos para fechar',
+            'icone'      => 'box',
+            'cor_aberto' => '#16a34a', // Verde
             'nome_setor' => 'Montagem Final',
             'chave'      => 'MONTAGEM_FINAL',
         ],
         'VERIFICAR APONTAMENTO' => [
+            'id'         => 'verif_apontamento',
             'nome'       => 'Verificar Apontamento (Lab)',
-            'setor'      => 'LAB',
+            'codigo'     => 'LAB',
+            'descricao'  => 'Inconsistência / sem etapa prévia',
+            'icone'      => 'check-circle',
+            'cor_aberto' => '#dc2626', // Vermelho
             'nome_setor' => 'Laboratório / Ensaios',
             'chave'      => 'LABORATORIO',
         ],
     ];
+    $etapasVazias = array_fill_keys(array_keys($etapasConfig), []);
 
-    foreach ($mapaAcaoConfig as $etapaAcao => $cfg) {
-        foreach ($itensPorEtapa[$etapaAcao] ?? [] as $it) {
+    // 1. Cache em sessão de curta duração (120s) para carregamento instantâneo.
+    // v2: passou a incluir Montar Núcleo / Montar Parte Ativa — entradas antigas não servem.
+    $cacheValido = isset($_SESSION['cache_itens_acomp_v2'])
+        && is_array($_SESSION['cache_itens_acomp_v2'])
+        && (time() - (int) ($_SESSION['cache_itens_acomp_v2_time'] ?? 0)) < 120;
+
+    if ($cacheValido) {
+        $itensPorEtapa = $_SESSION['cache_itens_acomp_v2'];
+    } else {
+        $itensPorEtapa = $etapasVazias;
+
+        try {
+            $dadosReal = carregarAcompanhamentoProducao();
+            foreach (array_merge($dadosReal['itens'] ?? [], $dadosReal['itens_montagem'] ?? []) as $it) {
+                $acao = $it['acao'] ?? '';
+                if (isset($itensPorEtapa[$acao])) {
+                    $itensPorEtapa[$acao][] = [
+                        'nr_serie'     => $it['nr_serie'] ?? null,
+                        'data'         => $it['data'] ?? '—',
+                        'seq'          => $it['seq'] ?? '—',
+                        'pedido'       => $it['pedido'] ?? '',
+                        'cliente'      => $it['cliente'] ?? '',
+                        'projeto'      => $it['projeto'] ?? '',
+                        'desc_projeto' => $it['desc_projeto'] ?? '',
+                    ];
+                }
+            }
+        } catch (Throwable $e) {
+            // Mantém as etapas vazias sem travar a requisição
+        }
+
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            $_SESSION['cache_itens_acomp_v2'] = $itensPorEtapa;
+            $_SESSION['cache_itens_acomp_v2_time'] = time();
+        }
+    }
+
+    $contagem = array_map('count', $itensPorEtapa);
+    $progDia = (int) round($metaDiaria > 0 ? $metaDiaria : 250);
+
+    $etapas = [];
+    $todosItensAcomp = [];
+    foreach ($etapasConfig as $etapaAcao => $cfg) {
+        $etapas[] = [
+            'id'             => $cfg['id'],
+            'acao'           => $etapaAcao,
+            'nome'           => $cfg['nome'],
+            'codigo'         => $cfg['codigo'],
+            'descricao'      => $cfg['descricao'],
+            'aberto'         => $contagem[$etapaAcao],
+            'programado_dia' => $progDia,
+            'icone'          => $cfg['icone'],
+            'cor_aberto'     => $cfg['cor_aberto'],
+            'cor_prog'       => '#3b82f6', // Azul PCP
+        ];
+
+        // Lista consolidada de itens formatados para exibição na tabela de ordens/esteira
+        foreach ($itensPorEtapa[$etapaAcao] as $it) {
             $desc = $it['desc_projeto'] ?? '';
             $potStr = '-';
             if (preg_match('/(\d+(?:[.,]\d+)?)\s*kVA/i', $desc, $m)) {
@@ -1279,7 +1130,7 @@ function boletimCalcularAcompanhamentoVsProgramado(string $dataCorte, array $ite
                 'quantidade'       => 1,
                 'acao'             => $etapaAcao,
                 'etapa_nome'       => $cfg['nome'],
-                'setor_codigo'     => $cfg['setor'],
+                'setor_codigo'     => $cfg['codigo'],
                 'setor_nome'       => $cfg['nome_setor'],
                 'setor_chave'      => $cfg['chave'],
                 'origem'           => 'acomp',
@@ -1287,15 +1138,19 @@ function boletimCalcularAcompanhamentoVsProgramado(string $dataCorte, array $ite
         }
     }
 
+    $dadosAberto = array_column($etapas, 'aberto');
+
     return [
         'etapas'          => $etapas,
-        'labels'          => $labels,
+        'acoes'           => array_keys($etapasConfig),
+        'labels'          => array_column($etapas, 'nome'),
         'aberto'          => $dadosAberto,
-        'programado'      => $dadosProg,
+        'programado'      => array_column($etapas, 'programado_dia'),
         'total_aberto'    => array_sum($dadosAberto),
         'total_prog'      => $progDia,
         'contagem'        => $contagem,
-        'itens_por_etapa' => $itensPorEtapaLista,
+        // Relação de itens (NS, Data PCP, Sequência) por etapa, na mesma ordem das barras
+        'itens_por_etapa' => array_values($itensPorEtapa),
         'todos_itens'     => $todosItensAcomp,
     ];
 }
