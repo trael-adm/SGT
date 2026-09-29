@@ -214,7 +214,7 @@ function boletimObterDadosMes(string $mes = '', bool $forcarRefresh = false): ar
         $dados = boletimConsultarSqlServerMes($mes);
     }
 
-    // 3. Se falhou ou não tem SQL Server (ex: Railway), tenta o cache existente antes de qualquer fallback
+    // 3. Se falhou ou não tem SQL Server disponível, tenta o cache existente antes de qualquer fallback
     if ($dados === null || (empty($dados['porDia']) && empty($dados['nucleoPorDia']))) {
         if (is_file($jsonFile)) {
             $rawJson = @file_get_contents($jsonFile);

@@ -450,12 +450,17 @@ function trocarSubmodoPersonalizado(sub) {
     if (elEsp) elEsp.style.display = (sub === 'especificas') ? 'block' : 'none';
 }
 
+// Data local em AAAA-MM-DD (toISOString() usa UTC e, em Cuiabá, vira o dia seguinte depois das 20h).
+function _mfdIsoLocal(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 function setAtalhoIntervaloModal(dias) {
     var hoje = new Date();
-    var ateIso = hoje.toISOString().split('T')[0];
+    var ateIso = _mfdIsoLocal(hoje);
     var deDate = new Date();
     deDate.setDate(hoje.getDate() - dias + 1);
-    var deIso = deDate.toISOString().split('T')[0];
+    var deIso = _mfdIsoLocal(deDate);
 
     var inputDe = document.getElementById('dfInputDataInicio');
     var inputAte = document.getElementById('dfInputDataFim');
@@ -469,7 +474,8 @@ var initialMfdDatasEsp = <?= json_encode($_mfdDatasEsp) ?>;
 if (initialMfdDatasEsp) {
     initialMfdDatasEsp.split(',').forEach(function (d) {
         d = d.trim();
-        if (d) mfdDatasEspecificasSet.add(d);
+        // Só aceita AAAA-MM-DD: o valor vem da query string e é renderizado via innerHTML.
+        if (/^\d{4}-\d{2}-\d{2}$/.test(d)) mfdDatasEspecificasSet.add(d);
     });
 }
 

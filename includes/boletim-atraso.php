@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * Módulo de Análise e Métricas de Atraso da Distribuição — SGT.
  *
- * 100% Baseado em Banco de Dados MySQL (com suporte a sincronização direta com SQL Server / Railway).
+ * 100% Baseado em Banco de Dados MySQL (com suporte a sincronização direta com SQL Server).
  * Implementa as regras de negócio e medidas DAX / Power Query do PowerBI corporativo.
  */
 
@@ -535,7 +535,7 @@ function boletimAutoImportarSnapshotsLegados(PDO $pdo): void
 /**
  * Extrai diretamente do SQL Server corporativo (vsat.trael.local) e grava no MySQL.
  * Sem $forcarSobrescrita, se a foto de hoje já existir no banco, mantém congelada/travada
- * sem sobrescrever (comportamento do sincronizador antigo para o Railway).
+ * sem sobrescrever.
  * Com $forcarSobrescrita (scripts/atualizar_atraso.php, a cada 15 min), a foto de hoje é
  * substituída no lugar — dias anteriores nunca são tocados, então a última atualização de
  * cada dia fica como o fechamento dele.
@@ -1425,7 +1425,9 @@ function boletimCalcularMetricasAtraso(string $dataCorte, array $mesesFiltro = [
     // cada sincronização sobrescreve o valor do próprio dia, então o dia só
     // "congela" de fato quando o calendário vira). Só grava a data de hoje:
     // dias passados não são recalculados aqui.
-    if ($dataCorte === date('Y-m-d')) {
+    // Só com a foto mais recente e sem filtro de meses: senão grava no dia os números de uma
+    // foto antiga ou de um recorte de meses escolhido na tela.
+    if ($dataCorte === date('Y-m-d') && empty($mesesFiltro) && $dataExtracao === (string) array_key_first($datasDisponiveis)) {
         $ultimoPonto = end($serieEvolucao);
         if ($ultimoPonto && $ultimoPonto['data'] === $dataCorte) {
             try {

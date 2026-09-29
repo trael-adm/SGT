@@ -114,10 +114,27 @@ if (!$isPersonalizado && is_array($diasAtivosArray) && !empty($diasAtivosArray))
 }
 $diasTrabalhados = boletimDiasUteisTrabalhados($mes);
 
+// Dias de produção do MÊS inteiro (calendário do modal e divisor da meta
+// diária) — independentes do intervalo personalizado. Sem isso, no modo
+// personalizado a meta diária virava meta do mês ÷ dias do intervalo e o
+// calendário do modal mostrava só N dias, gravando um calendário truncado
+// em dias_customizados ao salvar.
+$diasNoMesCalendario = (int) date('t', mktime(0, 0, 0, $mesRef, 1, $anoRef));
+if (is_array($diasAtivosArray) && !empty($diasAtivosArray)) {
+    $diasAtivosMes = $diasAtivosArray;
+} else {
+    $diasAtivosMes = [];
+    for ($i = 1; $i <= $diasNoMesCalendario; $i++) {
+        $d = sprintf('%04d-%02d-%02d', $anoRef, $mesRef, $i);
+        if ((int) date('N', strtotime($d)) <= 5) $diasAtivosMes[] = $d;
+    }
+}
+$diasUteisMes = count($diasAtivosMes);
+
 // Dados de todos os dias do mês para o Calendário Interativo do Modal
 $todosDiasCalendario = [];
 $primeiroDiaSemanaMes = (int) date('w', mktime(0, 0, 0, $mesRef, 1, $anoRef)); // 0=Dom, 6=Sáb
-for ($i = 1; $i <= $diasNoMes; $i++) {
+for ($i = 1; $i <= $diasNoMesCalendario; $i++) {
     $dataStr = sprintf('%04d-%02d-%02d', $anoRef, $mesRef, $i);
     $diaSemana = (int) date('w', strtotime($dataStr));
     $todosDiasCalendario[] = [
@@ -125,7 +142,7 @@ for ($i = 1; $i <= $diasNoMes; $i++) {
         'date' => $dataStr,
         'diaSemana' => $diaSemana,
         'fimDeSemana' => ($diaSemana === 0 || $diaSemana === 6),
-        'ativo' => in_array($dataStr, $diasAtivosCalendario, true),
+        'ativo' => in_array($dataStr, $diasAtivosMes, true),
     ];
 }
 
@@ -151,10 +168,10 @@ $totalCore  = [
 ];
 
 // Metas diárias planejadas
-$metaDiariaTpd   = $diasUteis > 0 ? round($metaTpd / $diasUteis, 2) : 0;
-$metaDiariaTps   = $diasUteis > 0 ? round($metaTps / $diasUteis, 2) : 0;
-$metaDiariaTpm   = $diasUteis > 0 ? round($metaTpm / $diasUteis, 2) : 0;
-$metaDiariaTotal = $diasUteis > 0 ? round($metaTotalForca / $diasUteis, 2) : 0;
+$metaDiariaTpd   = $diasUteisMes > 0 ? round($metaTpd / $diasUteisMes, 2) : 0;
+$metaDiariaTps   = $diasUteisMes > 0 ? round($metaTps / $diasUteisMes, 2) : 0;
+$metaDiariaTpm   = $diasUteisMes > 0 ? round($metaTpm / $diasUteisMes, 2) : 0;
+$metaDiariaTotal = $diasUteisMes > 0 ? round($metaTotalForca / $diasUteisMes, 2) : 0;
 
 $metaPorLinha = [
     'TPD' => $metaDiariaTpd,
@@ -181,7 +198,9 @@ foreach ($diasDoMes as $d) {
     // Se houver registro manual salvo que precise sobrepor ou complementar:
     foreach ($registros as $r) {
         if ($r['date'] !== $d) continue;
-        $c = $r['line'];
+        // Lançamento de reprova (core_type LAB) também traz line TPD/TPS/TPM —
+        // não pode sobrescrever a produção da linha.
+        $c = ($r['core_type'] ?? null) === 'LAB' ? 'LAB' : $r['line'];
         if ($c === 'TPD' && $kardexTpd === null) $porDiaCore[$d]['TPD']['real'] = (int) $r['real'];
         if ($c === 'TPS' && $kardexTps === null) $porDiaCore[$d]['TPS']['real'] = (int) $r['real'];
         if ($c === 'TPM' && $kardexTpm === null) $porDiaCore[$d]['TPM']['real'] = (int) $r['real'];
@@ -964,7 +983,7 @@ $pctMetaMensal = $metaTotalForca > 0 ? round(($totalRealAteHoje / $metaTotalForc
                     <div style="margin-top:auto;background:var(--color-accent-light);border:1px solid var(--color-accent);border-radius:var(--radius-lg);padding:14px;">
                         <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:var(--font-size-xs);color:var(--color-accent-text);">
                             <span>Dias de Produção Ativos:</span>
-                            <strong id="modal-resumo-dias-uteis"><?= (int) $diasUteis ?> dias</strong>
+                            <strong id="modal-resumo-dias-uteis"><?= (int) $diasUteisMes ?> dias</strong>
                         </div>
                         <div style="border-top:1px dashed var(--color-accent);padding-top:8px;display:flex;flex-direction:column;gap:4px;">
                             <div style="display:flex;justify-content:space-between;align-items:baseline;">

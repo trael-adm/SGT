@@ -893,7 +893,7 @@ layoutHeader($pageTitle);
                 <td style="font-weight:500;"><?= htmlspecialchars((string)(($it['cliente_apelido'] ?? '') ?: ($it['cliente_nome'] ?? $it['cliente'] ?? '-'))) ?></td>
                 <td class="font-mono"><?= htmlspecialchars((string)($it['referencia'] ?? '-')) ?></td>
                 <td style="color:var(--color-text-secondary);" title="<?= htmlspecialchars((string)($it['descricao'] ?? '')) ?>">
-                    <?= htmlspecialchars(strlen((string)($it['descricao'] ?? '')) > 45 ? substr((string)$it['descricao'], 0, 42) . '...' : (string)($it['descricao'] ?? '')) ?>
+                    <?= htmlspecialchars(mb_strlen((string)($it['descricao'] ?? '')) > 45 ? mb_substr((string)$it['descricao'], 0, 42) . '...' : (string)($it['descricao'] ?? '')) ?>
                 </td>
                 <td class="font-mono" style="text-align:right;"><?= htmlspecialchars((string)($it['potencia_str'] ?? (!empty($it['potencia_kva']) ? $it['potencia_kva'] . ' kVA' : '-'))) ?></td>
                 <td style="text-align:center;">
@@ -1549,14 +1549,14 @@ function renderizarConteudoModalSetor() {
             aviso.style.display = 'none';
             corpo.innerHTML = itens.map(it => `
                 <tr>
-                    <td class="font-mono" style="font-weight:700;color:var(--color-primary, #1e40af);">${it.ns_serie ?? '-'}</td>
-                    <td class="font-mono" style="text-align:center;">${it.data ?? '-'}</td>
-                    <td class="font-mono" style="text-align:center;">${it.seq ?? '-'}</td>
-                    <td class="font-mono">${it.pedido ?? '-'}</td>
-                    <td>${it.cliente && it.cliente !== '—' ? it.cliente : '-'}</td>
-                    <td style="color:var(--color-text-secondary);">${it.projeto ?? '-'}</td>
+                    <td class="font-mono" style="font-weight:700;color:var(--color-primary, #1e40af);">${psaEscapeHtml(it.ns_serie)}</td>
+                    <td class="font-mono" style="text-align:center;">${psaEscapeHtml(it.data)}</td>
+                    <td class="font-mono" style="text-align:center;">${psaEscapeHtml(it.seq)}</td>
+                    <td class="font-mono">${psaEscapeHtml(it.pedido)}</td>
+                    <td>${psaEscapeHtml(it.cliente && it.cliente !== '—' ? it.cliente : '-')}</td>
+                    <td style="color:var(--color-text-secondary);">${psaEscapeHtml(it.projeto)}</td>
                     <td style="text-align:center;">
-                        <span class="badge" style="font-size:10px;padding:2px 7px;font-weight:700;${it.status === 'Produzido' ? 'background:#dcfce7;color:#15803d;' : 'background:#fef3c7;color:#92400e;'}">${it.status ?? '-'}</span>
+                        <span class="badge" style="font-size:10px;padding:2px 7px;font-weight:700;${it.status === 'Produzido' ? 'background:#dcfce7;color:#15803d;' : 'background:#fef3c7;color:#92400e;'}">${psaEscapeHtml(it.status)}</span>
                     </td>
                 </tr>
             `).join('');
@@ -2028,12 +2028,12 @@ function abrirModalRelacaoAcompanhamento(indiceEtapa) {
     } else {
         corpo.innerHTML = itens.map(it => `
             <tr>
-                <td class="font-mono" style="font-weight:700;color:var(--color-primary, #1e40af);">${it.nr_serie ?? '-'}</td>
-                <td class="font-mono" style="text-align:center;">${it.data ?? '-'}</td>
-                <td class="font-mono" style="text-align:center;">${it.seq ?? '-'}</td>
-                <td class="font-mono">${it.pedido ?? '-'}</td>
-                <td>${it.cliente ?? '-'}</td>
-                <td style="color:var(--color-text-secondary);">${it.projeto ?? '-'}</td>
+                <td class="font-mono" style="font-weight:700;color:var(--color-primary, #1e40af);">${psaEscapeHtml(it.nr_serie)}</td>
+                <td class="font-mono" style="text-align:center;">${psaEscapeHtml(it.data)}</td>
+                <td class="font-mono" style="text-align:center;">${psaEscapeHtml(it.seq)}</td>
+                <td class="font-mono">${psaEscapeHtml(it.pedido)}</td>
+                <td>${psaEscapeHtml(it.cliente)}</td>
+                <td style="color:var(--color-text-secondary);">${psaEscapeHtml(it.projeto)}</td>
             </tr>
         `).join('');
     }
@@ -2425,7 +2425,7 @@ function imprimirRelacaoOrdens() {
             <p>Relação de Ordens de Fabricação (OFs) / Fila do Setor</p>
         </div>
         <div class="meta">
-            <div>Filtro: <span class="badge-filtro">${filtroNome}</span>${busca ? ' &bull; Busca: <strong>"' + busca + '"</strong>' : ''}</div>
+            <div>Filtro: <span class="badge-filtro">${filtroNome}</span>${busca ? ' &bull; Busca: <strong>"' + psaEscapeHtml(busca) + '"</strong>' : ''}</div>
             <div>Emissão: <strong>${dataHora}</strong> &bull; Total: <strong>${visiveis.length} ordens</strong></div>
         </div>
     </div>

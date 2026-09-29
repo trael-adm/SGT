@@ -412,7 +412,7 @@ layoutHeader($pageTitle);
                 </div>
                 <div class="ac-kpi-body">
                     <span class="ac-kpi-number"><?= $contagem['PINTAR TANQUE'] ?></span>
-                    <span class="ac-kpi-desc">Parte Ativa pronta, falta PIN</span>
+                    <span class="ac-kpi-desc">PA e solda prontas, falta PIN</span>
                 </div>
             </div>
 
@@ -427,7 +427,7 @@ layoutHeader($pageTitle);
                 </div>
                 <div class="ac-kpi-body">
                     <span class="ac-kpi-number"><?= $contagem['GUARDAR NA ESTUFA'] ?></span>
-                    <span class="ac-kpi-desc">Tanque pintado, falta ME</span>
+                    <span class="ac-kpi-desc">Tanque soldado e pintado, falta PA</span>
                 </div>
             </div>
 
@@ -506,7 +506,7 @@ layoutHeader($pageTitle);
 </div>
 
 <script>
-    window.BOLETIM_ACOMPANHAMENTO_DATA = <?= json_encode($itens, JSON_UNESCAPED_UNICODE) ?>;
+    window.BOLETIM_ACOMPANHAMENTO_DATA = <?= json_encode($itens, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) ?>;
 </script>
 <?php $acompanhamentoJsVer = @filemtime(__DIR__ . '/../../assets/js/acompanhamento.js') ?: (defined('APP_VERSION') ? APP_VERSION : '1'); ?>
 <script src="<?= htmlspecialchars($base) ?>/assets/js/acompanhamento.js?v=<?= htmlspecialchars((string) $acompanhamentoJsVer) ?>"></script>

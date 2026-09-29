@@ -14,13 +14,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const btnRefreshLabel = document.getElementById('btnRefreshLabel');
 
-    btnRefresh.addEventListener('click', async () => {
-        btnRefresh.disabled = true;
-        btnRefreshLabel.textContent = 'Atualizando...';
-        await carregarMapa();
-        btnRefresh.disabled = false;
-        btnRefreshLabel.textContent = 'Atualizar Dados';
-    });
+    // O index.php atual não tem o botão "Atualizar Dados" — sem este guard o
+    // addEventListener em null lançava TypeError e a busca abaixo nunca era ligada.
+    if (btnRefresh && btnRefreshLabel) {
+        btnRefresh.addEventListener('click', async () => {
+            btnRefresh.disabled = true;
+            btnRefreshLabel.textContent = 'Atualizando...';
+            await carregarMapa();
+            btnRefresh.disabled = false;
+            btnRefreshLabel.textContent = 'Atualizar Dados';
+        });
+    }
 
     searchInput.addEventListener('input', (e) => {
         const termo = e.target.value.toLowerCase().trim();

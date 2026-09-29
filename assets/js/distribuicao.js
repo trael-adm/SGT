@@ -1329,7 +1329,7 @@
             } else {
                 if (elEmpty) {
                     elEmpty.style.display = 'block';
-                    elEmpty.innerHTML = '<div style="color:#dc2626;font-weight:600;">' + (data.erro || 'Nenhuma produção encontrada para este dia.') + '</div>';
+                    elEmpty.innerHTML = '<div style="color:#dc2626;font-weight:600;">' + escapeHtml(data.erro || 'Nenhuma produção encontrada para este dia.') + '</div>';
                 }
             }
         } catch (err) {

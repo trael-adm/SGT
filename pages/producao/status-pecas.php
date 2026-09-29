@@ -16,10 +16,26 @@ $tipoFiltro = trim((string) ($_GET['tipo'] ?? 'atraso'));
 $linha      = trim((string) ($_GET['linha'] ?? 'TODOS'));
 $dataCorte  = trim((string) ($_GET['data_corte'] ?? ''));
 
-$dados  = boletimCalcularStatusPecas($tipoFiltro, $linha, $dataCorte ?: null);
+$empresa = (int) ($_GET['empresa'] ?? 1);
+if (!in_array($empresa, [1, 4, 0], true)) $empresa = 1;
+
+// Vocabulário de Linha depende da fábrica: Distribuição (EPO/MON/POT/TRI), Média Força
+// (TPD/TPM/TPS); com as duas fábricas juntas (Ambas) o filtro de linha fica indisponível,
+// já que os dois vocabulários não se combinam numa consulta só.
+if ($empresa === 4) {
+    $linhasPills = ['TODOS', 'TPD', 'TPM', 'TPS'];
+} elseif ($empresa === 0) {
+    $linhasPills = ['TODOS'];
+} else {
+    $linhasPills = ['TODOS', 'EPO', 'MON', 'POT', 'TRI'];
+}
+if (!in_array($linha, $linhasPills, true)) {
+    $linha = 'TODOS';
+}
+
+$dados  = boletimCalcularStatusPecas($tipoFiltro, $linha, $dataCorte ?: null, $empresa);
 $stats  = $dados['stats'];
 $dataCorteVal = $dados['data_corte'] ?? date('Y-m-d');
-$linhasPills = ['TODOS', 'EPO', 'MON', 'POT', 'TRI'];
 
 $statusFiltros = [
     'atraso'       => ['label' => 'Em Atraso',       'cor' => '#dc2626'],
@@ -325,7 +341,7 @@ layoutHeader($pageTitle);
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                 Imprimir Indicadores
             </button>
-            <a href="/pages/painel-setor/index.php" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:6px;font-weight:600;">
+            <a href="<?= htmlspecialchars($base) ?>/pages/painel-setor/index.php" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:6px;font-weight:600;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14l-4-4 4-4"/><path d="M5 10h11a4 4 0 1 1 0 8h-1"/></svg>
                 Painel por Setor
             </a>
@@ -349,39 +365,48 @@ layoutHeader($pageTitle);
         <div class="sgt-stat-card">
             <span class="sgt-stat-label">Peças Apontadas / Concluídas</span>
             <span class="sgt-stat-value" style="color:var(--color-success, #16a34a);"><?= number_format($stats['pecas_apontadas'], 0, ',', '.') ?></span>
-            <span class="sgt-stat-help">Só fecha quando a OF-mãe encerra — fica em 0 aqui até então, mesmo com a fábrica pronta.</span>
         </div>
         <div class="sgt-stat-card">
             <span class="sgt-stat-label">Aguardando Material / Compra</span>
             <span class="sgt-stat-value" style="color:#d97706;"><?= number_format($dados['pecas_aguardando_material'], 0, ',', '.') ?></span>
-            <span class="sgt-stat-help"><?= number_format($dados['ofs_aguardando_material'], 0, ',', '.') ?> OFs com todas as células de produção já concluídas — trava é de PCP/Compras, não de fábrica.</span>
         </div>
     </div>
 
-    <!-- Filtros de Status, Linha e Data de Corte -->
+    <!-- Filtros de Fábrica, Data de Corte, Status e Linha -->
     <div class="sgt-filter-card">
         <div style="display:flex;flex-wrap:wrap;align-items:center;gap:18px;">
+            <!-- Filtro de Fábrica -->
+            <div style="width:160px;">
+                <label style="display:block;font-size:11px;font-weight:700;color:var(--color-text-muted);text-transform:uppercase;margin-bottom:5px;">Fábrica</label>
+                <select onchange="window.location.href='?empresa='+this.value+'&tipo=<?= urlencode($tipoFiltro) ?>&linha=<?= urlencode($linha) ?>&data_corte=<?= urlencode($dataCorteVal) ?>'" class="form-select" style="width:100%;height:36px;font-size:12px;font-weight:600;background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md);padding:0 10px;">
+                    <option value="1" <?= $empresa === 1 ? 'selected' : '' ?>>1 - Distribuição</option>
+                    <option value="4" <?= $empresa === 4 ? 'selected' : '' ?>>4 - Média Força</option>
+                    <option value="0" <?= $empresa === 0 ? 'selected' : '' ?>>Todas as Fábricas</option>
+                </select>
+            </div>
+
             <!-- Seletor de Data de Corte Minimalista -->
-            <form method="GET" id="filtroDataForm" style="display:flex;align-items:center;gap:8px;padding-right:16px;border-right:1px solid var(--color-border, #e2e6ed);">
+            <form method="GET" id="filtroDataForm" style="padding-right:16px;border-right:1px solid var(--color-border, #e2e6ed);">
                 <input type="hidden" name="tipo" value="<?= htmlspecialchars($tipoFiltro) ?>">
                 <input type="hidden" name="linha" value="<?= htmlspecialchars($linha) ?>">
-                
-                <span style="font-size:11px;font-weight:700;color:var(--color-text-muted);text-transform:uppercase;display:flex;align-items:center;gap:5px;white-space:nowrap;">
+                <input type="hidden" name="empresa" value="<?= $empresa ?>">
+
+                <span style="font-size:10px;font-weight:700;color:var(--color-text-muted);text-transform:uppercase;display:flex;align-items:center;gap:5px;white-space:nowrap;margin-bottom:4px;">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--color-sidebar, #1a3d2a)" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                     Corte:
                 </span>
-                <input type="date" name="data_corte" value="<?= htmlspecialchars($dataCorteVal) ?>" 
+                <input type="date" name="data_corte" value="<?= htmlspecialchars($dataCorteVal) ?>"
                        style="height:32px;padding:0 8px;font-size:12px;font-weight:700;font-family:var(--font-mono, monospace);background:var(--color-surface-2, #f8fafc);border:1px solid var(--color-border, #e2e6ed);border-radius:var(--radius-md, 6px);color:var(--color-text-primary);outline:none;cursor:pointer;"
                        onchange="document.getElementById('filtroDataForm').submit();"
                        title="Filtrar atraso e status até esta data">
             </form>
 
-            <!-- Alternador de Status -->
-            <div>
+            <!-- Alternador de Status (oculto a pedido — o filtro `tipo` segue valendo via URL) -->
+            <div style="display:none;">
                 <span style="display:block;font-size:10px;font-weight:700;color:var(--color-text-muted);text-transform:uppercase;margin-bottom:4px;">Status da OF:</span>
                 <div style="display:flex;flex-wrap:wrap;align-items:center;gap:5px;">
                     <?php foreach ($statusFiltros as $stKey => $stCfg): ?>
-                        <a href="?tipo=<?= urlencode($stKey) ?>&linha=<?= urlencode($linha) ?>&data_corte=<?= urlencode($dataCorteVal) ?>" class="sgt-pill-btn <?= $tipoFiltro === $stKey ? 'active' : '' ?>">
+                        <a href="?tipo=<?= urlencode($stKey) ?>&linha=<?= urlencode($linha) ?>&data_corte=<?= urlencode($dataCorteVal) ?>&empresa=<?= $empresa ?>" class="sgt-pill-btn <?= $tipoFiltro === $stKey ? 'active' : '' ?>">
                             <?= htmlspecialchars($stCfg['label']) ?>
                         </a>
                     <?php endforeach; ?>
@@ -389,11 +414,11 @@ layoutHeader($pageTitle);
             </div>
 
             <!-- Filtro de Linha -->
-            <div>
+            <div<?= count($linhasPills) <= 1 ? ' title="Filtro de linha indisponível com as duas fábricas juntas — os vocabulários de linha da Distribuição e da Média Força não se combinam."' : '' ?>>
                 <span style="display:block;font-size:10px;font-weight:700;color:var(--color-text-muted);text-transform:uppercase;margin-bottom:4px;">Linha:</span>
                 <div style="display:flex;align-items:center;gap:5px;">
                     <?php foreach ($linhasPills as $linCod): ?>
-                        <a href="?tipo=<?= urlencode($tipoFiltro) ?>&linha=<?= urlencode($linCod) ?>&data_corte=<?= urlencode($dataCorteVal) ?>" class="sgt-pill-btn <?= $linha === $linCod ? 'active' : '' ?>">
+                        <a href="?tipo=<?= urlencode($tipoFiltro) ?>&linha=<?= urlencode($linCod) ?>&data_corte=<?= urlencode($dataCorteVal) ?>&empresa=<?= $empresa ?>" class="sgt-pill-btn <?= $linha === $linCod ? 'active' : '' ?>">
                             <?= htmlspecialchars($linCod === 'TODOS' ? 'Todas' : $linCod) ?>
                         </a>
                     <?php endforeach; ?>
@@ -401,7 +426,7 @@ layoutHeader($pageTitle);
             </div>
         </div>
 
-        <div style="font-size:11px;color:var(--color-text-muted);font-weight:600;margin-left:auto;">
+        <div style="font-size:11px;color:var(--color-text-muted);font-weight:600;white-space:nowrap;">
             Exibindo: <strong style="color:var(--color-text-primary);"><?= count($dados['pecas_tabela']) ?> OFs</strong> &bull; Snapshot: <strong style="color:var(--color-text-primary);"><?= date('d/m/Y', strtotime($dados['data_extracao'])) ?></strong>
         </div>
     </div>
@@ -410,9 +435,14 @@ layoutHeader($pageTitle);
     <div class="sgt-chart-card">
         <div class="sgt-card-header">
             <div>
-                <h3 style="font-size:14px;font-weight:700;color:var(--color-text-primary);margin:0;">Peças em Atraso por Célula de Produção</h3>
+                <h3 style="font-size:14px;font-weight:700;color:var(--color-text-primary);margin:0;">Peças em Atraso por Célula de Produção<?= $dados['incluir_forca'] ? ' / Progresso' : '' ?></h3>
                 <p class="no-print" style="font-size:11px;color:var(--color-text-muted);margin:2px 0 0 0;">
-                    Peças em atraso em cada célula fabril (visão real multicelular independente) — exibe pendências reais de cada setor mesmo se outros setores anteriores estiverem abertos.
+                    <?php if ($dados['incluir_distrib']): ?>
+                        Peças em atraso em cada célula fabril (visão real multicelular independente) — exibe pendências reais de cada setor mesmo se outros setores anteriores estiverem abertos.
+                    <?php endif; ?>
+                    <?php if ($dados['incluir_forca']): ?>
+                        <?= $dados['incluir_distrib'] ? ' A Fábrica 2 (Média Força) entra à parte' : 'A Fábrica 2 (Média Força) entra' ?> por progresso (Semi-Acabada = já produziu alguma peça, Não Iniciada = ainda nenhuma): essa base não tem a decomposição de sub-OFs que classifica gargalo por célula na Distribuição, e a linha (TPD/TPM/TPS) já é filtro à parte acima.
+                    <?php endif; ?>
                     <?php if (!empty($dados['pecas_nao_classificadas'])): ?>
                         <strong style="color:#d97706;"><?= number_format($dados['pecas_nao_classificadas'], 0, ',', '.') ?> peças</strong> ainda não classificadas (snapshot anterior a esta sincronização).
                     <?php endif; ?>
@@ -422,7 +452,7 @@ layoutHeader($pageTitle);
                 <span>Filtro Ativo:</span>
                 <span style="display:inline-flex;align-items:center;gap:5px;color: <?= $dados['cor_grafico'] ?>;">
                     <span style="width:8px;height:8px;border-radius:50%;background: <?= $dados['cor_grafico'] ?>;display:inline-block;"></span>
-                    <?= ucfirst($tipoFiltro) ?>
+                    <?= htmlspecialchars(ucfirst($tipoFiltro)) ?>
                 </span>
             </div>
         </div>
@@ -459,10 +489,13 @@ layoutHeader($pageTitle);
             <table class="sgt-table" id="tabelaStatusPecas">
                 <thead>
                     <tr>
+                        <?php if ($empresa === 0): ?>
+                            <th style="text-align:center;">FÁBRICA</th>
+                        <?php endif; ?>
                         <th style="text-align:center;">SEQ</th>
                         <th style="text-align:left;">OP / PROJETO</th>
                         <th style="text-align:center;">Nº SÉRIE</th>
-                        <th style="text-align:center;" title="Gargalo real via decomposição de sub-OFs — laranja = aguardando material/compra">CÉLULA / GARGALO</th>
+                        <th style="text-align:center;" title="Distribuição: gargalo real via decomposição de sub-OFs (laranja = aguardando material/compra). Média Força: sem essa classificação — mostra a linha (TPD/TPM/TPS).">CÉLULA / GARGALO</th>
                         <th style="text-align:center;">PEDIDO</th>
                         <th style="text-align:center;">POTÊNCIA</th>
                         <th style="text-align:center;">FASE</th>
@@ -478,7 +511,7 @@ layoutHeader($pageTitle);
                 <tbody style="font-family:var(--font-mono, monospace);">
                     <?php if (empty($dados['pecas_tabela'])): ?>
                         <tr>
-                            <td colspan="14" style="text-align:center;padding:24px;color:var(--color-text-muted);font-family:var(--font-sans);">
+                            <td colspan="<?= $empresa === 0 ? 15 : 14 ?>" style="text-align:center;padding:24px;color:var(--color-text-muted);font-family:var(--font-sans);">
                                 Nenhuma ordem de fabricação encontrada para os filtros selecionados.
                             </td>
                         </tr>
@@ -497,8 +530,16 @@ layoutHeader($pageTitle);
                                 $celulaCorFundo = $p['tipo_bloqueio'] === 'MATERIAL' ? '#fef3c7' : '#e0e7ff';
                                 $celulaCorTexto = $p['tipo_bloqueio'] === 'MATERIAL' ? '#92400e' : '#3730a3';
                                 $diasAtraso = (int) ($p['dias_atraso'] ?? 0);
+                                $ehForca = ($p['fabrica'] ?? '') === 'Média Força';
                             ?>
                             <tr>
+                                <?php if ($empresa === 0): ?>
+                                    <td style="text-align:center;">
+                                        <span class="badge" style="background:<?= $ehForca ? '#fef9c3' : '#dbeafe' ?>;color:<?= $ehForca ? '#854d0e' : '#1e40af' ?>;font-size:9.5px;font-weight:800;padding:2px 7px;border-radius:9999px;white-space:nowrap;">
+                                            <?= $ehForca ? '⚡ MF' : '🏭 DIST' ?>
+                                        </span>
+                                    </td>
+                                <?php endif; ?>
                                 <td style="text-align:center;color:var(--color-text-muted);font-size:11px;font-weight:600;"><?= $p['seq_plano'] ?: '—' ?></td>
                                 <td style="text-align:left;font-weight:700;color:var(--color-text-primary);"><?= htmlspecialchars((string)$p['op']) ?></td>
                                 <td style="text-align:center;">
@@ -516,7 +557,7 @@ layoutHeader($pageTitle);
                                         <?= htmlspecialchars($celulaSigla) ?>
                                     </span>
                                 </td>
-                                <td style="text-align:center;color:#0284c7;font-weight:700;"><?= $p['pedido'] ?: '—' ?></td>
+                                <td style="text-align:center;color:#0284c7;font-weight:700;"><?= htmlspecialchars((string) ($p['pedido'] ?: '—')) ?></td>
                                 <td style="text-align:center;color:var(--color-text-primary);font-weight:600;"><?= $p['potencia_fmt'] ?></td>
                                 <td style="text-align:center;color:var(--color-sidebar, #1a3d2a);font-weight:700;"><?= htmlspecialchars((string)$p['fase']) ?></td>
                                 <td style="text-align:center;color:var(--color-text-muted);"><?= $p['data_mf_fmt'] ?></td>
@@ -783,7 +824,7 @@ layoutHeader($pageTitle);
             <p>Relação das OFs (Ordens de Fabricação) &bull; Status de Peças</p>
         </div>
         <div class="meta">
-            <div>${busca ? 'Busca: <span class="badge-filtro">&quot;' + busca + '&quot;</span>' : '<span class="badge-filtro">Sem filtro de busca</span>'}</div>
+            <div>${busca ? 'Busca: <span class="badge-filtro">&quot;' + escapeHtml(busca) + '&quot;</span>' : '<span class="badge-filtro">Sem filtro de busca</span>'}</div>
             <div>Emissão: <strong>${dataHora}</strong> &bull; Total: <strong>${visiveis.length} ordens</strong></div>
         </div>
     </div>
@@ -791,6 +832,7 @@ layoutHeader($pageTitle);
     <table>
         <thead>
             <tr>
+                <?php if ($empresa === 0): ?><th style="width:45px;text-align:center;">Fábrica</th><?php endif; ?>
                 <th style="width:35px;text-align:center;">SEQ</th>
                 <th>OP / Projeto</th>
                 <th style="text-align:center;">Nº Série</th>
@@ -915,7 +957,8 @@ layoutHeader($pageTitle);
             tipo: <?= json_encode($tipoFiltro) ?>,
             linha: <?= json_encode($linha) ?>,
             data_corte: <?= json_encode($dataCorteVal) ?>,
-            data_extracao: <?= json_encode($dados['data_extracao']) ?>
+            data_extracao: <?= json_encode($dados['data_extracao']) ?>,
+            empresa: <?= json_encode($empresa) ?>
         });
 
         fetch(`${apiUrl}?${params.toString()}`)

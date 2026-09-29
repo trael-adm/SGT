@@ -253,7 +253,7 @@ function boletimExtrairSnapshotAtrasoForca(?string $dataExtracao = null, bool $f
             'duracao_s' => round(microtime(true) - $inicioSync, 1),
             'mensagem' => "Snapshot de Média Força de $dataHoje importado com sucesso ($totalInserido ordens)."
         ];
-    } catch (Exception $e) {
+    } catch (\Throwable $e) {
         if ($pdoLocal->inTransaction()) {
             $pdoLocal->rollBack();
         }
@@ -732,7 +732,9 @@ function boletimCalcularMetricasAtrasoForca(string $dataCorte = '', ?string $dat
     // cada sincronização sobrescreve o valor do próprio dia, então o dia só
     // "congela" de fato quando o calendário vira). Só grava a data de hoje:
     // dias passados não são recalculados aqui.
-    if ($dataCorte === date('Y-m-d')) {
+    // Só com a foto mais recente e sem filtro de meses: senão grava no dia os números de uma
+    // foto antiga ou de um recorte de meses escolhido na tela.
+    if ($dataCorte === date('Y-m-d') && empty($mesesFiltro) && $dataExtracao === ($datasDisponiveis[0] ?? null)) {
         $ultimoPonto = end($serieEvolucao);
         if ($ultimoPonto && $ultimoPonto['data'] === $dataCorte) {
             try {

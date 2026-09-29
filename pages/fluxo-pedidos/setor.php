@@ -88,6 +88,9 @@ layoutHeader($pageTitle);
             </table>
         </div>
 
+        <!-- Paginação (só aparece na Visão Individual de Produção — Lotes já é uma lista curta) -->
+        <div class="pagination-bar" id="paginationBar"></div>
+
     </main>
 
 </div>

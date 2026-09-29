@@ -585,6 +585,28 @@ function planoMestreObterProgramadoDia(string $dataYmd, int $empresa = 1, string
 }
 
 /**
+ * Retorna a quantidade de bobinas programadas (não "peças"/transformadores) para um dia
+ * específico — usada nos setores de Bobinagem BT/AT da Distribuição, cujo apontamento real no
+ * Kardex é por bobina enrolada, não por transformador (ver boletimRealizadoDiaPorSetor()).
+ * Cada peça programada vira 2 bobinas (mono/bifásico) ou 3 (trifásico), conforme as fases do
+ * próprio projeto — regra documentada em boletimFatorAvancoSetor().
+ */
+function planoMestreObterBobinasProgramadasDia(string $dataYmd, int $empresa = 1, string $linha = 'TODOS'): float
+{
+    $itens = planoMestreObterItensDia($dataYmd, $empresa, $linha);
+
+    $total = 0.0;
+    foreach ($itens as $it) {
+        // O ERP grava as fases como texto (MON/BIF/TRI), não como número.
+        $fases = strtoupper(trim((string) ($it['fases'] ?? '')));
+        $bobinasPorPeca = ($fases === '3' || $fases === 'TRI') ? 3.0 : 2.0;
+        $total += (float) ($it['quantidade'] ?? 0) * $bobinasPorPeca;
+    }
+
+    return $total;
+}
+
+/**
  * Retorna a quantidade efetivamente produzida (coluna QtdProduzida do Plano Mestre) das
  * peças programadas para um dia específico — mede aderência real ao plano do dia (por OF),
  * diferente de somar tudo que passou pelo Laboratório naquele dia (que pode incluir

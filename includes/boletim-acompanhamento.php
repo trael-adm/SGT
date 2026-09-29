@@ -53,15 +53,21 @@ function avaliarStatusCelulaAcompanhamento(array $subNos, string $tipo, bool $is
 }
 
 /**
- * Regras de classificação do Acompanhamento:
+ * Regras de classificação do Acompanhamento (Pintura = tanque MTQ, Solda = MTP,
+ * Montagem Elétrica = Parte Ativa):
  * - Montagem Final OK + Pintura OK + Montagem Elétrica OK → null (ciclo completo encerrado)
  * - Montagem Final OK + (Pintura ou Montagem Elétrica != OK) → "VERIFICAR APONTAMENTO"
  * - Montagem Final != OK + Pintura OK + Montagem Elétrica OK → "DESCER PARA MONTAGEM FINAL"
- * - Montagem Final != OK + Montagem Elétrica OK + Pintura != OK → "PINTAR TANQUE"
- * - Montagem Final != OK + Pintura OK + Montagem Elétrica != OK → "GUARDAR NA ESTUFA"
- * - Nenhuma das duas pronta ainda → null (não entra na fila)
+ * - Montagem Final != OK + Montagem Elétrica OK + Solda OK + Pintura != OK → "PINTAR TANQUE"
+ * - Montagem Final != OK + Montagem Elétrica != OK + Solda OK + Pintura OK → "GUARDAR NA ESTUFA"
+ *   (o tanque soldado e pintado espera na estufa pela Parte Ativa)
+ * - Demais combinações → null (não entra na fila; ex.: Parte Ativa pronta com tanque ainda
+ *   não soldado, ou nada pronto)
+ *
+ * $solda null = projeto sem sub-OF MTP: conta como soldado.
+ * Regras de Pintar Tanque / Estufa definidas pelo usuário em 28/09/2026.
  */
-function classificarAcompanhamento(string $pintura, string $montagemEletrica, string $montagemFinal): ?string
+function classificarAcompanhamento(string $pintura, string $montagemEletrica, string $montagemFinal, ?string $solda): ?string
 {
     if ($montagemFinal === 'OK') {
         if ($pintura === 'OK' && $montagemEletrica === 'OK') {
@@ -70,17 +76,16 @@ function classificarAcompanhamento(string $pintura, string $montagemEletrica, st
         return 'VERIFICAR APONTAMENTO';
     }
 
-    if ($pintura === 'OK' && $montagemEletrica === 'OK') {
-        return 'DESCER PARA MONTAGEM FINAL';
-    }
+    $soldado = $solda !== 'PEND';
+
     if ($montagemEletrica === 'OK') {
-        return 'PINTAR TANQUE';
-    }
-    if ($pintura === 'OK') {
-        return 'GUARDAR NA ESTUFA';
+        if ($pintura === 'OK') {
+            return 'DESCER PARA MONTAGEM FINAL';
+        }
+        return $soldado ? 'PINTAR TANQUE' : null;
     }
 
-    return null;
+    return ($pintura === 'OK' && $soldado) ? 'GUARDAR NA ESTUFA' : null;
 }
 
 /**
@@ -257,6 +262,7 @@ function carregarAcompanhamentoProducao(): array
         WHERE $whereStr
           AND (
             m_sub.cd_Referencia LIKE 'MTQ%' OR
+            m_sub.cd_Referencia LIKE 'MTP%' OR
             m_sub.cd_Referencia LIKE 'ME%' OR
             m_sub.cd_Referencia LIKE 'PA%' OR
             m_sub.cd_Referencia LIKE 'MFL%' OR
@@ -291,8 +297,9 @@ function carregarAcompanhamentoProducao(): array
         $pintura          = avaliarStatusCelulaAcompanhamento($subNos, 'PIN', $isMaeEnc);
         $montagemEletrica = avaliarStatusCelulaAcompanhamento($subNos, 'ME', $isMaeEnc);
         $montagemFinal    = avaliarStatusCelulaAcompanhamento($subNos, 'MF', $isMaeEnc);
+        $solda            = $isMaeEnc ? 'OK' : statusComponenteAcompanhamento($subNos, fn($ref) => str_starts_with($ref, 'MTP'));
 
-        $acao = classificarAcompanhamento($pintura, $montagemEletrica, $montagemFinal);
+        $acao = classificarAcompanhamento($pintura, $montagemEletrica, $montagemFinal, $solda);
         $acaoMontagem = classificarMontagemAcompanhamento($subNos, $isMaeEnc);
         if ($acao === null && $acaoMontagem === null) {
             continue;

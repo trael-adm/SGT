@@ -8,6 +8,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
     const setorAtivo = urlParams.get('setor') || 'COMERCIAL';
 
+    // Visão Individual não agrupa por lote — chega a 7-8 mil linhas soltas. Reconstruir a
+    // tabela inteira a cada clique de filtro travava o navegador (~150 mil <td> de uma vez);
+    // paginar em blocos de 200 mantém o re-render instantâneo.
+    const LINHAS_POR_PAGINA = 200;
+
     const state = {
         setor: setorAtivo,
         visaoProducao: 'lotes',  // 'lotes' (padrão) ou 'individual'
@@ -17,7 +22,9 @@ document.addEventListener('DOMContentLoaded', () => {
         dtFim: '',
         semana: '',
         mes: '',
-        ano: '',
+        ano: '2026',             // Igual ao default visual do <select> e ao "Limpar Filtros" — sem isso,
+                                  // a 1ª carga automática ia sem filtro de ano nenhum (consulta mais
+                                  // pesada possível no VSAT: todo o histórico "em aberto", 3+ min).
         statusFila: 'em_aberto', // Fase 1.1: Inicializa estritamente em 'em_aberto'
         filtrosColuna: {},       // { col: ['val1', 'val2'] }
         ordenacao: { coluna: '', asc: true },
@@ -27,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
         lotesExpandidos: new Set(),   // IDs dos lotes com accordion expandido (Produção)
         popupAberto: null,
         carregando: false,
+        paginaAtual: 1,          // Visão Individual: página atual (1-based); Lotes não pagina.
     };
 
     const tableHeader = document.getElementById('tableHeader');
@@ -115,9 +123,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="d-flex align-center gap-3">
                         <!-- ALTERNADOR DE VISUAIS (LOTES / INDIVIDUAL) -->
                         <div class="view-mode-toggle" id="viewModeToggle">
-                            <button type="button" class="view-mode-btn ${state.visaoProducao === 'lotes' ? 'active' : ''}" data-mode="lotes" title="Visualização agrupada por Lotes com faixa de número de série e expansão">
+                            <button type="button" class="view-mode-btn ${state.visaoProducao === 'lotes' ? 'active' : ''}" data-mode="lotes" title="Visualização agrupada por Pedidos com faixa de número de série e expansão">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-                                Visão Lotes
+                                Visão Pedidos
                             </button>
                             <button type="button" class="view-mode-btn ${state.visaoProducao === 'individual' ? 'active' : ''}" data-mode="individual" title="Visualização individual linha a linha de cada número de série">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
@@ -138,6 +146,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const mode = btn.dataset.mode;
                     if (state.visaoProducao === mode) return;
                     state.visaoProducao = mode;
+                    state.paginaAtual = 1;
                     document.querySelectorAll('.view-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
                     montarCabecalhoProducao();
                     renderizarProducao();
@@ -237,6 +246,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ──────────────────────────────────────────────────────────────────────────
     async function carregarSetor() {
         state.carregando = true;
+        state.paginaAtual = 1;
         tableBody.innerHTML = `<tr><td colspan="21" class="text-center text-muted" style="padding: 36px;">Carregando registros do setor ${state.setor}...</td></tr>`;
 
         if (state.setor === 'PRODUCAO') {
@@ -369,7 +379,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <button class="excel-th-filter-btn ${temFiltroAtivo('sem') ? 'has-filter' : ''}" onclick="window.abrirPopupFiltro(event, 'sem')" title="Filtrar Semana">▾</button>
                         </div>
                     </th>
-                    <th style="width:130px; min-width:120px;" title="Faixa de Números de Série do Lote (Inicial a Final)">
+                    <th style="width:130px; min-width:120px;" title="Faixa de Números de Série do Pedido (Inicial a Final)">
                         <div class="th-content">
                             <span class="th-title" onclick="window.ordenarColuna('nr_serie')">FAIXA DE SÉRIE</span>
                             <button class="excel-th-filter-btn ${temFiltroAtivo('nr_serie') ? 'has-filter' : ''}" onclick="window.abrirPopupFiltro(event, 'nr_serie')" title="Filtrar Série">▾</button>
@@ -648,6 +658,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // RENDERIZAÇÃO: MODO LOTES (PADRÃO)
         // ──────────────────────────────────────────────────────────────────────
         if (state.visaoProducao === 'lotes') {
+            const pgBarLotes = document.getElementById('paginationBar');
+            if (pgBarLotes) pgBarLotes.innerHTML = '';
+
             const lotes = agruparTransformadoresEmLotes(lista);
 
             // Ordenação dos Lotes
@@ -687,14 +700,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 const concluidos = lotes.filter(x => x.is_concluido).length;
                 const pendentes = lotes.length - concluidos;
                 kpiBadge.innerHTML = `
-                    <span class="badge badge-neutral">Lotes: ${lotes.length} (${lista.length} trafos)</span>
+                    <span class="badge badge-neutral">Pedidos: ${lotes.length} (${lista.length} trafos)</span>
                     <span class="badge badge-warning">Aberto: ${pendentes}</span>
                     <span class="badge badge-success">Pronto: ${concluidos}</span>
                 `;
             }
 
             if (lotes.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="23" class="text-center text-muted" style="padding:40px;">Nenhum lote encontrado com os filtros selecionados.</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="24" class="text-center text-muted" style="padding:40px;">Nenhum lote encontrado com os filtros selecionados.</td></tr>`;
                 return;
             }
 
@@ -715,7 +728,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }).join('');
 
                 html += `
-                    <tr class="order-main-row" onclick="window.toggleExpandirLote('${lote.id}', event)">
+                    <tr class="order-main-row" data-lote-id="${escapeHtml(lote.id)}" onclick="window.toggleExpandirLote(this.getAttribute('data-lote-id'), event)">
                         <td style="text-align:center; width:36px;">
                             <button class="order-expand-btn ${isExpanded ? 'is-expanded' : ''}" title="Clique para detalhar os números de série deste lote">
                                 ▸
@@ -767,7 +780,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     html += `
                         <tr class="order-subrow">
-                            <td colspan="23">
+                            <td colspan="24">
                                 <div class="sub-card-wrap">
                                     <div class="sub-card-header">
                                         <div class="sub-card-title">
@@ -862,11 +875,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (lista.length === 0) {
-            tableBody.innerHTML = `<tr><td colspan="22" class="text-center text-muted" style="padding:40px;">Nenhum transformador encontrado com os filtros selecionados.</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="23" class="text-center text-muted" style="padding:40px;">Nenhum transformador encontrado com os filtros selecionados.</td></tr>`;
+            renderizarPaginacao(0);
             return;
         }
 
-        tableBody.innerHTML = lista.map(item => {
+        const totalPaginas = Math.max(1, Math.ceil(lista.length / LINHAS_POR_PAGINA));
+        if (state.paginaAtual > totalPaginas) state.paginaAtual = totalPaginas;
+        if (state.paginaAtual < 1) state.paginaAtual = 1;
+        const inicioPagina = (state.paginaAtual - 1) * LINHAS_POR_PAGINA;
+        const listaPagina = lista.slice(inicioPagina, inicioPagina + LINHAS_POR_PAGINA);
+
+        renderizarPaginacao(lista.length);
+
+        tableBody.innerHTML = listaPagina.map(item => {
             const s = item.setores;
             const seqVal = (item.seq && item.seq !== 0 && item.seq !== '0') ? item.seq : ((item.seq_plano && item.seq_plano !== 0) ? item.seq_plano : null);
             return `
@@ -899,6 +921,39 @@ document.addEventListener('DOMContentLoaded', () => {
         }).join('');
     }
 
+    // Paginação da Visão Individual — Lotes some com a barra (lista curta, sem necessidade).
+    function renderizarPaginacao(totalItens) {
+        const pgBar = document.getElementById('paginationBar');
+        if (!pgBar) return;
+
+        if (state.visaoProducao !== 'individual' || totalItens === 0) {
+            pgBar.innerHTML = '';
+            return;
+        }
+
+        const totalPaginas = Math.max(1, Math.ceil(totalItens / LINHAS_POR_PAGINA));
+        const inicio = (state.paginaAtual - 1) * LINHAS_POR_PAGINA + 1;
+        const fim = Math.min(state.paginaAtual * LINHAS_POR_PAGINA, totalItens);
+
+        pgBar.innerHTML = `
+            <span class="pg-info">Mostrando ${inicio}–${fim} de ${totalItens}</span>
+            <div class="pg-controls">
+                <button type="button" class="pg-btn" onclick="window.irParaPaginaProducao(1)" ${state.paginaAtual <= 1 ? 'disabled' : ''}>&laquo; Primeira</button>
+                <button type="button" class="pg-btn" onclick="window.irParaPaginaProducao(${state.paginaAtual - 1})" ${state.paginaAtual <= 1 ? 'disabled' : ''}>&lsaquo; Anterior</button>
+                <span class="pg-info">Página ${state.paginaAtual} de ${totalPaginas}</span>
+                <button type="button" class="pg-btn" onclick="window.irParaPaginaProducao(${state.paginaAtual + 1})" ${state.paginaAtual >= totalPaginas ? 'disabled' : ''}>Próxima &rsaquo;</button>
+                <button type="button" class="pg-btn" onclick="window.irParaPaginaProducao(${totalPaginas})" ${state.paginaAtual >= totalPaginas ? 'disabled' : ''}>Última &raquo;</button>
+            </div>
+        `;
+    }
+
+    window.irParaPaginaProducao = function(pagina) {
+        state.paginaAtual = pagina;
+        renderizarProducao();
+        const tw = document.querySelector('.page-setor .table-wrap');
+        if (tw) tw.scrollTop = 0;
+    };
+
     // Ação ao clicar no quadradinho da célula para filtrar direto os pendentes
     window.filtrarPendenciasCelula = function(coluna) {
         if (state.filtrosColuna[coluna] && state.filtrosColuna[coluna].includes('PEND') && state.filtrosColuna[coluna].length === 1) {
@@ -906,6 +961,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             state.filtrosColuna[coluna] = ['PEND'];
         }
+        state.paginaAtual = 1;
         montarCabecalhoProducao();
         renderizarProducao();
     };
@@ -1029,6 +1085,7 @@ document.addEventListener('DOMContentLoaded', () => {
             state.filtrosColuna[coluna] = Array.from(checkedBoxes).map(c => c.value);
         }
 
+        state.paginaAtual = 1;
         fecharTodosPopups();
         if (state.setor === 'PRODUCAO') {
             montarCabecalhoProducao();
@@ -1040,6 +1097,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.limparFiltroColuna = function(coluna) {
         delete state.filtrosColuna[coluna];
+        state.paginaAtual = 1;
         fecharTodosPopups();
         if (state.setor === 'PRODUCAO') {
             montarCabecalhoProducao();
@@ -1433,15 +1491,15 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="timeline-card">
                                 <div class="timeline-bullet"></div>
                                 <div class="d-flex align-center justify-between">
-                                    <span class="timeline-title-txt">Tipo ${fu.tipo_cod}: ${fu.tipo_desc}</span>
-                                    <span class="badge badge-neutral text-xs">${fu.data_str}</span>
+                                    <span class="timeline-title-txt">Tipo ${fu.tipo_cod}: ${escapeHtml(fu.tipo_desc)}</span>
+                                    <span class="badge badge-neutral text-xs">${escapeHtml(fu.data_str)}</span>
                                 </div>
                                 <div class="timeline-sub-txt">
-                                    <strong>De:</strong> ${fu.de || '—'} ➔ <strong>Para:</strong> ${fu.para || '—'} 
-                                    ${fu.situacao ? `| <strong>Situação:</strong> ${fu.situacao}` : ''}
+                                    <strong>De:</strong> ${escapeHtml(fu.de || '—')} ➔ <strong>Para:</strong> ${escapeHtml(fu.para || '—')}
+                                    ${fu.situacao ? `| <strong>Situação:</strong> ${escapeHtml(fu.situacao)}` : ''}
                                 </div>
-                                ${fu.observacoes ? `<div class="timeline-obs">${fu.observacoes}</div>` : ''}
-                                ${fu.solucao ? `<div class="timeline-obs" style="border-left:3px solid #16a34a; margin-top:4px;"><strong>Solução:</strong> ${fu.solucao}</div>` : ''}
+                                ${fu.observacoes ? `<div class="timeline-obs">${escapeHtml(fu.observacoes)}</div>` : ''}
+                                ${fu.solucao ? `<div class="timeline-obs" style="border-left:3px solid #16a34a; margin-top:4px;"><strong>Solução:</strong> ${escapeHtml(fu.solucao)}</div>` : ''}
                             </div>
                         `).join('')}
                     </div>

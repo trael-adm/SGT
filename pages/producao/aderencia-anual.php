@@ -5,7 +5,6 @@ require_once __DIR__ . '/../../config/conexao.php';
 require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../includes/layout.php';
 require_once __DIR__ . '/../../includes/boletim-painel-producao.php';
-require_once __DIR__ . '/../../includes/producao-tabs-nav.php';
 
 requireLogin();
 
@@ -102,7 +101,7 @@ layoutHeader($pageTitle);
         background: var(--color-surface, #ffffff);
         border: 1px solid var(--color-border, #e2e6ed);
         border-radius: var(--radius-lg, 10px);
-        padding: 14px 20px;
+        padding: 16px 20px;
         box-shadow: var(--shadow-sm, 0 1px 3px rgba(26,39,68,0.08));
         margin-bottom: 20px;
     }
@@ -209,11 +208,11 @@ layoutHeader($pageTitle);
     .sgt-pill-btn {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-        padding: 6px 16px;
+        gap: 5px;
+        padding: 5px 12px;
         border-radius: var(--radius-full, 9999px);
-        font-size: 12px;
-        font-weight: 700;
+        font-size: 11px;
+        font-weight: 600;
         cursor: pointer;
         border: 1px solid var(--color-border, #e2e6ed);
         background: var(--color-surface-2, #f8f9fb);
@@ -542,7 +541,7 @@ layoutHeader($pageTitle);
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                 Imprimir
             </button>
-            <a href="/pages/painel-setor/index.php" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:6px;font-weight:600;">
+            <a href="<?= htmlspecialchars($base) ?>/pages/painel-setor/index.php" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:6px;font-weight:600;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14l-4-4 4-4"/><path d="M5 10h11a4 4 0 1 1 0 8h-1"/></svg>
                 Painel por Setor
             </a>
@@ -550,33 +549,29 @@ layoutHeader($pageTitle);
     </div>
 
     <!-- Filtros de Fábrica e Anos (Multi-Seletor) -->
-    <div class="sgt-filter-card" style="display:flex;flex-direction:column;gap:12px;align-items:flex-start;">
-        <!-- 1. Filtro de Fábrica -->
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:100%;padding-bottom:12px;border-bottom:1px solid var(--color-border, #e2e6ed);">
-            <span style="font-size:11px;font-weight:700;color:var(--color-text-muted);text-transform:uppercase;min-width:60px;">Fábrica:</span>
-            <a href="?empresa=1&anos=<?= implode(',', $anosSelecionados) ?>&linha=<?= urlencode($linha) ?>" 
-               class="sgt-pill-btn <?= $empresa === 1 ? 'active' : '' ?>" style="display:inline-flex;align-items:center;gap:6px;">
-                <span>🏭</span> Fábrica 1 - Distribuição
-            </a>
-            <a href="?empresa=4&anos=<?= implode(',', $anosSelecionados) ?>&linha=<?= urlencode($linha) ?>" 
-               class="sgt-pill-btn <?= $empresa === 4 ? 'active' : '' ?>" style="display:inline-flex;align-items:center;gap:6px;">
-                <span>⚡</span> Fábrica 2 - Média Força
-            </a>
-            <a href="?empresa=0&anos=<?= implode(',', $anosSelecionados) ?>&linha=<?= urlencode($linha) ?>" 
-               class="sgt-pill-btn <?= $empresa === 0 ? 'active' : '' ?>" style="display:inline-flex;align-items:center;gap:6px;">
-                <span>🌐</span> Todas as Fábricas
-            </a>
-        </div>
+    <div class="sgt-filter-card">
+        <div style="display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px;">
+            <!-- 1. Filtro de Fábrica -->
+            <div style="width:190px;">
+                <label style="display:block;font-size:11px;font-weight:700;color:var(--color-text-muted);text-transform:uppercase;margin-bottom:5px;">Fábrica</label>
+                <select onchange="window.location.href='?empresa='+this.value+'&anos=<?= implode(',', $anosSelecionados) ?>&linha=<?= urlencode($linha) ?>'" class="form-select" style="width:100%;height:36px;font-size:12px;font-weight:600;background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md);padding:0 10px;">
+                    <option value="1" <?= $empresa === 1 ? 'selected' : '' ?>>1 - Distribuição</option>
+                    <option value="4" <?= $empresa === 4 ? 'selected' : '' ?>>4 - Média Força</option>
+                    <option value="0" <?= $empresa === 0 ? 'selected' : '' ?>>Todas as Fábricas</option>
+                </select>
+            </div>
 
-        <!-- 2. Filtro de Período (Anos) -->
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;">
-            <span style="font-size:11px;font-weight:700;color:var(--color-text-muted);text-transform:uppercase;min-width:60px;">Período:</span>
-            <button type="button" class="sgt-periodo-trigger" onclick="abrirFiltroPeriodo()">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--color-text-muted);"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                <span class="pf-trigger-label">Filtro de Período</span>
-                <span class="pf-trigger-value"><?= htmlspecialchars($labelPeriodo) ?></span>
-            </button>
-            <span style="font-size:11px;color:var(--color-text-muted);font-weight:600;">
+            <!-- 2. Filtro de Período (Anos) -->
+            <div>
+                <label style="display:block;font-size:11px;font-weight:700;color:var(--color-text-muted);text-transform:uppercase;margin-bottom:5px;">Período</label>
+                <button type="button" class="sgt-periodo-trigger" onclick="abrirFiltroPeriodo()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--color-text-muted);"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span class="pf-trigger-label">Filtro de Período</span>
+                    <span class="pf-trigger-value"><?= htmlspecialchars($labelPeriodo) ?></span>
+                </button>
+            </div>
+
+            <span style="font-size:11px;color:var(--color-text-muted);font-weight:600;padding-bottom:8px;">
                 (<?= count($anosSelecionados) ?> <?= count($anosSelecionados) === 1 ? 'ano selecionado' : 'anos selecionados' ?>)
             </span>
         </div>

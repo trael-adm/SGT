@@ -108,14 +108,31 @@ if (!$isPersonalizado && is_array($diasAtivosArray) && !empty($diasAtivosArray))
 }
 $diasTrabalhados = boletimDiasUteisTrabalhados($mes);
 
-$metaDiaEnr = ($diasUteis > 0 && $metaEnrolado > 0) ? round($metaEnrolado / $diasUteis, 1) : 0;
-$metaDiaJc  = ($diasUteis > 0 && $metaJctrif > 0) ? round($metaJctrif / $diasUteis, 1) : 0;
-$metaDiaEmp = ($diasUteis > 0 && $metaConvencional > 0) ? round($metaConvencional / $diasUteis, 1) : 0;
+// Dias de produção do MÊS inteiro (calendário do modal e divisor da meta
+// diária) — independentes do intervalo personalizado. Sem isso, no modo
+// personalizado a meta diária virava meta do mês ÷ dias do intervalo e o
+// calendário do modal mostrava só N dias, gravando um calendário truncado
+// em dias_customizados ao salvar.
+$diasNoMesCalendario = (int) date('t', mktime(0, 0, 0, $mesRef, 1, $anoRef));
+if (is_array($diasAtivosArray) && !empty($diasAtivosArray)) {
+    $diasAtivosMes = $diasAtivosArray;
+} else {
+    $diasAtivosMes = [];
+    for ($i = 1; $i <= $diasNoMesCalendario; $i++) {
+        $d = sprintf('%04d-%02d-%02d', $anoRef, $mesRef, $i);
+        if ((int) date('N', strtotime($d)) <= 5) $diasAtivosMes[] = $d;
+    }
+}
+$diasUteisMes = count($diasAtivosMes);
+
+$metaDiaEnr = ($diasUteisMes > 0 && $metaEnrolado > 0) ? round($metaEnrolado / $diasUteisMes, 1) : 0;
+$metaDiaJc  = ($diasUteisMes > 0 && $metaJctrif > 0) ? round($metaJctrif / $diasUteisMes, 1) : 0;
+$metaDiaEmp = ($diasUteisMes > 0 && $metaConvencional > 0) ? round($metaConvencional / $diasUteisMes, 1) : 0;
 
 // Dados de todos os dias do mês para o Calendário Interativo do Modal
 $todosDiasCalendario = [];
 $primeiroDiaSemanaMes = (int) date('w', mktime(0, 0, 0, $mesRef, 1, $anoRef)); // 0=Dom, 6=Sáb
-for ($i = 1; $i <= $diasNoMes; $i++) {
+for ($i = 1; $i <= $diasNoMesCalendario; $i++) {
     $dataStr = sprintf('%04d-%02d-%02d', $anoRef, $mesRef, $i);
     $diaSemana = (int) date('w', strtotime($dataStr));
     $todosDiasCalendario[] = [
@@ -123,7 +140,7 @@ for ($i = 1; $i <= $diasNoMes; $i++) {
         'date' => $dataStr,
         'diaSemana' => $diaSemana,
         'fimDeSemana' => ($diaSemana === 0 || $diaSemana === 6),
-        'ativo' => in_array($dataStr, $diasDoMes, true),
+        'ativo' => in_array($dataStr, $diasAtivosMes, true),
     ];
 }
 
@@ -217,7 +234,7 @@ foreach ($diasDoMes as $d) {
 // até hoje, para não diluir a média com dias ainda sem produção lançada.
 $diasComProducaoReal = count(array_filter($serieExecutadoTotal, fn($v) => $v !== null && $v > 0));
 
-$metaDiariaTotal = ($diasUteis > 0 && $metaTpdDistribuicao > 0) ? round($metaTpdDistribuicao / $diasUteis, 1) : ($metaDiaEnr + $metaDiaJc + $metaDiaEmp);
+$metaDiariaTotal = ($diasUteisMes > 0 && $metaTpdDistribuicao > 0) ? round($metaTpdDistribuicao / $diasUteisMes, 1) : ($metaDiaEnr + $metaDiaJc + $metaDiaEmp);
 $serieMetaTotal  = array_fill(0, count($diasDoMes), $metaDiariaTotal);
 
 // Gráfico "% do Planejado": Executado no dia / Meta Diária Total
@@ -233,7 +250,7 @@ foreach ($diasDoMes as $d) {
 
 // Gráfico "Produção Acumulada": realizado acumulado (ENR+JC+EMP) vs meta linear
 // vs tendência de fábrica (ritmo médio real projetado pro mês inteiro)
-$metaDiariaLinear = $diasUteis > 0 ? ($metaTpdDistribuicao / $diasUteis) : $metaDiariaTotal;
+$metaDiariaLinear = $diasUteisMes > 0 ? ($metaTpdDistribuicao / $diasUteisMes) : $metaDiariaTotal;
 $acumuladoReal = [];
 $acumuladoMeta = [];
 $acc = 0;
@@ -1021,7 +1038,7 @@ $pctMetaMensal = $metaTpdDistribuicao > 0 ? round(($totalRealAteHoje / $metaTpdD
                         </div>
                         <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:var(--font-size-xs);color:var(--color-accent-text);">
                             <span>Dias de Produção Ativos:</span>
-                            <strong id="modal-resumo-dias-uteis"><?= (int) $diasUteis ?> dias</strong>
+                            <strong id="modal-resumo-dias-uteis"><?= (int) $diasUteisMes ?> dias</strong>
                         </div>
                         <div style="border-top:1px dashed var(--color-accent);padding-top:8px;display:flex;justify-content:space-between;align-items:baseline;">
                             <span style="font-size:var(--font-size-xs);font-weight:700;color:var(--color-accent-text);text-transform:uppercase;">Meta Prevista do Mês:</span>

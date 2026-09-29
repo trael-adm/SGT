@@ -5,7 +5,6 @@ require_once __DIR__ . '/../../config/conexao.php';
 require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../includes/layout.php';
 require_once __DIR__ . '/../../includes/boletim-painel-producao.php';
-require_once __DIR__ . '/../../includes/producao-tabs-nav.php';
 
 requireLogin();
 
@@ -344,7 +343,7 @@ layoutHeader($pageTitle);
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                 Imprimir
             </button>
-            <a href="/pages/painel-setor/index.php" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:6px;font-weight:600;">
+            <a href="<?= htmlspecialchars($base) ?>/pages/painel-setor/index.php" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:6px;font-weight:600;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14l-4-4 4-4"/><path d="M5 10h11a4 4 0 1 1 0 8h-1"/></svg>
                 Painel por Setor
             </a>

@@ -651,7 +651,7 @@
                             </div>
                             <div class="ac-kpi-body">
                                 <span class="ac-kpi-number">${cPintar}</span>
-                                <span class="ac-kpi-desc">Parte Ativa pronta, falta PIN</span>
+                                <span class="ac-kpi-desc">PA e solda prontas, falta PIN</span>
                             </div>
                         </div>
                         <div class="ac-kpi-card kpi-estufa">
@@ -660,7 +660,7 @@
                             </div>
                             <div class="ac-kpi-body">
                                 <span class="ac-kpi-number">${cEstufa}</span>
-                                <span class="ac-kpi-desc">Tanque pintado, falta ME</span>
+                                <span class="ac-kpi-desc">Tanque soldado e pintado, falta PA</span>
                             </div>
                         </div>
                         <div class="ac-kpi-card kpi-verificar">

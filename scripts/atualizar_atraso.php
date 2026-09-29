@@ -6,8 +6,7 @@ declare(strict_types=1);
  *
  * Roda a cada 15 minutos pelo Agendador de Tarefas do Windows (scripts/atualizar_atraso.bat) e
  * substitui a foto do DIA no lugar; dias anteriores nunca são tocados, então a última atualização
- * de cada dia fica como o fechamento dele (histórico/tendência). Só o atraso: não envia nada ao
- * Railway (o fluxo antigo continua em scripts/sincronizar_producao_railway.php).
+ * de cada dia fica como o fechamento dele (histórico/tendência).
  *
  * Se a extração vier vazia (ou sem a classificação de gargalo, na Distribuição), a foto anterior
  * do dia é preservada — ver forcarSobrescrita em boletimSincronizarAtrasoSqlServer().

@@ -1028,7 +1028,7 @@ layoutHeader('Atraso Média Força');
 
         <!-- Rodapé do Modal -->
         <div class="mt-5 pt-3 border-t border-[#262c3d] flex justify-between items-center text-xs">
-            <a href="/pages/fluxo-pedidos/setor.php" target="_blank" class="text-sky-400 hover:text-sky-300 font-medium inline-flex items-center gap-1">
+            <a href="<?= htmlspecialchars($base) ?>/pages/fluxo-pedidos/setor.php" target="_blank" class="text-sky-400 hover:text-sky-300 font-medium inline-flex items-center gap-1">
                 Abrir Painel Completo de Fluxo de Produção
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
             </a>

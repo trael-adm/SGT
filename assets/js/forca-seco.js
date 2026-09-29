@@ -1359,7 +1359,7 @@
             } else {
                 if (elEmpty) {
                     elEmpty.style.display = 'block';
-                    elEmpty.innerHTML = '<div style="color:#dc2626;font-weight:600;">' + (data.erro || 'Não foi possível carregar os dados.') + '</div>';
+                    elEmpty.innerHTML = '<div style="color:#dc2626;font-weight:600;">' + escapeHtml(data.erro || 'Não foi possível carregar os dados.') + '</div>';
                 }
             }
         } catch (err) {
@@ -1567,8 +1567,8 @@
         var elPieTitle = document.getElementById('modal-chart-pie-title-text');
         if (elPieTitle) elPieTitle.textContent = 'Distribuição por Tipo Construtivo';
 
-        if (chartModalPieInstance) chartModalPieInstance.destroy();
-        if (chartModalBarInstance) chartModalBarInstance.destroy();
+        if (chartModalPieInstance) { chartModalPieInstance.destroy(); chartModalPieInstance = null; }
+        if (chartModalBarInstance) { chartModalBarInstance.destroy(); chartModalBarInstance = null; }
 
         // ─── 1. Gráfico Rosca: Distribuição por Tipo Construtivo ───
         if (elPie && listaTiposConstrutivos && listaTiposConstrutivos.length > 0) {

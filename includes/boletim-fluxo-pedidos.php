@@ -928,7 +928,7 @@ function carregarPlanilhaProducaoFluxoAoVivo(
     }
 
     if (empty($registros)) {
-        return ['sucesso' => true, 'total' => 0, 'itens' => []];
+        return ['sucesso' => true, 'total' => 0, 'total_concluidos' => 0, 'total_pendentes' => 0, 'itens' => []];
     }
 
     // Árvore de sub-OFs (componentes) via cadeia de 5 níveis de RlcProgramacao —

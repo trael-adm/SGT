@@ -707,18 +707,29 @@ function boletimCalcularAderenciaAnual(array $anos = [2024, 2025, 2026], int $em
 /**
  * 3. Calcula os dados do Dashboard de Status de Peças (OFs e Células do Fluxo de Pedidos).
  */
-function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linhaSel = 'TODOS', ?string $dataCorteSel = null): array
+function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linhaSel = 'TODOS', ?string $dataCorteSel = null, int $empresa = 1): array
 {
+    if (!in_array($empresa, [1, 4, 0], true)) {
+        $empresa = 1;
+    }
+    // empresa: 1 = Fábrica 1 (Distribuição), 4 = Fábrica 2 (Média Força), 0 = Ambas.
+    $incluirDistrib = ($empresa === 1 || $empresa === 0);
+    $incluirForca   = ($empresa === 4 || $empresa === 0);
+
     $tipoFiltroLower = strtolower(trim($tipoFiltro));
     $pdo = getDB();
 
-    $maxData = date('Y-m-d');
+    $maxDataDistrib = null;
+    $maxDataForca = null;
     if ($pdo) {
-        $dataBanco = $pdo->query("SELECT MAX(data_extracao) FROM atraso_distribuicao_registros")->fetchColumn();
-        if ($dataBanco) {
-            $maxData = (string) $dataBanco;
+        if ($incluirDistrib) {
+            $maxDataDistrib = (string) ($pdo->query("SELECT MAX(data_extracao) FROM atraso_distribuicao_registros")->fetchColumn() ?: '') ?: null;
+        }
+        if ($incluirForca) {
+            $maxDataForca = (string) ($pdo->query("SELECT MAX(data_extracao) FROM atraso_forca_registros")->fetchColumn() ?: '') ?: null;
         }
     }
+    $maxData = $maxDataDistrib ?: ($maxDataForca ?: date('Y-m-d'));
 
     $dataCorte = ($dataCorteSel && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataCorteSel)) ? $dataCorteSel : $maxData;
 
@@ -732,23 +743,42 @@ function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linha
         'pecas_adiantadas' => 0,
     ];
 
-    if ($pdo) {
+    $statsSql = "
+        SELECT
+            COUNT(*) as total_ofs,
+            COALESCE(SUM(quantidade), 0) as total_pecas,
+            COALESCE(SUM(qtd_a_produzir), 0) as pecas_aberto,
+            COALESCE(SUM(qtd_produzida), 0) as pecas_apontadas,
+            COALESCE(SUM(CASE WHEN data_programada < :data_corte1 AND qtd_a_produzir > 0 THEN qtd_a_produzir ELSE 0 END), 0) as pecas_atraso,
+            COALESCE(SUM(CASE WHEN data_programada >= :data_corte2 AND qtd_a_produzir > 0 THEN qtd_a_produzir ELSE 0 END), 0) as pecas_adiantadas
+        FROM %s
+        WHERE data_extracao = :data_extracao
+    ";
+
+    if ($pdo && $incluirDistrib && $maxDataDistrib) {
         try {
-            $stmtStats = $pdo->prepare("
-                SELECT 
-                    COUNT(*) as total_ofs,
-                    COALESCE(SUM(quantidade), 0) as total_pecas,
-                    COALESCE(SUM(qtd_a_produzir), 0) as pecas_aberto,
-                    COALESCE(SUM(qtd_produzida), 0) as pecas_apontadas,
-                    COALESCE(SUM(CASE WHEN data_programada < :data_corte1 AND qtd_a_produzir > 0 THEN qtd_a_produzir ELSE 0 END), 0) as pecas_atraso,
-                    COALESCE(SUM(CASE WHEN data_programada >= :data_corte2 AND qtd_a_produzir > 0 THEN qtd_a_produzir ELSE 0 END), 0) as pecas_adiantadas
-                FROM atraso_distribuicao_registros
-                WHERE data_extracao = :data_extracao
-            ");
-            $stmtStats->execute(['data_extracao' => $maxData, 'data_corte1' => $dataCorte, 'data_corte2' => $dataCorte]);
+            $stmtStats = $pdo->prepare(sprintf($statsSql, 'atraso_distribuicao_registros'));
+            $stmtStats->execute(['data_extracao' => $maxDataDistrib, 'data_corte1' => $dataCorte, 'data_corte2' => $dataCorte]);
             $resStats = $stmtStats->fetch(PDO::FETCH_ASSOC);
             if ($resStats) {
-                $statsGerais = array_map('intval', $resStats);
+                foreach ($statsGerais as $k => $v) {
+                    $statsGerais[$k] += (int) ($resStats[$k] ?? 0);
+                }
+            }
+        } catch (Throwable $e) {
+            // Silencioso
+        }
+    }
+
+    if ($pdo && $incluirForca && $maxDataForca) {
+        try {
+            $stmtStats = $pdo->prepare(sprintf($statsSql, 'atraso_forca_registros'));
+            $stmtStats->execute(['data_extracao' => $maxDataForca, 'data_corte1' => $dataCorte, 'data_corte2' => $dataCorte]);
+            $resStats = $stmtStats->fetch(PDO::FETCH_ASSOC);
+            if ($resStats) {
+                foreach ($statsGerais as $k => $v) {
+                    $statsGerais[$k] += (int) ($resStats[$k] ?? 0);
+                }
             }
         } catch (Throwable $e) {
             // Silencioso
@@ -756,57 +786,57 @@ function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linha
     }
 
     // 2. Consulta de OFs com Filtro Dinâmico
-    $whereClauses = ["data_extracao = :data_extracao"];
-    $params = [
-        'data_extracao' => $maxData,
-        'data_corte_st' => $dataCorte
-    ];
-
-    // Filtro de Status
-    if ($tipoFiltroLower === 'atraso') {
-        $whereClauses[] = "data_programada < :data_corte_filter AND qtd_a_produzir > 0";
-        $params['data_corte_filter'] = $dataCorte;
-    } elseif ($tipoFiltroLower === 'adiantamento' || $tipoFiltroLower === 'prazo') {
-        $whereClauses[] = "data_programada >= :data_corte_filter AND qtd_a_produzir > 0";
-        $params['data_corte_filter'] = $dataCorte;
-    } elseif ($tipoFiltroLower === 'aberto') {
-        $whereClauses[] = "qtd_a_produzir > 0";
-    } elseif ($tipoFiltroLower === 'apontada' || $tipoFiltroLower === 'concluida') {
-        $whereClauses[] = "qtd_produzida > 0";
-    }
-
-    // Filtro de Linha
-    if ($linhaSel !== 'TODOS' && !empty($linhaSel)) {
-        if ($linhaSel === 'MON') {
-            $whereClauses[] = "(fases = 'MON' OR linha LIKE '%Mono%')";
-        } elseif ($linhaSel === 'TRI') {
-            $whereClauses[] = "(fases = 'TRI' OR linha LIKE '%Convencional%' OR linha LIKE '%JC%')";
-        } elseif ($linhaSel === 'EPO') {
-            $whereClauses[] = "(tipo_construtivo LIKE '%Seco%' OR linha LIKE '%EPO%')";
-        } elseif ($linhaSel === 'POT') {
-            $whereClauses[] = "(potencia_kva >= 150 OR linha LIKE '%POT%')";
-        } else {
-            $whereClauses[] = "(linha LIKE :linha OR fases LIKE :linha)";
-            $params['linha'] = '%' . $linhaSel . '%';
-        }
-    }
-
-    $whereStr = implode(' AND ', $whereClauses);
-
     $pecasAnaliticas = [];
-    $totalPecasFiltradas = 0;
 
-    // Carrega números de série suplementar
+    // Carrega números de série suplementar (só se aplica à Distribuição)
     $suplementarNS = [];
     $suplemFile = __DIR__ . '/../storage/cache/atraso_ns_suplementar.json';
     if (is_file($suplemFile)) {
         $suplementarNS = @json_decode((string) file_get_contents($suplemFile), true) ?: [];
     }
 
-    if ($pdo) {
+    if ($pdo && $incluirDistrib && $maxDataDistrib) {
+        $whereClauses = ["data_extracao = :data_extracao"];
+        $params = [
+            'data_extracao' => $maxDataDistrib,
+            'data_corte_st' => $dataCorte
+        ];
+
+        // Filtro de Status
+        if ($tipoFiltroLower === 'atraso') {
+            $whereClauses[] = "data_programada < :data_corte_filter AND qtd_a_produzir > 0";
+            $params['data_corte_filter'] = $dataCorte;
+        } elseif ($tipoFiltroLower === 'adiantamento' || $tipoFiltroLower === 'prazo') {
+            $whereClauses[] = "data_programada >= :data_corte_filter AND qtd_a_produzir > 0";
+            $params['data_corte_filter'] = $dataCorte;
+        } elseif ($tipoFiltroLower === 'aberto') {
+            $whereClauses[] = "qtd_a_produzir > 0";
+        } elseif ($tipoFiltroLower === 'apontada' || $tipoFiltroLower === 'concluida') {
+            $whereClauses[] = "qtd_produzida > 0";
+        }
+
+        // Filtro de Linha (vocabulário da Distribuição: EPO/MON/POT/TRI)
+        if ($linhaSel !== 'TODOS' && !empty($linhaSel)) {
+            if ($linhaSel === 'MON') {
+                $whereClauses[] = "(fases = 'MON' OR linha LIKE '%Mono%')";
+            } elseif ($linhaSel === 'TRI') {
+                $whereClauses[] = "(fases = 'TRI' OR linha LIKE '%Convencional%' OR linha LIKE '%JC%')";
+            } elseif ($linhaSel === 'EPO') {
+                $whereClauses[] = "(tipo_construtivo LIKE '%Seco%' OR linha LIKE '%EPO%')";
+            } elseif ($linhaSel === 'POT') {
+                $whereClauses[] = "(potencia_kva >= 150 OR linha LIKE '%POT%')";
+            } else {
+                $whereClauses[] = "(linha LIKE :linha OR fases LIKE :linha_fases)";
+                $params['linha'] = '%' . $linhaSel . '%';
+                $params['linha_fases'] = '%' . $linhaSel . '%';
+            }
+        }
+
+        $whereStr = implode(' AND ', $whereClauses);
+
         try {
             $sql = "
-                SELECT 
+                SELECT
                     id,
                     cd_referencia as op,
                     num_serie,
@@ -824,7 +854,7 @@ function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linha
                     setor_real,
                     tipo_bloqueio,
                     linha,
-                    CASE 
+                    CASE
                         WHEN qtd_a_produzir > 0 AND data_programada < :data_corte_st THEN 'Atraso'
                         WHEN qtd_a_produzir > 0 THEN 'Em Aberto (No Prazo)'
                         ELSE 'Apontada / Concluída'
@@ -836,12 +866,12 @@ function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linha
             ";
             $stmt = $pdo->prepare($sql);
             $stmt->execute($params);
-            $pecasAnaliticas = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            $pecasDistrib = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
             $siglaPorNomeCelula = array_column(ATRASO_CELULAS_REAIS_DISTRIB, 'sigla', 'nome');
 
-            foreach ($pecasAnaliticas as &$it) {
-                $totalPecasFiltradas += (int) ($it['qtd_total'] ?? 1);
+            foreach ($pecasDistrib as &$it) {
+                $it['fabrica'] = 'Distribuição';
                 $it['data_mf_fmt'] = !empty($it['data_mf']) ? date('d/m/Y', strtotime((string) $it['data_mf'])) : '—';
                 $it['potencia_fmt'] = number_format((float) ($it['potencia'] ?? 0), 1, ',', '.') . ' kVA';
 
@@ -891,9 +921,118 @@ function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linha
                 }
             }
             unset($it);
+
+            $pecasAnaliticas = array_merge($pecasAnaliticas, $pecasDistrib);
         } catch (Throwable $e) {
-            $pecasAnaliticas = [];
+            // Silencioso — mantém $pecasAnaliticas com o que já tiver sido apurado
         }
+    }
+
+    // Fábrica 2 (Média Força) — mesma base (atraso_forca_registros), mas sem a decomposição de
+    // sub-OFs que gera setor_real/tipo_bloqueio/num_serie na Distribuição: aqui a granularidade
+    // disponível é por linha (TPD/TPM/TPS), não por célula do fluxo fabril.
+    if ($pdo && $incluirForca && $maxDataForca) {
+        $whereClauses = ["data_extracao = :data_extracao"];
+        $params = [
+            'data_extracao' => $maxDataForca,
+            'data_corte_st' => $dataCorte
+        ];
+
+        if ($tipoFiltroLower === 'atraso') {
+            $whereClauses[] = "data_programada < :data_corte_filter AND qtd_a_produzir > 0";
+            $params['data_corte_filter'] = $dataCorte;
+        } elseif ($tipoFiltroLower === 'adiantamento' || $tipoFiltroLower === 'prazo') {
+            $whereClauses[] = "data_programada >= :data_corte_filter AND qtd_a_produzir > 0";
+            $params['data_corte_filter'] = $dataCorte;
+        } elseif ($tipoFiltroLower === 'aberto') {
+            $whereClauses[] = "qtd_a_produzir > 0";
+        } elseif ($tipoFiltroLower === 'apontada' || $tipoFiltroLower === 'concluida') {
+            $whereClauses[] = "qtd_produzida > 0";
+        }
+
+        // Filtro de Linha (vocabulário da Média Força: TPD/TPM/TPS)
+        if (in_array($linhaSel, ['TPD', 'TPM', 'TPS'], true)) {
+            $whereClauses[] = "linha = :linha_forca";
+            $params['linha_forca'] = $linhaSel;
+        }
+
+        $whereStr = implode(' AND ', $whereClauses);
+
+        try {
+            $sql = "
+                SELECT
+                    id,
+                    cd_referencia as op,
+                    seq_plano,
+                    cd_pedido as pedido,
+                    potencia_kva as potencia,
+                    fases,
+                    data_programada as data_mf,
+                    cliente_nome as cliente,
+                    ds_produto as descricao,
+                    quantidade as qtd_total,
+                    qtd_produzida as qtd_apontada,
+                    qtd_a_produzir as qtd_aberto,
+                    tipo_nucleo,
+                    linha,
+                    CASE
+                        WHEN qtd_a_produzir > 0 AND data_programada < :data_corte_st THEN 'Atraso'
+                        WHEN qtd_a_produzir > 0 THEN 'Em Aberto (No Prazo)'
+                        ELSE 'Apontada / Concluída'
+                    END as status_of
+                FROM atraso_forca_registros
+                WHERE $whereStr
+                ORDER BY data_programada ASC, seq_plano ASC, id ASC
+                LIMIT 200
+            ";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            $pecasForca = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+            foreach ($pecasForca as &$it) {
+                $it['fabrica'] = 'Média Força';
+                $it['data_mf_fmt'] = !empty($it['data_mf']) ? date('d/m/Y', strtotime((string) $it['data_mf'])) : '—';
+                $it['potencia_fmt'] = number_format((float) ($it['potencia'] ?? 0), 1, ',', '.') . ' kVA';
+
+                // Aqui "fases" é numérico (1/3, nº de fases do trafo) — normaliza pro mesmo
+                // rótulo MON/TRI usado na Distribuição.
+                $fasesNum = (int) ($it['fases'] ?? 0);
+                $it['fase'] = $fasesNum === 1 ? 'MON' : ($fasesNum === 3 ? 'TRI' : ($fasesNum > 0 ? $fasesNum . 'F' : '—'));
+
+                $it['num_serie'] = null;
+                $it['nr_serie_formatado'] = '—';
+                $it['numeros_serie'] = [];
+
+                // Sem decomposição de sub-OFs pra Média Força nesta base — não há gargalo por
+                // célula, só a linha (TPD/TPM/TPS) já classificada na sincronização.
+                $it['setor_real'] = null;
+                $it['tipo_bloqueio'] = null;
+                $it['setor_atual_sigla'] = (string) ($it['linha'] ?: '—');
+                $it['setor_atual_nome'] = !empty($it['linha'])
+                    ? ('Linha ' . $it['linha'] . ' (Média Força — sem classificação por célula)')
+                    : 'Não classificado';
+
+                $it['dias_atraso'] = 0;
+                if ($it['status_of'] === 'Atraso' && !empty($it['data_mf'])) {
+                    $it['dias_atraso'] = max(1, (int) floor((strtotime($dataCorte) - strtotime((string) $it['data_mf'])) / 86400));
+                }
+            }
+            unset($it);
+
+            $pecasAnaliticas = array_merge($pecasAnaliticas, $pecasForca);
+        } catch (Throwable $e) {
+            // Silencioso — mantém $pecasAnaliticas com o que já tiver sido apurado
+        }
+    }
+
+    // Reordena a lista combinada (mesma regra: data programada, depois sequência do plano) e
+    // volta a respeitar o teto de 200 linhas da tela.
+    usort($pecasAnaliticas, function (array $a, array $b): int {
+        return strcmp((string) $a['data_mf'], (string) $b['data_mf'])
+            ?: (((int) ($a['seq_plano'] ?? 0)) <=> ((int) ($b['seq_plano'] ?? 0)));
+    });
+    if (count($pecasAnaliticas) > 200) {
+        $pecasAnaliticas = array_slice($pecasAnaliticas, 0, 200);
     }
 
     // 3. Gargalo real por Célula de Produção — usa setor_real/tipo_bloqueio já calculados
@@ -907,24 +1046,26 @@ function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linha
     // aponta como gargalo (sem sub-OF própria rastreável nesta base — ver
     // ATRASO_CELULAS_SEM_SUBOF), então sempre ficariam zeradas aqui.
     $rankingSetores = [];
-    foreach (ATRASO_CELULAS_REAIS_DISTRIB as $cel) {
-        if (in_array($cel['sigla'], ATRASO_CELULAS_SEM_SUBOF, true)) {
-            continue;
+    if ($incluirDistrib) {
+        foreach (ATRASO_CELULAS_REAIS_DISTRIB as $cel) {
+            if (in_array($cel['sigla'], ATRASO_CELULAS_SEM_SUBOF, true)) {
+                continue;
+            }
+            if (defined('ATRASO_CELULAS_OCULTAS_GRAFICO_GARGALO') && in_array($cel['sigla'], ATRASO_CELULAS_OCULTAS_GRAFICO_GARGALO, true)) {
+                continue;
+            }
+            if ($cel['nome'] === 'Chassis' || $cel['sigla'] === 'ARM') {
+                continue;
+            }
+            $rankingSetores[$cel['nome']] = 0;
         }
-        if (defined('ATRASO_CELULAS_OCULTAS_GRAFICO_GARGALO') && in_array($cel['sigla'], ATRASO_CELULAS_OCULTAS_GRAFICO_GARGALO, true)) {
-            continue;
-        }
-        if ($cel['nome'] === 'Chassis' || $cel['sigla'] === 'ARM') {
-            continue;
-        }
-        $rankingSetores[$cel['nome']] = 0;
     }
 
     $pecasAguardandoMaterial = 0;
     $ofsAguardandoMaterial = 0;
     $pecasNaoClassificadas = 0;
 
-    if ($pdo) {
+    if ($pdo && $incluirDistrib && $maxDataDistrib) {
         try {
             // Verifica se a tabela atraso_distribuicao_celulas possui dados para este snapshot
             $temCelulasTable = (int) $pdo->query("
@@ -935,14 +1076,14 @@ function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linha
             $temDadosCelulas = 0;
             if ($temCelulasTable > 0) {
                 $stmtCheck = $pdo->prepare("SELECT COUNT(*) FROM atraso_distribuicao_celulas WHERE data_extracao = ?");
-                $stmtCheck->execute([$maxData]);
+                $stmtCheck->execute([$maxDataDistrib]);
                 $temDadosCelulas = (int) $stmtCheck->fetchColumn();
             }
 
             if ($temDadosCelulas > 0) {
                 // Modelo multissetorial real: soma peças por célula a partir de atraso_distribuicao_celulas
                 $whereRanking = ["c.data_extracao = :data_extracao", "r.data_programada < :data_corte_rank", "r.qtd_a_produzir > 0"];
-                $paramsRanking = ['data_extracao' => $maxData, 'data_corte_rank' => $dataCorte];
+                $paramsRanking = ['data_extracao' => $maxDataDistrib, 'data_corte_rank' => $dataCorte];
 
                 if ($linhaSel !== 'TODOS' && !empty($linhaSel)) {
                     if ($linhaSel === 'MON') {
@@ -954,8 +1095,9 @@ function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linha
                     } elseif ($linhaSel === 'POT') {
                         $whereRanking[] = "(r.potencia_kva >= 150 OR r.linha LIKE '%POT%')";
                     } else {
-                        $whereRanking[] = "(r.linha LIKE :linha_rank OR r.fases LIKE :linha_rank)";
+                        $whereRanking[] = "(r.linha LIKE :linha_rank OR r.fases LIKE :linha_rank_fases)";
                         $paramsRanking['linha_rank'] = '%' . $linhaSel . '%';
+                        $paramsRanking['linha_rank_fases'] = '%' . $linhaSel . '%';
                     }
                 }
 
@@ -986,7 +1128,7 @@ function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linha
             } else {
                 // Fallback para snapshots antigos (modelo funil com setor_real)
                 $whereRanking = ["data_extracao = :data_extracao", "data_programada < :data_corte_rank", "qtd_a_produzir > 0"];
-                $paramsRanking = ['data_extracao' => $maxData, 'data_corte_rank' => $dataCorte];
+                $paramsRanking = ['data_extracao' => $maxDataDistrib, 'data_corte_rank' => $dataCorte];
 
                 if ($linhaSel !== 'TODOS' && !empty($linhaSel)) {
                     if ($linhaSel === 'MON') {
@@ -998,8 +1140,9 @@ function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linha
                     } elseif ($linhaSel === 'POT') {
                         $whereRanking[] = "(potencia_kva >= 150 OR linha LIKE '%POT%')";
                     } else {
-                        $whereRanking[] = "(linha LIKE :linha_rank OR fases LIKE :linha_rank)";
+                        $whereRanking[] = "(linha LIKE :linha_rank OR fases LIKE :linha_rank_fases)";
                         $paramsRanking['linha_rank'] = '%' . $linhaSel . '%';
+                        $paramsRanking['linha_rank_fases'] = '%' . $linhaSel . '%';
                     }
                 }
 
@@ -1032,12 +1175,50 @@ function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linha
         } catch (Throwable $e) {
             // Silencioso — mantém ranking zerado
         }
+
+        // "Averiguar" (bloqueio 'MATERIAL' — ver boletimClassificarBloqueioReal()) entra como
+        // última barra do funil: não é célula do fluxo fabril, é a fábrica já ter terminado
+        // tudo e a OF ainda depender de PCP/Compras. Conceito exclusivo da Distribuição.
+        $rankingSetores['Averiguar'] = $pecasAguardandoMaterial;
     }
 
-    // "Averiguar" (bloqueio 'MATERIAL' — ver boletimClassificarBloqueioReal()) entra como
-    // última barra do funil: não é célula do fluxo fabril, é a fábrica já ter terminado
-    // tudo e a OF ainda depender de PCP/Compras.
-    $rankingSetores['Averiguar'] = $pecasAguardandoMaterial;
+    // Fábrica 2 (Média Força) não tem decomposição de sub-OFs (sem setor_real/tipo_bloqueio) —
+    // sem célula real pra mostrar. A linha (TPD/TPM/TPS) já é filtro à parte lá em cima, então
+    // repeti-la aqui como barra seria redundante; o único progresso real que esta base tem é se
+    // a OF já tem alguma peça produzida (semi-acabada, em andamento) ou nem começou.
+    if ($pdo && $incluirForca && $maxDataForca) {
+        try {
+            $whereRankForca = ["data_extracao = :data_extracao", "data_programada < :data_corte_rank", "qtd_a_produzir > 0"];
+            $paramsRankForca = ['data_extracao' => $maxDataForca, 'data_corte_rank' => $dataCorte];
+
+            if (in_array($linhaSel, ['TPD', 'TPM', 'TPS'], true)) {
+                $whereRankForca[] = "linha = :linha_rank_forca";
+                $paramsRankForca['linha_rank_forca'] = $linhaSel;
+            }
+
+            $stmtRankForca = $pdo->prepare("
+                SELECT
+                    SUM(CASE WHEN qtd_produzida > 0 THEN qtd_a_produzir ELSE 0 END) AS pecas_semi,
+                    SUM(CASE WHEN qtd_produzida = 0 THEN qtd_a_produzir ELSE 0 END) AS pecas_nao_iniciada
+                FROM atraso_forca_registros
+                WHERE " . implode(' AND ', $whereRankForca) . "
+            ");
+            $stmtRankForca->execute($paramsRankForca);
+            $rowForca = $stmtRankForca->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            $prefixo = $incluirDistrib ? 'Média Força — ' : '';
+            $pecasSemi = (int) ($rowForca['pecas_semi'] ?? 0);
+            $pecasNaoIniciada = (int) ($rowForca['pecas_nao_iniciada'] ?? 0);
+            if ($pecasSemi > 0) {
+                $rankingSetores[$prefixo . 'Semi-Acabada'] = $pecasSemi;
+            }
+            if ($pecasNaoIniciada > 0) {
+                $rankingSetores[$prefixo . 'Não Iniciada'] = $pecasNaoIniciada;
+            }
+        } catch (Throwable $e) {
+            // Silencioso — mantém ranking sem as barras da Média Força
+        }
+    }
 
     $labels = array_keys($rankingSetores);
     $valores = array_values($rankingSetores);
@@ -1057,6 +1238,9 @@ function boletimCalcularStatusPecas(string $tipoFiltro = 'atraso', string $linha
         'data_corte_fmt' => date('d/m/Y', strtotime($dataCorte)),
         'tipo_filtro' => $tipoFiltroLower,
         'linha' => $linhaSel,
+        'empresa' => $empresa,
+        'incluir_distrib' => $incluirDistrib,
+        'incluir_forca' => $incluirForca,
         'stats' => $statsGerais,
         'total_filtradas' => count($pecasAnaliticas),
         'ranking_labels' => $labels,
@@ -1201,6 +1385,31 @@ function boletimCalcularResumoDiario(string $dataInicio = '', string $dataFim = 
         $aderencia = $prog > 0 ? round(($real / $prog) * 100, 2) : 100.0;
         $isOk = ($aderencia >= 100.0);
 
+        // Uma linha por tipo construtivo (TPD/TPM/TPS) — a tela (resumo-diario.php) monta os
+        // blocos Óleo/Seco a partir de 'tabela_forca'; sem essa chave o array_filter de lá quebrava.
+        $rotulosLinhaForca = ['TPD' => 'TPD (SELADO)', 'TPM' => 'TPM (CONSERVADOR)', 'TPS' => 'TPS (SECO)'];
+        $tabelaForca = [];
+        foreach (($linhaSel === 'TODOS' ? ['TPD', 'TPM', 'TPS'] : [$linhaSel]) as $linhaForca) {
+            $progLinha = 0;
+            $realLinha = 0;
+            $curDt = $dataInicio;
+            while ($curDt <= $dataFim) {
+                $progLinha += (int) round(planoMestreObterProgramadoDia($curDt, 4, $linhaForca));
+                $realLinha += boletimRealizadoDiaForca($linhaForca, $forcaPorDia[$curDt] ?? [], $porDia[$curDt] ?? []);
+                $curDt = date('Y-m-d', strtotime($curDt . ' +1 day'));
+            }
+            $aderenciaLinha = $progLinha > 0 ? round(($realLinha / $progLinha) * 100, 2) : 100.0;
+            $tabelaForca[] = [
+                'setor' => $rotulosLinhaForca[$linhaForca] ?? $linhaForca,
+                'codigo' => $linhaForca,
+                'programado' => number_format($progLinha, 0, ',', '.'),
+                'realizado' => number_format($realLinha, 0, ',', '.'),
+                'aderencia' => number_format($aderenciaLinha, 2, ',', '.') . '%',
+                'aderencia_val' => $aderenciaLinha,
+                'status_cor' => $aderenciaLinha >= 100.0 ? '#22c55e' : ($aderenciaLinha >= 90 ? '#38bdf8' : '#ef4444'),
+            ];
+        }
+
         return [
             'data_inicio' => $dataInicio,
             'data_fim' => $dataFim,
@@ -1208,6 +1417,7 @@ function boletimCalcularResumoDiario(string $dataInicio = '', string $dataFim = 
             'empresa' => $empresa,
             'tabela_esquerda' => [],
             'tabela_direita' => [],
+            'tabela_forca' => $tabelaForca,
             'total_consolidado' => [
                 'setor' => 'MÉDIA FORÇA (CONSOLIDADO)',
                 'programado' => number_format($prog, 0, ',', '.'),

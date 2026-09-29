@@ -884,7 +884,7 @@ function boletimCalcularGargalosSetores(string $dataCorte, array $itensSnapshot)
             // Filtragem por setor fabril
             $match = false;
             if ($chave === 'PINTURA') {
-                $match = str_starts_with($it['referencia'], 'MTQ') || $it['linha'] === 'CONVENCIONAL';
+                $match = str_starts_with((string) ($it['referencia'] ?? ''), 'MTQ') || $it['linha'] === 'CONVENCIONAL';
             } elseif ($chave === 'MONTAGEM_ELETRICA') {
                 $match = in_array($it['linha'], ['MONOFASICO', 'JC_TRIF'], true);
             } elseif ($chave === 'MONTAGEM_FINAL') {
@@ -1012,7 +1012,7 @@ function boletimCalcularAcompanhamentoVsProgramado(string $dataCorte, array $ite
             'id'         => 'pintar_tanque',
             'nome'       => 'Pintar Tanque (Pintura)',
             'codigo'     => 'MTQ',
-            'descricao'  => 'Parte Ativa pronta, aguardando Tanque',
+            'descricao'  => 'Parte Ativa e solda (MTP) prontas, tanque a pintar',
             'icone'      => 'brush',
             'cor_aberto' => '#f59e0b', // Âmbar
             'nome_setor' => 'Pintura / Tanque',
@@ -1022,7 +1022,7 @@ function boletimCalcularAcompanhamentoVsProgramado(string $dataCorte, array $ite
             'id'         => 'guardar_estufa',
             'nome'       => 'Guardar na Estufa (Estufa)',
             'codigo'     => 'EST',
-            'descricao'  => 'Tanque pintado, Parte Ativa na estufa',
+            'descricao'  => 'Tanque soldado e pintado, Parte Ativa em aberto',
             'icone'      => 'sun',
             'cor_aberto' => '#0284c7', // Azul Céu
             'nome_setor' => 'Estufa / Mont. Elétrica',
